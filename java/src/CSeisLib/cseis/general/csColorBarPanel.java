@@ -13,6 +13,7 @@ import java.awt.*;
  * Plots color bar as a JPanel.
  * @author Bjorn Olofsson
  */
+@SuppressWarnings("serial")
 public class csColorBarPanel extends JPanel {
   public static final int ORIENT_HORIZONTAL   = 1;
   public static final int ORIENT_VERTICAL     = 2;

@@ -38,7 +38,7 @@ public:
   csStackUtil( int nSamples, float normFactor, int outputOption );
   csStackUtil( int nSamples, float normFactor, int outputOption, bool normTimeVariant );
   ~csStackUtil();
-  void stackTraces( csTraceGather* traceGather );
+  void stackAndNormalizeTraces( csTraceGather* traceGather );
 
   void stackTraceOld( csTrace* stackedTrace, csTrace const* traceIn );
   void stackTrace( csTrace* stackedTrace );
@@ -47,10 +47,12 @@ public:
   void normStackedTrace( csTrace* trace, int nTraces );
 
   void setOutputNormTrace( bool doOutputNormTrace );
-  void setTimeVariantNorm( bool doTimeVariantNorm, int hdrId_keyValue );
+  void setTimeVariantNorm( bool doTimeVariantNorm, int hdrId_keyValue, float zeroThreshold );
 private:
   void init( int nSamples, float normFactor, int outputOption );
   void stackTrace( csTrace* stackedTrace, csTrace const* traceIn, bool newTrace );
+  int* getNormTrace_internal( int keyValue, bool createNew );
+  void clearNormTrace_internal();
   int myOutputOption;
   int myNumSamples;
   float myNormFactor;
@@ -63,6 +65,7 @@ private:
   cseis_geolib::csVector<int*>* myNormTraceList;
   std::map<int,int>* myNormTraceIndexMap;
   int myHdrId_keyValue;
+  float myZeroThreshold;
 };
 
 } // end namespace

@@ -65,6 +65,7 @@ c Fall: source auf Grenzflaeche
       goto 999
  910  write(*,*) "CHECK_SOU_LOC: source point not inside the right layer!"
       write(*,*) "e.g. change 'Z_SOURCE' in input file"
+      write(*,*) "ztmp & z_source: ", ztmp, z_source
       error = 1
       goto 999
  920  write(*,*) "CHECK_SOU_LOC: source point too close to interface!"

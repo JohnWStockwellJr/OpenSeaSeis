@@ -1,13 +1,14 @@
 /* Copyright (c) Colorado School of Mines, 2013.*/
 /* All rights reserved.                       */
 
-#ifndef SEGD_FUNCTIONS_HH
-#define SEGD_FUNCTIONS_HH
+#ifndef SEGD_FUNCTIONS_H
+#define SEGD_FUNCTIONS_H
 
 #include <string>
 #include <cstdio>
 #include <ostream>
 #include "csSegdDefines.h"
+#include "geolib_defines.h"
 
 namespace cseis_segd {
 
@@ -17,6 +18,8 @@ namespace cseis_segd {
   long string2long( byte const* str, int length );
   double string2double( byte const* str, int length );
   float string2float( byte const* str, int length );
+
+  csInt64_t convert2uint64( byte const* buffer );
 
   /// Size in bits of one seismic sample
   int sampleBitSize( int segdFormatCode );

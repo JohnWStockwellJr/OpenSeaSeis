@@ -15,6 +15,7 @@ import cseis.seis.*;
  * Displays all trace headers and header values of current seismic trace.
  * @author Bjorn Olofsson
  */
+@SuppressWarnings("serial")
 public class csHeaderMonitor extends JDialog {
   /// Header description
   private String[] myHeaderDesc; 

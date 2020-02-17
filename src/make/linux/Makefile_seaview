@@ -19,6 +19,8 @@ OBJ_JNI_SEGY = $(OBJDIR)/csSegyHdrMap.o \
 				$(OBJDIR)/csGeneralSeismicReader.o \
 				$(OBJDIR)/csSeismicIOConfig.o \
 				$(OBJDIR)/geolib_string_utils.o \
+				$(OBJDIR)/geolib_math.o \
+				$(OBJDIR)/methods_sampleInterpolation.o \
 				$(OBJDIR)/csMethodRetriever.o \
 				$(OBJDIR)/csParamDef.o \
 				$(OBJDIR)/csIReader.o \
@@ -59,6 +61,7 @@ OBJ_JNI = $(OBJDIR)/csNativeSegyReader.o \
 			$(OBJDIR)/csNativeFilter.o \
 			$(OBJDIR)/csFilterTool.o \
 			$(OBJDIR)/csFFTTools.o \
+			$(OBJDIR)/csFFT.o \
 			$(OBJDIR)/csNativeRSFReader.o
 
 CXXFLAGS_JNI = -fPIC $(COMMON_FLAGS) -I"$(SRCDIR)/cs/geolib" -I"$(SRCDIR)/cs/segy" -I"$(SRCDIR)/cs/segd" -I"$(SRCDIR)/cs/io" -I"$(SRCDIR)/cs/system"
@@ -76,8 +79,8 @@ bleach: clean
 	${RM} $(LIB_JNI) $(LIB_JNI_APPLE) ${LIBDIR}/CSeisLib.jar ${LIBDIR}/SeaView.jar
 
 $(LIB_JNI): $(OBJ_JNI_SEGY) $(OBJ_JNI) $(OBJ_JNI_RSF)
-	$(CPP) $(GLOBAL_FLAGS) -fPIC -shared -Wl,-$(SONAME),$(LIB_JNI) -o $(LIB_JNI) $(OBJ_JNI_SEGY) $(OBJ_JNI_SEGD) $(OBJ_JNI_RSF) $(OBJ_JNI) -lc
-
+	$(CPP) $(GLOBAL_FLAGS) -fPIC -shared -Wl,-$(SONAME),$(LIB_JNI) -o $(LIB_JNI) $(OBJ_JNI_SEGY) $(OBJ_JNI_SEGD) $(OBJ_JNI_RSF) $(OBJ_JNI) $(LIB_FLAGS)
+ 
 $(LIB_JNI_APPLE): $(LIB_JNI)
 	cp $(LIB_JNI) $(LIB_JNI_APPLE)
 
@@ -101,6 +104,9 @@ $(OBJDIR)/csNativeFilter.o: ${JNIDIR}/csNativeFilter.cc
 
 $(OBJDIR)/csFilterTool.o: ${JNIDIR}/csFilterTool.cc
 	$(CPP) -c ${JNIDIR}/csFilterTool.cc -o $(OBJDIR)/csFilterTool.o $(CXXFLAGS_JNI) $(INC_JNI) $(CXXFLAGS_GEOLIB)
+
+$(OBJDIR)/csFFT.o: $(SRCDIR)/cs/geolib/csFFT.cc        
+	$(CPP) -c -fPIC $(SRCDIR)/cs/geolib/csFFT.cc -o $(OBJDIR)/csFFT.o $(CXXFLAGS_GEOLIB)
 
 $(OBJDIR)/csFFTTools.o: $(SRCDIR)/cs/geolib/csFFTTools.cc        
 	$(CPP) -c -fPIC $(SRCDIR)/cs/geolib/csFFTTools.cc -o $(OBJDIR)/csFFTTools.o $(CXXFLAGS_GEOLIB)
@@ -149,6 +155,12 @@ $(OBJDIR)/csIReader.o: $(SRCDIR)/cs/geolib/csIReader.cc $(SRCDIR)/cs/geolib/csIR
 
 $(OBJDIR)/geolib_string_utils.o: $(SRCDIR)/cs/geolib/geolib_string_utils.cc    $(SRCDIR)/cs/geolib/geolib_string_utils.h
 	$(CPP) -c $(SRCDIR)/cs/geolib/geolib_string_utils.cc -o $(OBJDIR)/geolib_string_utils.o $(CXXFLAGS_JNI)
+
+$(OBJDIR)/geolib_math.o: $(SRCDIR)/cs/geolib/geolib_math.cc    $(SRCDIR)/cs/geolib/geolib_math.h
+	$(CPP) -c $(SRCDIR)/cs/geolib/geolib_math.cc -o $(OBJDIR)/geolib_math.o $(CXXFLAGS_JNI)
+
+$(OBJDIR)/methods_sampleInterpolation.o: $(SRCDIR)/cs/geolib/methods_sampleInterpolation.cc
+	$(CPP) -c $(SRCDIR)/cs/geolib/methods_sampleInterpolation.cc -o $(OBJDIR)/methods_sampleInterpolation.o $(CXXFLAGS_JNI)
 
 $(OBJDIR)/csFlexNumber.o: $(SRCDIR)/cs/geolib/csFlexNumber.cc    $(SRCDIR)/cs/geolib/csFlexNumber.h
 	$(CPP) -c $(SRCDIR)/cs/geolib/csFlexNumber.cc -o $(OBJDIR)/csFlexNumber.o $(CXXFLAGS_JNI)

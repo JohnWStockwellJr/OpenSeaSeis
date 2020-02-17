@@ -67,7 +67,6 @@ bool csSeismicWriter::writeFileHeader( csSuperHeader const* shdr, csTraceHeaderD
     config.addHeader( &info );
   }
 
-
   // Check whether any trace headers should be deleted
   int numHdrBytes = 0;
   for( int ihdr = 0; ihdr < numTrcHdr; ihdr++ ) {
@@ -109,4 +108,3 @@ bool csSeismicWriter::writeTrace( float* samples, char const* hdrValueBlock ) {
     return myWriter->writeTrace( samples, myHdrTempBuffer );
   }
 }
-

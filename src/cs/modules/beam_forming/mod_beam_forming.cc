@@ -65,14 +65,13 @@ namespace mod_beam_forming {
 //
 //
 //*************************************************************************************************
-void init_mod_beam_forming_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_beam_forming_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
   csSuperHeader*    shdr = env->superHeader;
   mod_beam_forming::VariableStruct* vars = new mod_beam_forming::VariableStruct();
   edef->setVariables( vars );
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
   edef->setTraceSelectionMode( TRCMODE_ENSEMBLE );
 
   vars->hdrId_rcv   = -1;
@@ -143,18 +142,18 @@ void init_mod_beam_forming_( csParamManager* param, csInitPhaseEnv* env, csLogWr
       param->getFloat("point_source_offset", &vars->ps_minOffset, 0);
       param->getFloat("point_source_offset", &vars->ps_maxOffset, 1);
       if( vars->ps_maxOffset <= vars->ps_minOffset ) {
-        log->error("Inconsistent min/max point source offset given: min=%f > max=%f", vars->ps_minOffset, vars->ps_maxOffset);
+        writer->error("Inconsistent min/max point source offset given: min=%f > max=%f", vars->ps_minOffset, vars->ps_maxOffset);
       }
       vars->isOffsetSet = true;
     }
     if( param->exists("point_source_gain") ) {
       param->getFloat("point_source_gain", &vars->ps_gain);
     }
-    log->line("Point source search grid (xmin,xmax,dx,n): %f %f %f %d", vars->minX, vars->maxX, vars->incXY, vars->numStepsX);
-    log->line("Point source search grid (ymin,ymax,dy,n): %f %f %f %d", vars->minY, vars->maxY, vars->incXY, vars->numStepsY);
+    writer->line("Point source search grid (xmin,xmax,dx,n): %f %f %f %d", vars->minX, vars->maxX, vars->incXY, vars->numStepsX);
+    writer->line("Point source search grid (ymin,ymax,dy,n): %f %f %f %d", vars->minY, vars->maxY, vars->incXY, vars->numStepsY);
   }
   else {
-    log->error("Specify parameter 'plane_wave' or 'point_source'.");
+    writer->error("Specify parameter 'plane_wave' or 'point_source'.");
   }
 
   if( param->exists("window") ) {
@@ -167,7 +166,7 @@ void init_mod_beam_forming_( csParamManager* param, csInitPhaseEnv* env, csLogWr
     if( vars->startSamp < 0 ) vars->startSamp = 0;
     if( vars->endSamp > shdr->numSamples-1 ) vars->endSamp = shdr->numSamples-1;
     if( vars->startSamp >= vars->endSamp ) {
-      log->error("Inconsistent window: %f to %f", timeStart, timeEnd);
+      writer->error("Inconsistent window: %f to %f", timeStart, timeEnd);
     }
 
     if( param->getNumValues("window") > 2 ) {
@@ -181,7 +180,7 @@ void init_mod_beam_forming_( csParamManager* param, csInitPhaseEnv* env, csLogWr
         shdr->numSamples = vars->endSamp - vars->startSamp + 1;
       }
       else {
-        log->error("Unknown option: %s", text.c_str());
+        writer->error("Unknown option: %s", text.c_str());
       }
     }
   }
@@ -205,17 +204,12 @@ void exec_mod_beam_forming_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   mod_beam_forming::VariableStruct* vars = reinterpret_cast<mod_beam_forming::VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
   csTraceHeaderDef const* hdef = env->headerDef;
 
-  if( edef->isCleanup() ) {
-    delete vars; vars = NULL;
-    return;
-  }
   int nTraces = traceGather->numTraces();
   int nBeams = 0;
   if( vars->method == mod_beam_forming::METHOD_PLANE_WAVE_FAN ) {
@@ -437,13 +431,41 @@ void params_mod_beam_forming_( csParamDef* pdef ) {
   pdef->addOption( "cut", "Only samples in analysis window are output to output trace" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_beam_forming_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_beam_forming::VariableStruct* vars = reinterpret_cast<mod_beam_forming::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_beam_forming_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_beam_forming::VariableStruct* vars = reinterpret_cast<mod_beam_forming::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_beam_forming_( csParamDef* pdef ) {
   params_mod_beam_forming_( pdef );
 }
-extern "C" void _init_mod_beam_forming_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_beam_forming_( param, env, log );
+extern "C" void _init_mod_beam_forming_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_beam_forming_( param, env, writer );
 }
-extern "C" void _exec_mod_beam_forming_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_beam_forming_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_beam_forming_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_beam_forming_( env, writer );
 }
-
+extern "C" void _exec_mod_beam_forming_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_beam_forming_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_beam_forming_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_beam_forming_( env, writer );
+}

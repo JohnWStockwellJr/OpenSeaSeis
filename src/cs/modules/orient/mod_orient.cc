@@ -68,13 +68,13 @@ namespace mod_orient {
   static int const OUTPUT_FIRST   = 2;
   static int const OUTPUT_LAST    = 3;
 
-  void checkHeader( std::string headerName, csTraceHeaderDef* hdef, csLogWriter* log ) {
+  void checkHeader( std::string headerName, csTraceHeaderDef* hdef, csLogWriter* writer ) {
     if( !hdef->headerExists(headerName) ){
-      log->error("Trace header '%s' not found.", headerName.c_str());
+      writer->error("Trace header '%s' not found.", headerName.c_str());
     }
     int type = hdef->headerType( headerName );
     if( type != TYPE_FLOAT &&  type != TYPE_DOUBLE ) {
-      log->error("Trace header '%s' has the wrong type. Should be FLOAT or DOUBLE", headerName.c_str());
+      writer->error("Trace header '%s' has the wrong type. Should be FLOAT or DOUBLE", headerName.c_str());
     }
   }
 }
@@ -111,7 +111,7 @@ void orientation_compute_azimuth(
 //
 //
 //*************************************************************************************************
-void init_mod_orient_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_orient_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -119,7 +119,6 @@ void init_mod_orient_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
 
 
   vars->hdrId_rec_x   = -1;
@@ -166,7 +165,7 @@ void init_mod_orient_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       edef->setTraceSelectionMode( TRCMODE_ENSEMBLE );
     }
     else {
-      log->error("Unknown option: '%s'", text.c_str());
+      writer->error("Unknown option: '%s'", text.c_str());
     }
   }
   else {  // Default setting
@@ -191,7 +190,7 @@ void init_mod_orient_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
     vars->output_option = OUTPUT_LAST;
   }
   else {
-    log->error("Output option not recognized: %s.", text.c_str());
+    writer->error("Output option not recognized: %s.", text.c_str());
   }
 
   //-------------------------------------
@@ -223,13 +222,13 @@ void init_mod_orient_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
         vars->isOBCMode = false;
       }
       else {
-        log->error("Unknown option: '%s'", text.c_str());
+        writer->error("Unknown option: '%s'", text.c_str());
       }
     }
     else if( !text.compare("no") ) {
     }
     else {
-      log->error("Unknown option: '%s'", text.c_str());
+      writer->error("Unknown option: '%s'", text.c_str());
     }
   }
   //----------------------------------------------------------------------
@@ -239,7 +238,7 @@ void init_mod_orient_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
     if( !text.compare("yes") ) {
       vars->compute_azim = true;
       int numValues = param->getNumValues( "compute_azim" );
-      if( numValues > 2 ) log->error("Parameter 'azim' expects one or two user supplied values. Found %d", numValues );
+      if( numValues > 2 ) writer->error("Parameter 'azim' expects one or two user supplied values. Found %d", numValues );
       if( numValues > 1 ) {
         param->getString( "compute_azim", &text, 1 );
         vars->hdrId_azim_out = hdef->headerIndex( text );
@@ -253,7 +252,7 @@ void init_mod_orient_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       vars->compute_azim = false;
     }
     else {
-      log->line("Option not recognized: '%s'", text.c_str());
+      writer->line("Option not recognized: '%s'", text.c_str());
     }
   }
 
@@ -262,7 +261,7 @@ void init_mod_orient_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
     if( !text.compare("yes") ) {
       vars->compute_tilt_xy = true;
       int numValues = param->getNumValues( "compute_tilt_xy" );
-      if( numValues > 3 ) log->error("Parameter 'compute_tilt_xy' expects up to three user supplied values. Found %d", numValues );
+      if( numValues > 3 ) writer->error("Parameter 'compute_tilt_xy' expects up to three user supplied values. Found %d", numValues );
       if( numValues > 2 ) {
         param->getString( "compute_tilt_xy", &text, 2 );
         vars->hdrId_tilty = hdef->headerIndex( text );
@@ -282,7 +281,7 @@ void init_mod_orient_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       vars->compute_tilt_xy = false;
     }
     else {
-      log->line("Option not recognized: '%s'", text.c_str());
+      writer->line("Option not recognized: '%s'", text.c_str());
     }
   }
 
@@ -291,7 +290,7 @@ void init_mod_orient_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
     if( !text.compare("yes") ) {
       vars->compute_tilt_roll = true;
       int numValues = param->getNumValues( "compute_tilt_roll" );
-      if( numValues > 3 ) log->error("Parameter 'compute_tilt_roll' expects up to three user supplied values. Found %d", numValues );
+      if( numValues > 3 ) writer->error("Parameter 'compute_tilt_roll' expects up to three user supplied values. Found %d", numValues );
       if( numValues > 2 ) {
         param->getString( "compute_tilt_roll", &text, 2 );
         vars->hdrId_roll = hdef->headerIndex( text );
@@ -311,12 +310,12 @@ void init_mod_orient_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       vars->compute_tilt_roll = false;
     }
     else {
-      log->line("Option not recognized: '%s'", text.c_str());
+      writer->line("Option not recognized: '%s'", text.c_str());
     }
   }
 
   if( !vars->compute_tilt_roll && !vars->compute_tilt_xy && !vars->compute_azim ) {
-    log->error("No angles selected for computation: Select either parameter 'tilt_roll', 'tilt_xy' or 'azim', or any combination of these");
+    writer->error("No angles selected for computation: Select either parameter 'tilt_roll', 'tilt_xy' or 'azim', or any combination of these");
   }
   if( vars->compute_tilt_xy || vars->compute_tilt_roll ) {
     if( param->exists("hdr_azim") ) {
@@ -325,7 +324,7 @@ void init_mod_orient_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
     }
     else {
       //      vars->hdrId_azim_in = hdef->headerIndex("an_azim");
-      log->error("Parameter 'hdr_azim' not specified, required for the chosen options. This gives the input trace header name containing the sensor azimuth.");
+      writer->error("Parameter 'hdr_azim' not specified, required for the chosen options. This gives the input trace header name containing the sensor azimuth.");
     }
   }
 
@@ -333,7 +332,7 @@ void init_mod_orient_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
   //
 
   if( !hdef->headerExists("sensor") ){
-    log->error("Trace header 'sensor' not found.");
+    writer->error("Trace header 'sensor' not found.");
   }
 
   vars->hdrId_sou_x    = hdef->headerIndex( "sou_x" );
@@ -359,28 +358,23 @@ void exec_mod_orient_(
                       int* port,
                       int* numTrcToKeep,
                       csExecPhaseEnv* env,
-                      csLogWriter* log )
+                      csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
 //  csTraceHeaderDef const* hdef = env->headerDef;
 
-  if( edef->isCleanup()){
-    delete vars; vars = NULL;
-    return;
-  }
 
   //---------------------------------------------
   int nTraces = traceGather->numTraces();
 
   if( vars->input == INPUT_XYZP ) {
     if( traceGather->numTraces() != 4 ) {
-      log->error("Incorrect number of traces in input gather. Expected: 4 (XYZP), found: %d", nTraces );
+      writer->error("Incorrect number of traces in input gather. Expected: 4 (XYZP), found: %d", nTraces );
     }
   }
   else if( vars->input == INPUT_XYZ ) {
     if( traceGather->numTraces() != 3 ) {
-      log->error("Incorrect number of traces in input gather. Expected: 3 (XYZ), found: %d", nTraces );
+      writer->error("Incorrect number of traces in input gather. Expected: 3 (XYZ), found: %d", nTraces );
     }
   }
   int no_value = -999;
@@ -393,7 +387,7 @@ void exec_mod_orient_(
         trace_index[sensor-3] = itrc;
       }
       else {
-        log->error("Input gather contains more than one trace for sensor %d.", sensor);
+        writer->error("Input gather contains more than one trace for sensor %d.", sensor);
         return;
       }
     }
@@ -408,7 +402,7 @@ void exec_mod_orient_(
 
   for( int idSensor = 0; idSensor < 3; idSensor++ ) {
     if( trace_index[idSensor] == no_value ) {
-      log->error("Input gather is missing a sensor %d trace.", SENSOR_INDEX[idSensor]);
+      writer->error("Input gather is missing a sensor %d trace.", SENSOR_INDEX[idSensor]);
     }
     else {
       trcHdrSensor[idSensor] = traceGather->trace(trace_index[idSensor])->getTraceHeader();
@@ -583,13 +577,41 @@ void params_mod_orient_( csParamDef* pdef ) {
   pdef->addValue( "1.0", VALTYPE_NUMBER, "V1/V2 velocity ratio at seabed" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_orient_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_orient::VariableStruct* vars = reinterpret_cast<mod_orient::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_orient_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_orient::VariableStruct* vars = reinterpret_cast<mod_orient::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_orient_( csParamDef* pdef ) {
   params_mod_orient_( pdef );
 }
-extern "C" void _init_mod_orient_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_orient_( param, env, log );
+extern "C" void _init_mod_orient_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_orient_( param, env, writer );
 }
-extern "C" void _exec_mod_orient_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_orient_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_orient_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_orient_( env, writer );
 }
-
+extern "C" void _exec_mod_orient_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_orient_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_orient_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_orient_( env, writer );
+}

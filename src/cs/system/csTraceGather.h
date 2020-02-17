@@ -45,7 +45,8 @@ public:
   csTrace* trace( int index );
   csTrace const* trace( int index ) const;
   /**
-  * Create new trace in gather, add at end of gather
+  * Create new trace in gather, add at end of gather.
+  * Note that new trace sample values may not have been initialized.
   *
   * @param hdefPtr       Trace header definition that defines the trace header block of the new traces
   * @param nSamples      Number of samples in new traces
@@ -53,6 +54,7 @@ public:
   inline csTrace* createTrace( csTraceHeaderDef const* hdefPtr, int nSamples) { return createTrace( numTraces(), hdefPtr, nSamples ); }
   /**
   * Create new trace in gather, at specified trace index
+  * Note that new trace sample values may not have been initialized.
   *
   * @param atTraceIndex  Create new trace, insert into gather at this trace index
   * @param hdefPtr       Trace header definition that defines the trace header block of the new traces
@@ -61,6 +63,7 @@ public:
   csTrace* createTrace( int atTraceIndex, csTraceHeaderDef const* hdefPtr, int nSamples );
   /**
   * Create new traces in gather, at specified trace index
+  * Note that new trace sample values may not have been initialized.
   *
   * @param atTraceIndex  Create new traces, insert into gather beginning at this trace index
   * @param nTraces       Number of traces to create

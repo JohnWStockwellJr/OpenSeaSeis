@@ -23,6 +23,7 @@ import java.util.*;
  * Panel containing snapshot thumbnails
  * Thumbnails can be selected, dragged and deleted
  */
+@SuppressWarnings("serial")
 public class csSnapShotPanel extends JPanel implements Scrollable,
         MouseListener, MouseMotionListener, KeyListener {
   private int myMaxUnitIncrement = 1;

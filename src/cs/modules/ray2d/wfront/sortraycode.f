@@ -13,13 +13,13 @@ c   d.h.: der entsprechende HALT, der die Schnittpunkte der Strahlen enthaelt, d
 c   Strahlencode 'ncode' durchlaufen haben, soll erhalten bleiben
 c
       subroutine sortraycode( codesteps, ncodes, codestep_plot, f_out,
-     &     int_source, lay_source, code, hold, error,
+     &     int_source, lay_source, code, hold, flag_dup, error,
      &     MAX_CODESTEPS)
 
       implicit none
 
       integer MAX_CODESTEPS
-      integer ncodes, int_source, lay_source, error, f_out
+      integer ncodes, int_source, lay_source, error, f_out, flag_dup
       integer code(0:MAX_CODESTEPS,ncodes),codesteps(ncodes),hold(0:MAX_CODESTEPS,ncodes)
       integer codestep_plot(ncodes)
 
@@ -167,6 +167,9 @@ c         write(f_out,1005) (hold(j,i),j = 0, codesteps(i))
 c      end do
 
 c-------------------------
+c Allow duplicate ray codes
+      if ( flag_dup .eq. 1 ) goto 999
+c Do NOT allow duplicate ray codes
       do i = 1, ncodes - 1
 
 c Pruefe auf genau gleiche Codes, oder, ob ein Code ganz in einem anderen vorhanden ist:
@@ -234,7 +237,7 @@ c 3. 'I' > 1 (ist wahrscheinlich ueberfluessig)  .AND.
 c    vorheriger Codeschritt von 'I' ist gleich diesem  .AND.
 c
             if (actstep .le. codesteps(j)) then
-               if ((code(actstep,i) .lt. code(actstep,j) .and. code(actstep,j) .ne. 0 .and.
+               if ((abs(code(actstep,i)) .lt. abs(code(actstep,j)) .and. code(actstep,j) .ne. 0 .and.
      &              (actstep .gt. 1 .and. code(actstep,j) .ne. code(actstep-1,j))) .or. 
      &              code(actstep,i) .eq. 0 .or. (i .gt. 1 .and. code(actstep,i) .eq. code(actstep-1,i))) then
                   do k = actstep, codesteps(i)
@@ -341,7 +344,7 @@ c 3. 'I' > 1 (ist wahrscheinlich ueberfluessig)  .AND.
 c    vorheriger Codeschritt von 'I' ist gleich diesem  .AND.
 c
             if (actstep .le. codesteps(j)) then
-               if ((code(actstep,i) .lt. code(actstep,j) .and. code(actstep,j) .ne. 0 .and.
+               if ((abs(code(actstep,i)) .lt. abs(code(actstep,j)) .and. code(actstep,j) .ne. 0 .and.
      &              (actstep .gt. 1 .and. code(actstep,j) .ne. code(actstep-1,j))) .or. 
      &              code(actstep,i) .eq. 0 .or. (i .gt. 1 .and. code(actstep,i) .eq. code(actstep-1,i))) then
                   do k = actstep, codesteps(i)

@@ -3,7 +3,6 @@
 
 #include "cseis_includes.h"
 #include "csFlexNumber.h"
-#include "csFFTTools.h"
 #include "csFFTDesignature.h"
 #include "csASCIIFileReader.h"
 #include "csFileUtils.h"
@@ -22,10 +21,17 @@ using namespace std;
  */
 namespace mod_designature {
   struct VariableStruct {
-    csFFTDesignature* fftDesig;
+    csFFTDesignature** fftDesigList;
     int asciiFormat;
     std::string filenameOut;
     bool isFileOutWavelet;
+    float filterTimeShift_s;
+
+    int hdrId_input;
+    std::string hdrName_input; 
+    int* hdrValueList;
+    int numInputWavelets;
+    int currentIndexHdrValue;
   };
   static int const UNIT_MS = 3;
   static int const UNIT_S  = 4;
@@ -38,19 +44,27 @@ using mod_designature::VariableStruct;
 //
 //
 //*************************************************************************************************
-void init_mod_designature_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_designature_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   csSuperHeader*    shdr = env->superHeader;
+  csTraceHeaderDef* hdef = env->headerDef;
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
   vars->asciiFormat     = -1;
-  vars->fftDesig        = NULL;
+  vars->fftDesigList    = NULL;
   vars->filenameOut     = "";
   vars->isFileOutWavelet = false;
+  vars->hdrId_input      = -1;
+  vars->hdrValueList     = NULL;
+  vars->numInputWavelets = 0;
+  vars->currentIndexHdrValue = 0;
+  vars->hdrName_input = "";
+  vars->filterTimeShift_s = 0;
 
 //---------------------------------------------
 //
@@ -69,9 +83,10 @@ void init_mod_designature_( csParamManager* param, csInitPhaseEnv* env, csLogWri
       overrideSampleInt = true;
     }
     else {
-      log->error("Unknown option: '%s'", text.c_str());
+      writer->error("Unknown option: '%s'", text.c_str());
     }
   }
+
   param->getString("input_wavelet", &filename);
   if( param->getNumValues("input_wavelet") > 1 ) {
     param->getString("input_wavelet", &text, 1);
@@ -82,7 +97,7 @@ void init_mod_designature_( csParamManager* param, csInitPhaseEnv* env, csLogWri
       unitTime_ascii = mod_designature::UNIT_S;
     }
     else {
-      log->error("Unknown option: '%s'", text.c_str());
+      writer->error("Unknown option: '%s'", text.c_str());
     }
   }
   param->getString("format",&text,0);
@@ -93,7 +108,7 @@ void init_mod_designature_( csParamManager* param, csInitPhaseEnv* env, csLogWri
     vars->asciiFormat = cseis_io::csASCIIFileReader::FORMAT_NUCLEUS_SIGNATURE;
   }
   else {
-    log->error("Unknown option: %s", text.c_str() );
+    writer->error("Unknown option: %s", text.c_str() );
   }
 
   int colIndexTime  = 0;
@@ -114,24 +129,61 @@ void init_mod_designature_( csParamManager* param, csInitPhaseEnv* env, csLogWri
     }
   }
 
+  if( param->exists("input_hdr") ) {
+    param->getString("input_hdr", &vars->hdrName_input);
+    if( colIndexTrace < 0 ) {
+      writer->line("Input trace header '%s' specified in user parameter 'input_hdr' but identifying column in input wavelet file is undefined (=%d)", vars->hdrName_input.c_str(), colIndexTrace+1);
+      writer->line("Specify column number of input wavelet file (user parameter 'input_wavelet') which identifies the wavelet to be used for which input trace");
+      writer->line("Identification is done via the specified trace header '%s'", vars->hdrName_input.c_str());
+      env->addError();
+    }
+    if( !hdef->headerExists(vars->hdrName_input) ) {
+      writer->error("Trace header does not exist: '%s'", vars->hdrName_input.c_str() );
+    }
+    vars->hdrId_input   = hdef->headerIndex(vars->hdrName_input);
+    int type = hdef->headerType(vars->hdrName_input);
+    if( type != cseis_geolib::TYPE_INT ) {
+      writer->error("Trace header '%s': Only integer type supported. Use integer trace header as wavelet identifier", vars->hdrName_input.c_str() );
+    }
+  }
+
+
   float percWhiteNoise = 0.01f;
   if( param->exists("white_noise") ) {
     param->getFloat("white_noise",&percWhiteNoise);
   }
 
+  int filterType = csFFTDesignature::AMP_PHASE;
+  if( param->exists("option") ) {
+    param->getString("option", &text );
+    if( !text.compare("phase_only") ) {
+      filterType = csFFTDesignature::PHASE_ONLY;
+    }
+    else if( !text.compare("amp_only") ) {
+      filterType = csFFTDesignature::AMP_ONLY;
+    }
+    else if( !text.compare("amp_phase") ) {
+      filterType = csFFTDesignature::AMP_PHASE;
+    }
+    else {
+      writer->error("Unknown option: %s", text.c_str() );
+    }
+  }
+
   //----------------------------------------------------------------------
-  // Read in signature from external ASCII file
+  // Read in first input signature wavelet from external ASCII file
+  // ...more wavelets are read in later, if applicable
   //
   cseis_io::ASCIIParam asciiParam;
+  cseis_io::csASCIIFileReader asciiFileReader( filename, vars->asciiFormat );
   try {
-    cseis_io::csASCIIFileReader asciiFileReader( filename, vars->asciiFormat );
     bool success = asciiFileReader.initialize( &asciiParam, colIndexTime, colIndexValue, colIndexTrace );
-    if( !success ) log->error("Unknown error occurred during initialization of signature input file. Incorrect or unsupported format?");
+    if( !success ) writer->error("Unknown error occurred during initialization of signature input file. Incorrect or unsupported format?");
     success = asciiFileReader.readNextTrace( &asciiParam );
-    if( !success ) log->error("Unknown error occurred when reading in samples from signature input file. Incorrect or unsupported format?");
+    if( !success ) writer->error("Unknown error occurred when reading in samples from signature input file. Incorrect or unsupported format?");
   }
   catch( csException& e ) {
-    log->error("Error occurred when initializing input ASCII file: %s", e.getMessage() );
+    writer->error("Error occurred when initializing input ASCII file: %s", e.getMessage() );
   }
 
   //
@@ -148,27 +200,49 @@ void init_mod_designature_( csParamManager* param, csInitPhaseEnv* env, csLogWri
   }
   if( sampleInt_ms != shdr->sampleInt ) {
     if( !overrideSampleInt ) {
-      log->error("ASCII input file has different sample interval (=%f ms) than input data (=%f ms). Unsupported case.", sampleInt_ms, shdr->sampleInt);
+      writer->error("ASCII input file has different sample interval (=%f ms) than input data (=%f ms). Unsupported case.", sampleInt_ms, shdr->sampleInt);
     }
     else {
-      log->warning("ASCII input file has different sample interval (=%f ms) than input data (=%f ms). Ignored.", sampleInt_ms, shdr->sampleInt);
+      writer->warning("ASCII input file has different sample interval (=%f ms) than input data (=%f ms). Ignored.", sampleInt_ms, shdr->sampleInt);
     }
   }
   if( asciiParam.numSamples() > shdr->numSamples ) {
-    log->error("ASCII input file has more samples (=%d) than input data (=%d). Unsupported case.", asciiParam.numSamples(), shdr->numSamples);
+    writer->error("ASCII input file has more samples (=%d) than input data (=%d). Unsupported case.", asciiParam.numSamples(), shdr->numSamples);
   }
   if( asciiParam.numSamples() <= 0 ) {
-    log->error("Could not read in any sample values from input file. Unsupported or incorrect file format?");
+    writer->error("Could not read in any sample values from input file. Unsupported or incorrect file format?");
   }
 
-  float* buffer = new float[shdr->numSamples];
-  for( int isamp = 0; isamp < asciiParam.numSamples(); isamp++ ) {
-    buffer[isamp] = asciiParam.sample(isamp);
-  }
-  // Pad signature file with zeros...
-  for( int isamp = asciiParam.numSamples(); isamp < shdr->numSamples; isamp++ ) {
-    buffer[isamp] = 0.0;
-  }
+  cseis_geolib::csVector<float*> bufferList;
+  cseis_geolib::csVector<float> hdrValueList;
+  bool readAnotherWavelet = false;
+  do {
+    float* buffer = new float[shdr->numSamples];
+    for( int isamp = 0; isamp < asciiParam.numSamples(); isamp++ ) {
+      buffer[isamp] = asciiParam.sample(isamp);
+    }
+    // Pad signature file with zeros...
+    for( int isamp = asciiParam.numSamples(); isamp < shdr->numSamples; isamp++ ) {
+      buffer[isamp] = 0.0;
+    }
+    bufferList.insertEnd( buffer );
+    hdrValueList.insertEnd( asciiParam.traceNumber );
+    if( edef->isDebug() ) {
+      //    writer->line("---------------ASCII file dump-------------------");
+      for( int isamp = 0; isamp < asciiParam.numSamples(); isamp++ ) {
+        //      writer->line("%d %f", isamp, asciiParam.sample(isamp) );
+        fprintf( stdout, "%d %f %d\n", isamp, asciiParam.sample(isamp), asciiParam.traceNumber );
+      }
+      if( hdrValueList.size() > 1 ) fprintf( stdout, "\n" );
+    }
+    if( vars->hdrId_input != 0 ) {
+      readAnotherWavelet = asciiFileReader.readNextTrace( &asciiParam );
+    }
+  } while( readAnotherWavelet );
+
+  vars->numInputWavelets = bufferList.size();
+  //
+  //----------------------------------------------------------------------
   
 
   //----------------------------------------------------------------------
@@ -188,7 +262,7 @@ void init_mod_designature_( csParamManager* param, csInitPhaseEnv* env, csLogWri
         unitTimeOut_ascii = mod_designature::UNIT_S;
       }
       else {
-        log->error("Unknown option: '%s'", text.c_str());
+        writer->error("Unknown option: '%s'", text.c_str());
       }
     }
 
@@ -196,15 +270,15 @@ void init_mod_designature_( csParamManager* param, csInitPhaseEnv* env, csLogWri
     try {
       cseis_io::csASCIIFileReader asciiFileReader( filenameOut, vars->asciiFormat );
       bool success = asciiFileReader.initialize( &asciiParamOut, colIndexTime, colIndexValue, colIndexTrace );
-      if( !success ) log->error("Unknown error occurred during initialization of output wavelet file. Incorrect or unsupported format?");
+      if( !success ) writer->error("Unknown error occurred during initialization of output wavelet file. Incorrect or unsupported format?");
       success = asciiFileReader.readNextTrace( &asciiParamOut );
-      if( !success ) log->error("Unknown error occurred when reading in samples from output wavelet file. Incorrect or unsupported format?");
+      if( !success ) writer->error("Unknown error occurred when reading in samples from output wavelet file. Incorrect or unsupported format?");
     }
     catch( csException& e ) {
-      log->error("Error occurred when initializing input ASCII file: %s", e.getMessage() );
+      writer->error("Error occurred when initializing input ASCII file: %s", e.getMessage() );
     }
     if( asciiParamOut.numSamples() != asciiParam.numSamples() ) {
-      log->error("Output wavelet contains %d number of samples, not matching the number of samples in input wavelet = %d.\nThis is not supported",
+      writer->error("Output wavelet contains %d number of samples, not matching the number of samples in input wavelet = %d.\nThis is not supported",
                  asciiParamOut.numSamples() != asciiParam.numSamples() );
     }
     bufferOut = new float[shdr->numSamples];
@@ -217,7 +291,7 @@ void init_mod_designature_( csParamManager* param, csInitPhaseEnv* env, csLogWri
     }
   }
   if( unitTimeOut_ascii != unitTime_ascii ) {
-    log->error("Different time units specified for input & output wavelet. This is not supported.");
+    writer->error("Different time units specified for input & output wavelet. This is not supported.");
   }
   //--------------------------------------------------
 
@@ -238,68 +312,65 @@ void init_mod_designature_( csParamManager* param, csInitPhaseEnv* env, csLogWri
     }
   }
   if( edef->isDebug() ) {
-    log->line("Zero time = %f ms", timeZero_ms);
+    writer->line("Zero time = %f ms", timeZero_ms);
   }
 
-  vars->fftDesig = new csFFTDesignature( shdr->numSamples, shdr->sampleInt, buffer, timeZero_ms/1000.0, percWhiteNoise, bufferOut );
-  delete [] buffer;
+
+  // Create all desiignature objects: One per input signature wavelet
+  vars->fftDesigList = new csFFTDesignature*[vars->numInputWavelets];
+  vars->hdrValueList = new int[vars->numInputWavelets];
+  for( int iwavelet = 0; iwavelet < vars->numInputWavelets; iwavelet++ ) {
+    float* bufferPtr = bufferList.at(iwavelet);
+    vars->fftDesigList[iwavelet] = new csFFTDesignature( shdr->numSamples, shdr->sampleInt, bufferPtr, timeZero_ms/1000.0, percWhiteNoise, bufferOut );
+    vars->hdrValueList[iwavelet] = hdrValueList.at(iwavelet);
+    vars->fftDesigList[iwavelet]->setDesigFilterType( filterType );
+    delete [] bufferPtr;
+  }
+  bufferList.clear();
+  hdrValueList.clear();
+  //  vars->fftDesig = new csFFTDesignature( shdr->numSamples, shdr->sampleInt, buffer, timeZero_ms/1000.0, percWhiteNoise, bufferOut );
+
+  //  delete [] buffer;
   if( bufferOut != NULL ) delete [] bufferOut;
 
-  if( param->exists("option") ) {
-    int filterType = csFFTDesignature::AMP_PHASE;
-    param->getString("option", &text );
-    if( !text.compare("phase_only") ) {
-      filterType = csFFTDesignature::PHASE_ONLY;
-    }
-    else if( !text.compare("amp_only") ) {
-      filterType = csFFTDesignature::AMP_ONLY;
-    }
-    else if( !text.compare("amp_phase") ) {
-      filterType = csFFTDesignature::AMP_PHASE;
-    }
-    else {
-      log->error("Unknown option: %s", text.c_str() );
-    }
-    vars->fftDesig->setDesigFilterType( filterType );
-  }
-
   float freqNy = 500.0f/asciiParam.sampleInt;
-  float orderDefault = 5;
+  float slopeDefault = 30;
   if( param->exists("highpass") ) {
     float cutOff;
-    float order = orderDefault;
+    float slope = slopeDefault;
     param->getFloat("highpass", &cutOff );
     if( cutOff < 0 || cutOff > freqNy ) {
-      log->error("Filter frequency exceeds valid range (0-%fHz): %fHz", freqNy, cutOff );
+      writer->error("Filter frequency exceeds valid range (0-%fHz): %fHz", freqNy, cutOff );
     }
     if( param->getNumValues("highpass") > 1 ) {
-      float slope;
       param->getFloat("highpass", &slope, 1 );
-      order = fabs(slope) / 6.0;
     }
-    vars->fftDesig->setDesigHighPass( cutOff, order );
+    for( int iwavelet = 0; iwavelet < vars->numInputWavelets; iwavelet++ ) {
+      vars->fftDesigList[iwavelet]->setDesigHighPass( cutOff, slope );
+    }
   }
   if( param->exists("lowpass") ) {
     float cutOff;
-    float order = orderDefault;
+    float slope = slopeDefault;
     param->getFloat("lowpass", &cutOff );
     if( param->getNumValues("lowpass") > 1 ) {
-      float slope;
       param->getFloat("lowpass", &slope, 1 );
-      order = fabs(slope) / 6.0;
     }
     if( cutOff < 0 || cutOff > freqNy ) {
-      log->error("Filter frequency exceeds valid range (0-%fHz): %fHz", freqNy, cutOff );
+      writer->error("Filter frequency exceeds valid range (0-%fHz): %fHz", freqNy, cutOff );
     }
-    vars->fftDesig->setDesigLowPass( cutOff, order );
+    for( int iwavelet = 0; iwavelet < vars->numInputWavelets; iwavelet++ ) {
+      vars->fftDesigList[iwavelet]->setDesigLowPass( cutOff, slope );
+    }
   }
 
   if( param->exists("high_set") ) {
     float freqHighSet = 0;
     param->getFloat("high_set", &freqHighSet);
-    vars->fftDesig->setDesigHighEnd( freqHighSet );
+    for( int iwavelet = 0; iwavelet < vars->numInputWavelets; iwavelet++ ) {
+      vars->fftDesigList[iwavelet]->setDesigHighEnd( freqHighSet );
+    }
   }
-
 
   //--------------------------------------------------
   if( param->exists("notch_suppression") ) {
@@ -309,7 +380,9 @@ void init_mod_designature_( csParamManager* param, csInitPhaseEnv* env, csLogWri
     for( int iline = 0; iline < numLines; iline++ ) {
       param->getFloatAtLine("notch_suppression", &notchFreq, iline, 0);
       param->getFloatAtLine("notch_suppression", &notchWidth, iline, 1);
-      vars->fftDesig->setNotchSuppression( notchFreq, notchWidth );
+      for( int iwavelet = 0; iwavelet < vars->numInputWavelets; iwavelet++ ) {
+        vars->fftDesigList[iwavelet]->setNotchSuppression( notchFreq, notchWidth );
+      }
     }
   }
 
@@ -318,28 +391,23 @@ void init_mod_designature_( csParamManager* param, csInitPhaseEnv* env, csLogWri
   if( param->exists("filename_output") ) {
     param->getString("filename_output", &vars->filenameOut);
     if( !csFileUtils::createDoNotOverwrite( vars->filenameOut ) ) {
-      log->error("Unable to open filter output file %s. Wrong path name..?", vars->filenameOut.c_str() );
+      writer->error("Unable to open filter output file %s. Wrong path name..?", vars->filenameOut.c_str() );
     }
     if( param->getNumValues("filename_output") > 1 ) {
       param->getString("filename_output", &text, 1);
       if( !text.compare("wavelet") ) {
-	vars->isFileOutWavelet = true;
+        vars->isFileOutWavelet = true;
       }
       else if( !text.compare("spectrum") ) {
-	vars->isFileOutWavelet = false;
+        vars->isFileOutWavelet = false;
       }
       else {
-	log->error("Unknown option: '%s'", text.c_str());
+        writer->error("Unknown option: '%s'", text.c_str());
       }
-    }
-  }
-
-
-  if( edef->isDebug() ) {
-    //    log->line("---------------ASCII file dump-------------------");
-    for( int isamp = 0; isamp < asciiParam.numSamples(); isamp++ ) {
-      //      log->line("%d %f", isamp, asciiParam.sample(isamp) );
-      fprintf( stdout, "%d %f\n", isamp, asciiParam.sample(isamp) );
+      if( param->getNumValues("filename_output") > 2 ) {
+        param->getFloat("filename_output", &vars->filterTimeShift_s, 2);
+        vars->filterTimeShift_s /= 1000.0; // Convert from [s] to [ms]
+      }
     }
   }
 
@@ -351,40 +419,65 @@ void init_mod_designature_( csParamManager* param, csInitPhaseEnv* env, csLogWri
 //
 //
 //*************************************************************************************************
-bool exec_mod_designature_(
-  csTrace* trace,
+void exec_mod_designature_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup()){
-    if( vars->fftDesig != NULL ) {
-      delete vars->fftDesig;
-      vars->fftDesig = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
 
   if( vars->filenameOut.size() > 0 ) {
     FILE* fout = fopen(vars->filenameOut.c_str(), "w");
+    //    for( int iwavelet = 0; iwavelet < vars->fftDesigList->size(); iwavelet++ ) {
     if( vars->isFileOutWavelet ) {
-      vars->fftDesig->dump_wavelet(fout,true);
+      vars->fftDesigList[0]->dump_wavelet(fout,true,vars->filterTimeShift_s);
     }
     else {
-      vars->fftDesig->dump_spectrum(fout);
+      vars->fftDesigList[0]->dump_spectrum(fout);
     }
     fclose(fout);
     fout = NULL;
-    vars->filenameOut = "";
+    vars->filenameOut = ""; // Only dump output file once
   }
-  float* samples = trace->getTraceSamples();
-  vars->fftDesig->applyFilter( samples, shdr->numSamples );
 
-  return true;
+  float* samples = trace->getTraceSamples();
+  // More than one input wavelet
+  if( vars->numInputWavelets > 1 ) {
+    // Check if trace header value matches wavelet identifier number:
+    int hdrValue = trace->getTraceHeader()->intValue( vars->hdrId_input );
+    if( hdrValue != vars->hdrValueList[vars->currentIndexHdrValue] ) {
+      bool found = false;
+      for( int iwavelet = vars->currentIndexHdrValue+1; iwavelet < vars->numInputWavelets; iwavelet++ ) {
+        if( vars->hdrValueList[iwavelet] == hdrValue ) {
+          vars->currentIndexHdrValue = iwavelet;
+          found = true;
+          break;
+        }
+      }
+      if( !found ) {
+        for( int iwavelet = 0; iwavelet < vars->currentIndexHdrValue;iwavelet++ ) {
+          if( vars->hdrValueList[iwavelet] == hdrValue ) {
+            vars->currentIndexHdrValue = iwavelet;
+            found = true;
+            break;
+          }
+        } // END for
+        if( !found ) {
+          writer->error("No wavelet found for trace with trace header value = %d   (trace header name: '%s')", hdrValue, vars->hdrName_input.c_str() );
+        }
+      } // END !found
+    } // END: reset currentIndexHdrValue
+  } // END: More than one wavelet
+
+  vars->fftDesigList[vars->currentIndexHdrValue]->applyFilter( samples, shdr->numSamples );
+
+  return;
 }
 
 //*************************************************************************************************
@@ -414,7 +507,10 @@ void params_mod_designature_( csParamDef* pdef ) {
     "Trace number column is optional." );
   pdef->addValue( "1", VALTYPE_NUMBER, "For 'column' format: Column number specifying time (or other sample unit)" );
   pdef->addValue( "2", VALTYPE_NUMBER, "For 'column' format: Column number specifying sample value" );
-  pdef->addValue( "-1", VALTYPE_NUMBER, "Optional: Column number specifying trace number. -1: Trace number not applicable" );
+  pdef->addValue( "-1", VALTYPE_NUMBER, "Optional: Column number specifying trace header value identifying wavelet trace. -1: Not applicable" );
+
+  pdef->addParam( "input_hdr", "Name of trace header that is used to identify wavelet trace in input file", NUM_VALUES_FIXED );
+  pdef->addValue( "", VALTYPE_STRING );
 
   pdef->addParam( "output_wavelet", "Name of file containing output wavelet", NUM_VALUES_VARIABLE );
   pdef->addValue( "", VALTYPE_STRING, "File name" );
@@ -463,6 +559,10 @@ void params_mod_designature_( csParamDef* pdef ) {
   pdef->addValue( "spectrum", VALTYPE_OPTION );
   pdef->addOption( "spectrum", "Output filter as amplitude/phase spectrum" );
   pdef->addOption( "wavelet", "Output filter as wavelet" );
+  pdef->addValue( "0", VALTYPE_STRING, "Time shift [ms] to apply to filter wavelet" );
+  //  pdef->addValue( "no", VALTYPE_OPTION );
+  //  pdef->addOption( "yes", "Apply phase shift to filter wavelet to place main energy at center" );
+  //  pdef->addOption( "no", "Do not center-shift wavelet, output as-is" );
 
   pdef->addParam( "override_sample_int", "Override sample interval?", NUM_VALUES_FIXED);
   pdef->addValue( "no", VALTYPE_OPTION );
@@ -470,12 +570,52 @@ void params_mod_designature_( csParamDef* pdef ) {
   pdef->addOption( "yes", "Ignore sample interval of input wavelet. Assume it is the same as the input data" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_designature_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_designature::VariableStruct* vars = reinterpret_cast<mod_designature::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_designature_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_designature::VariableStruct* vars = reinterpret_cast<mod_designature::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->fftDesigList != NULL ) {
+    for( int iwavelet = 0; iwavelet < vars->numInputWavelets; iwavelet++ ) {
+      delete vars->fftDesigList[iwavelet];
+    }
+    delete [] vars->fftDesigList;
+    vars->fftDesigList = NULL;
+  }
+  if( vars->hdrValueList != NULL ) {
+    delete [] vars->hdrValueList;
+    vars->hdrValueList = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_designature_( csParamDef* pdef ) {
   params_mod_designature_( pdef );
 }
-extern "C" void _init_mod_designature_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_designature_( param, env, log );
+extern "C" void _init_mod_designature_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_designature_( param, env, writer );
 }
-extern "C" bool _exec_mod_designature_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_designature_( trace, port, env, log );
+extern "C" bool _start_exec_mod_designature_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_designature_( env, writer );
+}
+extern "C" void _exec_mod_designature_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_designature_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_designature_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_designature_( env, writer );
 }

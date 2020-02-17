@@ -77,7 +77,11 @@ public:
   FILE* getFile() {
     return myLogFile;
   }
-private:
+  /**
+   * @return File name
+   */
+  char const* getFilename() const;
+ private:
   csLogWriter( csLogWriter const& obj );
   std::FILE* myLogFile;
   char const* myFilename;

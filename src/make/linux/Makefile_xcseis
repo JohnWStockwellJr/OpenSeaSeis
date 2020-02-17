@@ -1,6 +1,6 @@
 JNIDIR   = src/cs/jni
 
-OBJ_JNI = $(OBJDIR)/csNativeModuleHelp.o $(OBJDIR)/csSegyHdrMap.o $(OBJDIR)/csHelp.o
+OBJ_XCSEIS = $(OBJDIR)/csNativeModuleHelp.o $(OBJDIR)/csSegyHdrMap.o $(OBJDIR)/csHelp.o
 
 CXXFLAGS_JNI = -fPIC $(COMMON_FLAGS) -I"src/cs/geolib" -I"src/cs/segy" -I"src/cs/segd" -I"src/cs/io" -I"src/cs/system"
 INC_JNI      = -Isrc/cs/jni -Isrc/cs/jni/linux
@@ -11,13 +11,13 @@ LIB_JNI_APPLE    = $(LIBDIR)/libXCSeislib.jnilib
 default: $(LIB_JNI) $(LIB_JNI_APPLE) ${LIBDIR}/XCSeis.jar ${BINDIR}/xseaseis.sh
  
 clean:
-	${RM} $(OBJ_JNI)
+	${RM} $(OBJ_XCSEIS)
 
 bleach: clean
 	${RM} $(LIB_JNI) $(LIB_JNI_APPLE) ${LIBDIR}/XCSeis.jar
 
-$(LIB_JNI): $(OBJ_JNI)
-	$(CPP) $(GLOBAL_FLAGS) -fPIC -shared -Wl,-$(SONAME),$(LIB_JNI) -Wl,-rpath,$(LIBDIR) -o $(LIB_JNI) $(OBJ_JNI) $(LIBDIR)/libgeolib.so $(LIBDIR)/libcseis_system.so -L$(LIBDIR) -lc -ldl -lgeolib -lcseis_system
+$(LIB_JNI): $(OBJ_XCSEIS)
+	$(CPP) $(GLOBAL_FLAGS) -fPIC -shared -Wl,-$(SONAME),$(LIB_JNI) -Wl,-rpath=$(LIBDIR) -o $(LIB_JNI) $(OBJ_XCSEIS) $(LIBDIR)/libgeolib.so $(LIBDIR)/libcseis_system.so -L$(LIBDIR) -lc -ldl -lgeolib -lcseis_system
 
 $(LIB_JNI_APPLE): $(LIB_JNI)
 	cp $(LIB_JNI) $(LIB_JNI_APPLE)

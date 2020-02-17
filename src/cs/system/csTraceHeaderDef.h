@@ -15,7 +15,8 @@ namespace cseis_geolib {
 namespace cseis_system {
 
 static int const HEADER_NOT_FOUND = -1;
-static int const HEADER_EXISTS = -2;
+static int const HEADER_EXISTS    = -2;
+static int const HEADER_IS_VECTOR = -4;
 
 //static int const HEADER_INDEX_ABSOLUTE_TIME_DAYS = 0;
 //static int const HEADER_INDEX_ABSOLUTE_TIME_SEC  = 1;
@@ -132,19 +133,15 @@ class csTraceHeaderDef {
   /// Return total number of bytes required to store trace header values
   inline int getTotalNumBytes() const { return myTotalNumBytes; }
   /**
-  * @return list of indices of trace headers that shall be added to the seismic traces that are input to a module
-  */
-  cseis_geolib::csVector<int> const* getIndexOfHeadersToAdd( int inPort ) const;
-  /**
   * @return list of indices of trace headers that shall be deleted from the seismic traces that are input to a module
   */
   cseis_geolib::csVector<int> const* getIndexOfHeadersToDel() const;
-  /**
-  * @param inPort (i) Index of input port
-  * @return Number of bytes required for all trace header that shall be added
-  */
-  int getNumBytesOfHeadersToAdd( int inPort ) const;
-  void dump() const;
+
+  int mpi_getByteSize() const;
+  int mpi_compress( char* data ) const;
+  void mpi_decompress( char const* data );
+
+  void dump( FILE* fout ) const;
   /**
   * Set byte location... Call before using this object in exec phase
   */
@@ -176,13 +173,9 @@ private:
   /// List containing pointers to info objects defining all trace headers in this definition object
   cseis_geolib::csVector<csTraceHeaderInfo const*>* myTraceHeaderInfoList;
 
-  /// List of sequenctial header indexes of all trace headers that need to be added (one list per input port)
-  cseis_geolib::csVector<int>* myIndexOfHeadersToAdd;
+  /// List of sequential header indexes of all trace headers that need to be added (one list per input port)
+  cseis_geolib::csVector<csTraceHeaderInfo const*>* myTraceHeadersToAdd;
   cseis_geolib::csVector<int>* myIndexOfHeadersToDel;
-
-  int* myNumBytesOfHeadersToAdd;
-//  cseis_geolib::csVector<int>* myNumBytesOfHeadersToDel;
-//  cseis_geolib::csVector<int>* myByteLocOfHeadersToDel;
 
   /// Number of input ports. Each input port may have its own set of trace headers which need to be synchronized
   int myNumInputPorts;

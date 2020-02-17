@@ -15,6 +15,7 @@ import javax.swing.JFrame;
  * When a csDockPane is undocked, a new csDockFrame is opened with a csDockPane inside.
  * @author 2013 Felipe Punto
  */
+@SuppressWarnings("serial")
 public class csDockFrame extends JFrame implements csIDockPaneListener {
   private csDockPane myPane;
   private boolean myIsEOF;

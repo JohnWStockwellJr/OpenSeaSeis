@@ -34,6 +34,7 @@ public:
     setData( samples, myNumSamples );
   }
   void setData( float const* samples, int nSamples );
+  void setData( char const* samples, int nSamples );
   inline float& operator [] ( int index ) {  // May throw exception
     if( index >= 0 && index < myNumSamples ) {
       return myDataSamples[index];
@@ -43,6 +44,7 @@ public:
   void trim();
   friend class csMemoryPoolManager;
   friend class csModule;
+  friend class csTrace;
 private:
   float* myDataSamples;
   int myNumSamples;

@@ -55,7 +55,7 @@ public class csUniquePerturbation {
     int numItems = pertText.length();
     ArrayList<Integer> list = new ArrayList<Integer>(numItems);
     for( int i = 0; i < numItems; i++ ) {
-      list.add( new Integer( pertText.charAt(i) - 48 ) );
+      list.add( pertText.charAt(i) - 48 );
     }
     return list;
   }

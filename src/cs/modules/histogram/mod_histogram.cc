@@ -38,7 +38,7 @@ using namespace mod_histogram;
 //
 //
 //*************************************************************************************************
-void init_mod_histogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_histogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   //  csTraceHeaderDef* hdef = env->headerDef;
   csSuperHeader*    shdr = env->superHeader;
@@ -46,7 +46,6 @@ void init_mod_histogram_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
 
   vars->numSamplesIn  = shdr->numSamples;
   vars->numSamplesOut = shdr->numSamples;
@@ -69,7 +68,7 @@ void init_mod_histogram_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
     vars->numSamplesOut = (int)((vars->ampMax - vars->ampMin)/vars->ampStep + 0.5);
     vars->sampleIntOut  = (vars->ampMax - vars->ampMin) / (float)vars->numSamplesOut;
     vars->histBuffer = new int[vars->numSamplesOut];
-    log->line("Amplitudes: %f - %f (step %f)", vars->ampMin, vars->ampMax, vars->sampleIntOut);
+    writer->line("Amplitudes: %f - %f (step %f)", vars->ampMin, vars->ampMax, vars->sampleIntOut);
   }
   else {
     //    vars->hdrID_rms = hdef->addHeader( TYPE_DOUBLE, "rms", "rms value" );
@@ -83,7 +82,7 @@ void init_mod_histogram_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
   else {
     edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
   }
-  shdr->sampleInt  = 1000*vars->sampleIntOut;
+  shdr->sampleInt  = vars->sampleIntOut;
   shdr->numSamples = vars->numSamplesOut;
 }
 
@@ -98,21 +97,13 @@ void exec_mod_histogram_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
+  //  csExecPhaseDef* edef = env->execPhaseDef;
   //  csTraceHeaderDef const* hdef = env->headerDef;
   //  csSuperHeader const*    shdr = env->superHeader;
 
-  if( edef->isCleanup()){
-    if( vars->histBuffer != NULL ) {
-      delete [] vars->histBuffer;
-      vars->histBuffer = NULL;
-    }
-    delete vars; vars = NULL;
-    return;
-  }
 
   //--------------------------------------------------------------------------------
   for( int isamp = 0; isamp < vars->numSamplesOut; isamp++ ) {
@@ -154,14 +145,45 @@ void params_mod_histogram_( csParamDef* pdef ) {
 }
 
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_histogram_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_histogram::VariableStruct* vars = reinterpret_cast<mod_histogram::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_histogram_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_histogram::VariableStruct* vars = reinterpret_cast<mod_histogram::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->histBuffer != NULL ) {
+    delete [] vars->histBuffer;
+    vars->histBuffer = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_histogram_( csParamDef* pdef ) {
   params_mod_histogram_( pdef );
 }
-extern "C" void _init_mod_histogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_histogram_( param, env, log );
+extern "C" void _init_mod_histogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_histogram_( param, env, writer );
 }
-extern "C" void _exec_mod_histogram_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_histogram_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_histogram_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_histogram_( env, writer );
 }
-
-
+extern "C" void _exec_mod_histogram_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_histogram_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_histogram_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_histogram_( env, writer );
+}

@@ -15,7 +15,7 @@ using namespace cseis_geolib;
 
 ASCIIParam::ASCIIParam() {
   sampleList    = new cseis_geolib::csVector<float>(512);
-  timeList      = new cseis_geolib::csVector<float>(10);
+  timeList      = new cseis_geolib::csVector<double>(10);
   sampleInt     = 0.0;
   srcDepth      = 0;
   timeFirstSamp = 0;
@@ -25,25 +25,23 @@ ASCIIParam::ASCIIParam() {
 }
 ASCIIParam::~ASCIIParam() {
   if( sampleList != NULL ) {
-    //    sampleList->clear();
     delete sampleList;
     sampleList = NULL;
   }
   if( timeList != NULL ) {
-    //    timeList->clear();
     delete timeList;
     timeList = NULL;
   }
 }
 float ASCIIParam::sample(int index) const {
   if( sampleList == NULL || (index < 0 || index >= sampleList->size()) ) {
-    throw( cseis_geolib::csException("ASCIIParam::sample(): Program bug: Wrong index passed") );
+    throw( cseis_geolib::csException("ASCIIParam::sample(): Program bug: Wrong index passed: %d (/%d)", index, numSamples()) );
   }
   return sampleList->at(index);
 }
-float ASCIIParam::time(int index) const {
+double ASCIIParam::time(int index) const {
   if( timeList == NULL || (index < 0 || index >= timeList->size()) ) {
-    throw( cseis_geolib::csException("ASCIIParam::time(): Program bug: Wrong index passed") );
+    throw( cseis_geolib::csException("ASCIIParam::time(): Program bug: Wrong index passed: %d (/%d) %x %d", index, numSamples(), timeList, timeList->size()) );
   }
   return timeList->at(index);
 }
@@ -54,7 +52,7 @@ float const* ASCIIParam::getSamples() const {
   if( sampleList == NULL ) return NULL;
   return sampleList->toArray();
 }
-float const* ASCIIParam::getTimes() const {
+double const* ASCIIParam::getTimes() const {
   if( timeList == NULL ) return NULL;
   return timeList->toArray();
 }
@@ -195,11 +193,11 @@ bool csASCIIFileReader::initialize( ASCIIParam* param ) {
     }
     param->timeFirstSamp = timeList.at(0);
     param->timeLastSamp  = timeList.at(myNumSamples-1);
-    param->sampleInt = (float)( timeList.at(1) - timeList.at(0) );
+    param->sampleInt = (float)( timeList.at(1) - param->timeFirstSamp );
     rewind( myFileASCII );
   }
   else if( myFormat == FORMAT_SPIKOGRAM ) {
-    csVector<float> timeList;
+    csVector<double> timeList;
     csVector<float> sampleList;
     readOneTraceSpikogramFormat( &timeList, &sampleList );
     param->myNumSamples = sampleList.size();
@@ -235,7 +233,7 @@ bool csASCIIFileReader::initializeZMap( ASCIIParam* param,
     }
     while( fgets( myBuffer, 1024, myFileASCII ) != NULL ) {
       if( myBuffer[0] != '!' ) {
-	break;
+        break;
       }
       myCounterLines += 1;
     }
@@ -287,6 +285,7 @@ bool csASCIIFileReader::readNextTrace( ASCIIParam* param ) {
 
   bool retValue = false;
   param->sampleList->clear();
+  param->timeList->clear();
 
   if( myFormat == FORMAT_NUCLEUS_SIGNATURE ) {
     cseis_geolib::csVector<std::string> valueList;
@@ -303,30 +302,24 @@ bool csASCIIFileReader::readNextTrace( ASCIIParam* param ) {
     retValue = true;
   }
   else if( myFormat == FORMAT_COLUMNS ) {
-    csVector<double> timeList;
-    //    bool success = readOneTraceColumnFormat( &timeList, param->sampleList, myNumSamples, myCurrentTraceIndex+1 );
-    bool success = readOneTraceColumnFormat( &timeList, param->sampleList, myNumSamples, &param->traceNumber );
+    bool success = readOneTraceColumnFormat( param->timeList, param->sampleList, myNumSamples, &param->traceNumber );
     if( !success ) {
       throw( csException("Inconsistent data in input file. Terminated while reading trace #%d, number of samples: %d, expected number of samples: %d",
                          param->traceNumber, param->sampleList->size(), myNumSamples) );
-      //      throw( csException("Inconsistent data in input file. Terminated while reading trace #%d, number of samples: %d, expected number of samples: %d",
-      //                         myCurrentTraceIndex+1, param->sampleList->size(), myNumSamples) );
     }
     if( param->sampleList->size() == 0 ) {
       retValue = false;
     }
     else {
-      param->timeFirstSamp = timeList.at(0);
-      param->timeLastSamp  = timeList.at(timeList.size()-1);
-      param->sampleInt = (float)( timeList.at(1) - timeList.at(0) );
+      param->timeFirstSamp = param->timeList->at(0);
+      param->timeLastSamp  = param->timeList->at(param->timeList->size()-1);
+      param->sampleInt = (float)( param->timeList->at(1) - param->timeFirstSamp );
       retValue = true;
     }
   }
   else if( myFormat == FORMAT_SPIKOGRAM ) {
     bool success = readOneTraceSpikogramFormat( param->timeList, param->sampleList );
     if( !success ) {
-      //      throw( csException("Inconsistent data in input file. Terminated while reading trace #%d, number of samples read: %d",
-      //                    myCurrentTraceIndex+1, param->sampleList->size() ) );
       throw( csException("Inconsistent data in input file. Terminated while reading trace #%d, number of samples read: %d",
                          param->traceNumber, param->sampleList->size() ) );
     }
@@ -426,7 +419,7 @@ bool csASCIIFileReader::readOneTraceColumnFormat( cseis_geolib::csVector<double>
   return true;
 }
 
-bool csASCIIFileReader::readOneTraceSpikogramFormat( cseis_geolib::csVector<float>* timeList,
+bool csASCIIFileReader::readOneTraceSpikogramFormat( cseis_geolib::csVector<double>* timeList,
                                                      cseis_geolib::csVector<float>* sampleList )
 {
   timeList->clear();

@@ -76,6 +76,9 @@ namespace mod_splitting {
 
   static int const S2_SCALING_ISOTROPIC   = 21;
   static int const S2_SCALING_ANISOTROPIC = 22;
+
+  static const int MODE_APPLY  = 11;
+  static const int MODE_REMOVE = 12;
 }
 
 void rotate_xy( float* xTrace,
@@ -97,7 +100,7 @@ void compute_s1s2_splitting_stacks( float** samples, float const* sr_azim, int n
 //
 //
 //*************************************************************************************************
-void init_mod_splitting_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_splitting_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -105,7 +108,6 @@ void init_mod_splitting_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
   mod_splitting::VariableStruct* vars = new mod_splitting::VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
   edef->setTraceSelectionMode( TRCMODE_ENSEMBLE );
 
   vars->outputHdrOption = mod_splitting::OUTPUT_HDR_AVERAGE;
@@ -155,7 +157,7 @@ void init_mod_splitting_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
       vars->doLayerStripping = false;
     }
     else {
-      log->line("Unknown option: '%s'", text.c_str());
+      writer->line("Unknown option: '%s'", text.c_str());
     }
   }
   param->getFloat("azim", &vars->azim_rad);
@@ -163,22 +165,22 @@ void init_mod_splitting_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
   param->getInt("num_angles", &vars->nAngles);
   float angleInc_deg = 180.0f / (float)vars->nAngles;
   vars->angleInc_rad = DEG2RAD( angleInc_deg );
-  log->line("Number of angles = %d, Angle increment = %.2fdeg", vars->nAngles, angleInc_deg);
+  writer->line("Number of angles = %d, Angle increment = %.2fdeg", vars->nAngles, angleInc_deg);
 
   if( vars->doLayerStripping ) {
     vars->corr_lags = new float[vars->nAngles];
     float maxLag_ms;
     param->getFloat("corr_maxlag", &maxLag_ms);
     vars->corrMaxlag_samples = (int)(maxLag_ms/shdr->sampleInt);
-    log->line("Perform layer stripping. Maximum lag time for S1/S2 cross-correlation = %.2fms (= Minimum expected wavelet length)",
+    writer->line("Perform layer stripping. Maximum lag time for S1/S2 cross-correlation = %.2fms (= Minimum expected wavelet length)",
       maxLag_ms);
 
     param->getString( "orient_xy", &text, 0 );
     if( !text.compare("right") ) {
-      vars->rotationMode = REMOVE;
+      vars->rotationMode = mod_splitting::MODE_REMOVE;
     }
     else if( !text.compare("left") ) {
-      vars->rotationMode = APPLY;
+      vars->rotationMode = mod_splitting::MODE_APPLY;
     }
   }
 
@@ -191,7 +193,7 @@ void init_mod_splitting_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
       vars->stretchTopHalf = false;
     }
     else {
-      log->line("Unknown option: '%s'", text.c_str());
+      writer->line("Unknown option: '%s'", text.c_str());
     }
   }
 
@@ -204,11 +206,11 @@ void init_mod_splitting_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
       vars->outputHdrOption = mod_splitting::OUTPUT_HDR_LAST;
     }
     else if( !text.compare("average") ) {
-      log->error("Option 'average' is not supported yet...");
+      writer->error("Option 'average' is not supported yet...");
       vars->outputHdrOption = mod_splitting::OUTPUT_HDR_AVERAGE;
     }
     else {
-      log->line("Unknown option: '%s'", text.c_str());
+      writer->line("Unknown option: '%s'", text.c_str());
     }
   }
 
@@ -220,7 +222,7 @@ void init_mod_splitting_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
     else if( !text.compare("corrected_data") ) {
       vars->outputOption = mod_splitting::OUTPUT_CORRECTED_DATA;
       if( !vars->doLayerStripping ) {
-        log->error("Output option 'corrected_data' is only applicable when performing layer stripping");
+        writer->error("Output option 'corrected_data' is only applicable when performing layer stripping");
       }
     }
     else if( !text.compare("last_s1s2_stacks") ) {
@@ -230,7 +232,7 @@ void init_mod_splitting_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
       }
     }
     else {
-      log->line("Unknown option: '%s'", text.c_str());
+      writer->line("Unknown option: '%s'", text.c_str());
     }
   }
 
@@ -247,7 +249,7 @@ void init_mod_splitting_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
       vars->s2Scaling  = mod_splitting::S2_SCALING_ISOTROPIC;
     }
     else {
-      log->line("Unknown option: '%s'", text.c_str());
+      writer->line("Unknown option: '%s'", text.c_str());
     }
   }
 
@@ -266,7 +268,7 @@ void init_mod_splitting_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
   if( param->exists("win_start") ) {
     vars->numWindows = param->getNumValues("win_start");
     if( vars->numWindows != param->getNumValues("win_end") ) {
-      log->error("Unequal window start and end times: %d != %d", vars->numWindows, param->getNumValues("win_end") );
+      writer->error("Unequal window start and end times: %d != %d", vars->numWindows, param->getNumValues("win_end") );
     }
     vars->winStart = new float[vars->numWindows];
     vars->winEnd   = new float[vars->numWindows];
@@ -280,7 +282,7 @@ void init_mod_splitting_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
     vars->hdrId_identifier = hdef->headerIndex(text);
     param->getString("write_info", &vars->filename_info, 1);
     if( !csFileUtils::createDoNotOverwrite( vars->filename_info ) ) {
-      log->error("Error opening output file %s\n", vars->filename_info.c_str() );
+      writer->error("Error opening output file %s\n", vars->filename_info.c_str() );
     }
   }
 
@@ -319,48 +321,20 @@ void exec_mod_splitting_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   mod_splitting::VariableStruct* vars = reinterpret_cast<mod_splitting::VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
   csTraceHeaderDef const* hdef = env->headerDef;
 
-  if( edef->isCleanup()){
-    if( vars->s1 != NULL && vars->s2 != NULL ) {
-      for( int iangle = 0; iangle < vars->nAngles; iangle++ ) {
-        delete [] vars->s1[iangle];
-        delete [] vars->s2[iangle];
-      }
-      delete [] vars->s1;
-      delete [] vars->s2;
-      vars->s1 = NULL;
-      vars->s2 = NULL;
-    }
-    if( vars->winStart != NULL && vars->winEnd != NULL ) {
-      delete [] vars->winStart;
-      vars->winStart = NULL;
-      delete [] vars->winEnd;
-      vars->winEnd = NULL;
-    }
-    if( vars->corr_lags != NULL ) {
-      delete [] vars->corr_lags;
-      vars->corr_lags = NULL;
-    }
-    if( vars->fout != NULL ) {
-      fclose(vars->fout);
-      vars->fout = NULL;
-    }
-    delete vars; vars = NULL;
-    return;
-  }
 
   if( vars->isFirstCall ) {
     vars->isFirstCall = false;
     if( vars->filename_info.size() > 0 ) {
       vars->fout = fopen(vars->filename_info.c_str(),"w");
       if( vars->fout == NULL ) {
-        log->error("Error when opening ASCII output file '%s'", vars->filename_info.c_str());
+        writer->error("Error when opening ASCII output file '%s'", vars->filename_info.c_str());
       }
     }
   }
@@ -374,7 +348,7 @@ void exec_mod_splitting_(
   
   int numTotalTraces  = traceGather->numTraces();
   if( numTotalTraces % 2 != 0 ) {
-    log->error("SPLITTING: Wrong input data sorting. Expected pairs of XY traces. Found uneven number (=%d) of input traces", numTotalTraces);
+    writer->error("SPLITTING: Wrong input data sorting. Expected pairs of XY traces. Found uneven number (=%d) of input traces", numTotalTraces);
   }
   int numSamples = shdr->numSamples;
   int numTotalPairs   = numTotalTraces/2;
@@ -405,7 +379,7 @@ void exec_mod_splitting_(
     int sensor1  = trcHdr->intValue(vars->hdrId_sensor);
     int sensor2  = traceGather->trace(trueTraceIndex+1)->getTraceHeader()->intValue(vars->hdrId_sensor);
     if( sensor1 != 3 || sensor2 != 4 ) {
-      log->error("SPLITTING: Wrong input sensor code or sorting found: Trace #%d: %d, Trace #%d: %d. Expected values: 3 and 4 for X and Y",
+      writer->error("SPLITTING: Wrong input sensor code or sorting found: Trace #%d: %d, Trace #%d: %d. Expected values: 3 and 4 for X and Y",
         trueTraceIndex+1, trueTraceIndex+2, sensor1, sensor2);
     }
     double dx = rec_x - sou_x;
@@ -413,20 +387,20 @@ void exec_mod_splitting_(
     sr_azim[ipair] = (float)fmod( atan2(dx,dy) + 2.0*M_PI, 2.0*M_PI );
     if( sensor1 == 3 ) { // 'X' trace
       if( sensor2 != 4 ) {
-        log->error("SPLITTING: Wrong input sensor code found: %d. Expected 3 and 4 for X and Y", sensor2);
+        writer->error("SPLITTING: Wrong input sensor code found: %d. Expected 3 and 4 for X and Y", sensor2);
       }
       samples[traceIndexOut]   = traceGather->trace(trueTraceIndex)->getTraceSamples();
       samples[traceIndexOut+1] = traceGather->trace(trueTraceIndex+1)->getTraceSamples();
     }
     else if( sensor1 == 4 ) { // 'Y' trace
       if( sensor2 != 3 ) {
-        log->error("SPLITTING: Wrong input sensor code found: %d. Expected 3 and 4 for X and Y", sensor2);
+        writer->error("SPLITTING: Wrong input sensor code found: %d. Expected 3 and 4 for X and Y", sensor2);
       }
       samples[traceIndexOut]   = traceGather->trace(trueTraceIndex+1)->getTraceSamples();
       samples[traceIndexOut+1] = traceGather->trace(trueTraceIndex)->getTraceSamples();
     }
     else {
-      log->error("SPLITTING: Wrong input sensor code found: %d. Expected 3 and 4 for X and Y", sensor1);
+      writer->error("SPLITTING: Wrong input sensor code found: %d. Expected 3 and 4 for X and Y", sensor1);
     }
   }
   // The following assumes a 2D right-handed XY coordinate system
@@ -436,10 +410,10 @@ void exec_mod_splitting_(
     for( int iangle = 0; iangle < vars->nAngles; iangle++ ) {
       float s1az = (float)(iangle)*vars->angleInc_rad;
       float angle_xy_to_s1s2 = s1az - vars->azim_rad;
-      log->line("-------------------------------\nTESTING S1 ANGLE   %9.2f  %9.2f\n", RAD2DEG(s1az), RAD2DEG(angle_xy_to_s1s2) );
+      writer->line("-------------------------------\nTESTING S1 ANGLE   %9.2f  %9.2f\n", RAD2DEG(s1az), RAD2DEG(angle_xy_to_s1s2) );
       for( int ip = 0; ip < numUsedPairs; ip++ ) {
         float angle_s1s2_to_srazim = sr_azim[ip] - s1az;
-        log->line("Trace XY pair #%3d, sr_azim: %9.2f, rotation angle: %9.2f  (s1az: %9.2f)", ip, RAD2DEG(sr_azim[ip]), RAD2DEG(angle_s1s2_to_srazim), RAD2DEG(s1az) );
+        writer->line("Trace XY pair #%3d, sr_azim: %9.2f, rotation angle: %9.2f  (s1az: %9.2f)", ip, RAD2DEG(sr_azim[ip]), RAD2DEG(angle_s1s2_to_srazim), RAD2DEG(s1az) );
       }
     }
   }
@@ -449,7 +423,7 @@ void exec_mod_splitting_(
 
   // Generate S1/S2 stacks. To be done regardless of layer stripping
   compute_s1s2_splitting_stacks( samples, sr_azim, numSamples, numUsedPairs, vars->azim_rad,
-    edef->isDebug(), log->getFile(),
+    edef->isDebug(), writer->getFile(),
     vars->angleWidthOmit, vars->normMethod, vars->s2Scaling, vars->nAngles/2, vars->angleInc_rad,
     vars->s1, vars->s2 );
   
@@ -555,8 +529,9 @@ void exec_mod_splitting_(
 //        fprintf(stderr,"%d %d %f %f\n", winIndex, iangle, sampleIndex_maxAmp_float, vars->corr_lags[iangle] );
       } // END for( iangle )
       int periodicity = 2;
+      double angleInc_deg = 1.0;
       double s1az_double, s2lag_double, stddev;
-      computeXcorCos( val11, val22, nAnglesOK, periodicity, false, s1az_double, stddev, s2lag_double );
+      computeXcorCos( val11, val22, nAnglesOK, periodicity, angleInc_deg, false, s1az_double, stddev, s2lag_double );
       float s1az  = (float)s1az_double;
       float s2lag = (float)s2lag_double;
       delete [] val11;
@@ -588,14 +563,14 @@ void exec_mod_splitting_(
         int ensemble_id = traceGather->trace(0)->getTraceHeader()->intValue( vars->hdrId_identifier );
         fprintf(vars->fout, "%10d %12.2f %12.2f  %10.3f  %10.3f\n", ensemble_id, vars->winStart[winIndex], vars->winEnd[winIndex], s1az, s2lag);
       }
-      log->line("%4d %12.2f %12.2f  %10.3f  %10.3f", vars->ensembleCounter+1, vars->winStart[winIndex], vars->winEnd[winIndex], s1az, s2lag);
+      writer->line("%4d %12.2f %12.2f  %10.3f  %10.3f", vars->ensembleCounter+1, vars->winStart[winIndex], vars->winEnd[winIndex], s1az, s2lag);
       if( edef->isDebug() ) fprintf(stderr,"Window  %f - %f  s1az %f  s2lag %f\n", vars->winStart[winIndex], vars->winEnd[winIndex], s1az, s2lag);
       // 3) Correct splitting in current window
       //  a) Rotate from azim to s1az
       //  b) Time stretch S2 back to S1
       //  c) Rotate back from s1az to azim
       float rotation_angle_rad = (float)(s1az * M_PI / 180.0) - vars->azim_rad;
-      if( vars->rotationMode == REMOVE ) {
+      if( vars->rotationMode == mod_splitting::MODE_REMOVE ) {
         rotation_angle_rad *= -1.0f;
       }
 
@@ -626,7 +601,7 @@ void exec_mod_splitting_(
 
       // Regenerate S1/S2 stacks after layer-stripping.
       compute_s1s2_splitting_stacks( samples, sr_azim, numSamples, numUsedPairs, vars->azim_rad,
-        edef->isDebug(), log->getFile(),
+        edef->isDebug(), writer->getFile(),
         vars->angleWidthOmit, vars->normMethod, vars->s2Scaling, vars->nAngles/2, vars->angleInc_rad,
         vars->s1, vars->s2 );
 
@@ -745,16 +720,68 @@ void params_mod_splitting_( csParamDef* pdef ) {
 }
 
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_splitting_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_splitting::VariableStruct* vars = reinterpret_cast<mod_splitting::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_splitting_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_splitting::VariableStruct* vars = reinterpret_cast<mod_splitting::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->s1 != NULL && vars->s2 != NULL ) {
+    for( int iangle = 0; iangle < vars->nAngles; iangle++ ) {
+      delete [] vars->s1[iangle];
+      delete [] vars->s2[iangle];
+    }
+    delete [] vars->s1;
+    delete [] vars->s2;
+    vars->s1 = NULL;
+    vars->s2 = NULL;
+  }
+  if( vars->winStart != NULL && vars->winEnd != NULL ) {
+    delete [] vars->winStart;
+    vars->winStart = NULL;
+    delete [] vars->winEnd;
+    vars->winEnd = NULL;
+  }
+  if( vars->corr_lags != NULL ) {
+    delete [] vars->corr_lags;
+    vars->corr_lags = NULL;
+  }
+  if( vars->fout != NULL ) {
+    fclose(vars->fout);
+    vars->fout = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_splitting_( csParamDef* pdef ) {
   params_mod_splitting_( pdef );
 }
-extern "C" void _init_mod_splitting_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_splitting_( param, env, log );
+extern "C" void _init_mod_splitting_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_splitting_( param, env, writer );
 }
-extern "C" void _exec_mod_splitting_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_splitting_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_splitting_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_splitting_( env, writer );
 }
-
+extern "C" void _exec_mod_splitting_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_splitting_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_splitting_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_splitting_( env, writer );
+}
 
 void compute_s1s2_splitting_stacks( float** samples, float const* sr_azim, int numSamples, int numPairs, float azim,
     bool isDebug, FILE* logFile,
@@ -854,40 +881,36 @@ void compute_s1s2_splitting_stacks( float** samples, float const* sr_azim, int n
 
 }
 
-  void compute_twosided_correlation2( float const* samplesLeft, float const* samplesRight,
-                                   int nSampIn, float* corr, int maxlag_in_num_samples ) {
+void compute_twosided_correlation2( float const* samplesLeft, float const* samplesRight, int nSampIn, float* corr, int maxlag_in_num_samples ) {
 
-    int sampStart;
-    int sampEnd;
+  int sampStart;
+  int sampEnd;
 
-    //---------------------------------------
-    // Compute negative lags
-    //
-    sampEnd    = nSampIn;
-    for( int ilag = -maxlag_in_num_samples; ilag < 0; ilag++ ) {
-      sampStart  = -ilag;
-      float sum = 0;
-      for( int isamp = sampStart; isamp < sampEnd; isamp++ ) {
-        sum += samplesLeft[isamp]*samplesRight[isamp+ilag];
-      }
-      //      int nSamp = sampEnd-sampStart;
-//      corr[ilag+maxlag_in_num_samples] = sum/(float)nSamp;
-      corr[ilag+maxlag_in_num_samples] = sum;
+  //---------------------------------------
+  // Compute negative lags
+  //
+  sampEnd    = nSampIn;
+  for( int ilag = -maxlag_in_num_samples; ilag < 0; ilag++ ) {
+    sampStart  = -ilag;
+    float sum = 0;
+    for( int isamp = sampStart; isamp < sampEnd; isamp++ ) {
+      sum += samplesLeft[isamp]*samplesRight[isamp+ilag];
     }
-
-    //---------------------------------------
-    // Compute positive lags
-    //
-    sampStart  = 0;
-    for( int ilag = 0; ilag <= maxlag_in_num_samples; ilag++ ) {
-      sampEnd    = nSampIn-ilag;
-      float sum = 0;
-      for( int isamp = sampStart; isamp < sampEnd; isamp++ ) {
-        sum += samplesLeft[isamp]*samplesRight[isamp+ilag];
-      }
-      //      int nSamp = sampEnd-sampStart;
-      corr[ilag+maxlag_in_num_samples] = sum;
-    }
+    corr[ilag+maxlag_in_num_samples] = sum;
   }
+
+  //---------------------------------------
+  // Compute positive lags
+  //
+  sampStart  = 0;
+  for( int ilag = 0; ilag <= maxlag_in_num_samples; ilag++ ) {
+    sampEnd    = nSampIn-ilag;
+    float sum = 0;
+    for( int isamp = sampStart; isamp < sampEnd; isamp++ ) {
+      sum += samplesLeft[isamp]*samplesRight[isamp+ilag];
+    }
+    corr[ilag+maxlag_in_num_samples] = sum;
+  }
+}
 
 

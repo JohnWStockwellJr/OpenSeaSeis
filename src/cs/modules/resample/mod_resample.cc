@@ -24,13 +24,13 @@ namespace mod_resample {
     int   numSamplesOld;
     float sampleIntOld;  // [ms]
     float* buffer;
-    float cutOffHz;
     bool debias;
-    int filter;
+    int filterFlag;
     int hdrID_scalar;
     cseis_geolib::csInterpolation* interpol;
     int normOption;
     float normScalar;
+    int upSampleMethod;
 
     cseis_geolib::csFFTTools* fftTool;
   };
@@ -40,10 +40,11 @@ namespace mod_resample {
   static int const NORM_YES   = 101;
   static int const NORM_NO    = 102;
   static int const NORM_RMS   = 103;
+  static int const UPSAMPLE_SINC   = 301;
+  static int const UPSAMPLE_QUAD   = 302;
+  static int const UPSAMPLE_LINEAR   = 303;
 }
 using namespace mod_resample;
-
-void create_filter_coef( float cutOffFreqHz, int order, float* coef, int numCoef );
 
 //*************************************************************************************************
 // Init phase
@@ -51,7 +52,7 @@ void create_filter_coef( float cutOffFreqHz, int order, float* coef, int numCoef
 //
 //
 //*************************************************************************************************
-void init_mod_resample_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_resample_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   csSuperHeader*    shdr = env->superHeader;
@@ -59,17 +60,19 @@ void init_mod_resample_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
   vars->buffer = NULL;
   vars->debias = false;
-  vars->filter = mod_resample::FILTER_NONE;
+  vars->filterFlag = mod_resample::FILTER_NONE;
   vars->hdrID_scalar = -1;
   vars->interpol = NULL;
   vars->normOption = mod_resample::NORM_YES;
   vars->normScalar = 1.0f;
-
-//---------------------------------------------
+  vars->upSampleMethod = mod_resample::UPSAMPLE_SINC;
+ 
+  //---------------------------------------------
   vars->numSamplesOld = shdr->numSamples;
   vars->sampleIntOld  = shdr->sampleInt;
 
@@ -77,7 +80,7 @@ void init_mod_resample_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
   param->getFloat( "sample_int", &sampleIntNew );  // [ms]
 
   if( sampleIntNew <= 0 ) {
-    log->error("Non-physical sample interval specified: %fms", sampleIntNew);
+    writer->error("Non-physical sample interval specified: %fms", sampleIntNew);
   }
 
   if( param->exists( "debias" ) ) {
@@ -91,51 +94,17 @@ void init_mod_resample_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
       vars->debias = false;
     }
     else {
-      log->line("Unknown argument for user parameter 'debias': '%s'.", text.c_str());
+      writer->line("Unknown argument for user parameter 'debias': '%s'.", text.c_str());
       env->addError();
     }
   }
 
+  float cutOffFreq = 120.0f;
+  float slope      = 200.0f;
   if( param->exists( "anti_alias" ) ) {
-    std::string text;
-    param->getString( "anti_alias", &text );
-    text = toLowerCase( text );
-    if( !text.compare( "yes" ) ) {
-      vars->filter = mod_resample::FILTER_BUTTER;
-    }
-    else if( !text.compare( "fir" ) ) {
-      vars->filter = mod_resample::FILTER_FIR;
-    }
-    else if( !text.compare( "no" ) ) {
-      vars->filter = mod_resample::FILTER_NONE;
-    }
-    else {
-      log->line("Unknown option: '%s'.", text.c_str());
-      env->addError();
-    }
-  }
-
-  float order = 20;
-  if( param->exists("order") ) {
-    param->getFloat("order", &order );
-    if( order < 1 || order > 100 ) {
-      log->error("Specified order = %.2f out of valid range = 1-100", order);
-    }
-    if( vars->filter == mod_resample::FILTER_NONE ) log->warning("Filter order specified but anti-alias filter is turned off");
-  }
-  if( param->exists("slope") ) {
-    float slope;
-    param->getFloat("slope", &slope );
-    order = fabs(slope) / 6.0;
-    if( vars->filter == mod_resample::FILTER_NONE ) log->warning("Filter slope specified but anti-alias filter is turned off");
-  }
-  float cutOffRatio = 0.8;
-  if( param->exists( "cutoff" ) ) {
-    param->getFloat( "cutoff", &cutOffRatio );
-    if( cutOffRatio <= 0.0 || cutOffRatio >= 1.0 ) {
-      log->error("Given cut-off ratio (=%f) outside of valid range (=0.0-1.0)", cutOffRatio);
-    }
-    if( vars->filter == mod_resample::FILTER_NONE ) log->warning("Filter cutoff specified but anti-alias filter is turned off");
+    vars->filterFlag = mod_resample::FILTER_BUTTER;
+    param->getFloat("anti_alias", &cutOffFreq, 0 );
+    param->getFloat("anti_alias", &slope, 1 );
   }
 
   bool isSinc = true;
@@ -144,12 +113,17 @@ void init_mod_resample_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
     param->getString( "upsampling", &text );
     if( !text.compare( "sinc" ) ) {
       isSinc = true;
+      vars->upSampleMethod = mod_resample::UPSAMPLE_SINC;
     }
     else if( !text.compare( "quad" ) ) {
       isSinc = false;
+      vars->upSampleMethod = mod_resample::UPSAMPLE_QUAD;
+    }
+    else if( !text.compare( "linear" ) ) {
+      vars->upSampleMethod = mod_resample::UPSAMPLE_LINEAR;
     }
     else {
-      log->line("Unknown option: '%s'.", text.c_str());
+      writer->line("Unknown option: '%s'.", text.c_str());
       env->addError();
     }
   }
@@ -166,7 +140,7 @@ void init_mod_resample_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
       vars->normOption = mod_resample::NORM_NO;
     }
     else {
-      log->line("Unknown option: '%s'.", text.c_str());
+      writer->line("Unknown option: '%s'.", text.c_str());
       env->addError();
     }
   }
@@ -175,38 +149,30 @@ void init_mod_resample_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
   if( sampleIntNew < shdr->sampleInt ) {
     numSamplesNew = (int)( ((float)vars->numSamplesOld)*(shdr->sampleInt/sampleIntNew) );
     vars->buffer = new float[numSamplesNew];
-    if( isSinc) vars->interpol = new csInterpolation( vars->numSamplesOld, vars->sampleIntOld, 8 );
+    if( isSinc ) vars->interpol = new csInterpolation( vars->numSamplesOld, vars->sampleIntOld, 8 );
   }
   else if( sampleIntNew > shdr->sampleInt ) {
-    float freqNy      = 500.0/shdr->sampleInt;
-    double ratio      = (int)((double)sampleIntNew / (double)shdr->sampleInt );
-    int ratio_int = (int)round( ratio );
-    int m;
-    int twopm;
-    csFFTTools::Powerof2( ratio_int, &m, &twopm );
-    if( twopm != ratio_int ) {
-      ratio = twopm * 2;
-    }
-    else {
-      ratio = ratio_int;
-    }
-    if( fabs(sampleIntNew-shdr->sampleInt*ratio) > 0.001 ) {
-      log->warning("Output sample interval was set to %f. Current implementation requires new_sample_int to be N*old_sample_int, where N=2^M", shdr->sampleInt*ratio);
+    float freqNy  = 500.0/shdr->sampleInt;
+    double ratio  = (int)((double)sampleIntNew / (double)shdr->sampleInt );
+    if( fabs( sampleIntNew - shdr->sampleInt*ratio) > 0.001 ) {
+      writer->warning("Output sample interval was set to %f. Current implementation requires new_sample_int to be N*old_sample_int, where N=2^M", shdr->sampleInt*ratio);
     }
     sampleIntNew = shdr->sampleInt*ratio;
-    float cutOffFreq  = ( freqNy / ratio ) * cutOffRatio;
     numSamplesNew     = (int)ceil((double)vars->numSamplesOld / ratio);  // Workaround BUGFIX 100504: Avoids clash for num samples = 2^N+1
     vars->fftTool     = new csFFTTools( vars->numSamplesOld, numSamplesNew, vars->sampleIntOld, sampleIntNew );
-    vars->fftTool->setFilter( order, cutOffFreq, false );
 
-    log->line("Sample int old/new: %f/%f ms\nNyquist: %f Hz\nCut-off frequency: %f Hz\nRatio: %f\nOrder: %f, #samples old/new/fft/fftout: %d/%d/%d/%d\n",
-              vars->sampleIntOld, sampleIntNew, freqNy, cutOffFreq, ratio, order, vars->numSamplesOld, numSamplesNew, vars->fftTool->numFFTSamples(), vars->fftTool->numFFTSamplesOut() );
+    if( vars->filterFlag != mod_resample::FILTER_NONE ) {
+      vars->fftTool->setFilter( cutOffFreq, slope );
+    }
+    writer->line("Sample int old/new: %f/%f ms\nNyquist: %f Hz\nCut-off frequency: %f Hz\nRatio: %f\nSlope[db/oct]: %f, #samples old/new/fft/fftout: %d/%d/%d/%d\n",
+                 vars->sampleIntOld, sampleIntNew, freqNy, cutOffFreq, ratio, slope, vars->numSamplesOld, numSamplesNew, vars->fftTool->numFFTSamples(), vars->fftTool->numFFTSamplesOut() );
+
     if( edef->isDebug() ) {
       fprintf(stderr,"SampleInt: %f, Nyquist: %f, cutOff: %f, ratio: %f\n", shdr->sampleInt, freqNy, cutOffFreq, ratio );
     }
   }
   else {
-    log->warning("Specified sample interval of %fms is the same as in the input data.\nData will stay unchanged.", sampleIntNew );
+    writer->warning("Specified sample interval of %fms is the same as in the input data.\nData will stay unchanged.", sampleIntNew );
   }
 
   shdr->numSamples = numSamplesNew;
@@ -215,8 +181,8 @@ void init_mod_resample_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
   if( edef->isDebug() ) {
     float ratio = shdr->sampleInt/vars->sampleIntOld;
     int ratio_int = (int)round( ratio );
-    log->line("nSamples (old,new): %d %d, sampleInt (old,new): %8.4f %8.4f, ratio: %f (%d)",
-              vars->numSamplesOld, shdr->numSamples, vars->sampleIntOld, shdr->sampleInt, ratio, ratio_int);
+    writer->line("nSamples (old,new): %d %d, sampleInt (old,new): %8.4f %8.4f, ratio: %f (%d)",
+                 vars->numSamplesOld, shdr->numSamples, vars->sampleIntOld, shdr->sampleInt, ratio, ratio_int);
     fprintf(stderr,"nSamples (old,new): %d %d, sampleInt (old,new): %8.4f %8.4f, ratio: %f (%d)\n",
             vars->numSamplesOld, shdr->numSamples, vars->sampleIntOld, shdr->sampleInt, ratio, ratio_int);
   }
@@ -226,11 +192,12 @@ void init_mod_resample_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
       hdef->addHeader( cseis_geolib::TYPE_FLOAT, "resample_scalar", "Inverse scalar applied during RESAMPLE" );
     }
     vars->hdrID_scalar = hdef->headerIndex("resample_scalar");
+    writer->line("Apply normalization?  Yes, using trace RMS. Store applied scalar value to trace header 'resample_scalar'\n");
   }
   else if( vars->normOption == mod_resample::NORM_YES ) {
     float ratio = shdr->sampleInt / vars->sampleIntOld;
-    if( ratio > 2.1f ) ratio /= 2.0f;   // ..no idea why this is necessary. Tested with 1ms and 2ms input data, resampled to 4ms, 8ms...
     vars->normScalar = 1.0/ratio;
+    writer->line("Apply normalization? Yes, using ratio between sample intervals Scalar = %.4f / %.4f = %f\n", shdr->sampleInt, vars->sampleIntOld, vars->normScalar);
   }
 
 }
@@ -241,91 +208,79 @@ void init_mod_resample_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
 //
 //
 //*************************************************************************************************
-bool exec_mod_resample_(
-  csTrace* trace,
+void exec_mod_resample_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
+  //  csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup()){
-    if( vars->buffer != NULL ) {
-      delete [] vars->buffer;
-      vars->buffer = NULL;
-    }
-    if( vars->fftTool != NULL ) {
-      delete vars->fftTool;
-      vars->fftTool = NULL;
-    }
-    if( vars->interpol != NULL ) {
-      delete vars->interpol;
-      vars->interpol = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
 
   float* samples = trace->getTraceSamples();
   int numSamplesNew = shdr->numSamples;
 
-  float resampleScalar = 1.0;
+  float resampleScalar = 1.0f;
+  // Case #1: Interpolate to smaller sample interval
   if( shdr->sampleInt < vars->sampleIntOld ) {
-    if( vars->interpol != NULL ) {
+    if( vars->upSampleMethod == mod_resample::UPSAMPLE_SINC ) {
       for( int isamp = 0; isamp < numSamplesNew; isamp++ ) {
         float time_ms = (float)isamp * shdr->sampleInt;
         vars->buffer[isamp] = vars->interpol->valueAt( time_ms, samples );
       }
     }
-    else {
+    else if( vars->upSampleMethod == mod_resample::UPSAMPLE_QUAD ) {
       for( int isamp = 0; isamp < numSamplesNew; isamp++ ) {
         double sampleIndexOld = (double)(isamp*shdr->sampleInt) / vars->sampleIntOld;
         vars->buffer[isamp] = getQuadAmplitudeAtSample( samples, sampleIndexOld, vars->numSamplesOld );
       }
     }
+    else { // if( vars->upSampleMethod == mod_resample::UPSAMPLE_LINEAR ) {
+      for( int isamp = 0; isamp < numSamplesNew; isamp++ ) {
+        double sampleIndexOld = (double)(isamp*shdr->sampleInt) / vars->sampleIntOld;
+        vars->buffer[isamp] = getLinAmplitudeAtSample( samples, sampleIndexOld, vars->numSamplesOld );
+      }
+    }
+
     memcpy( samples, vars->buffer, numSamplesNew*sizeof(float) );
   }
+  // Case #2: Resample to larger sample interval. Apply anti-alias filter if specified
   else if( shdr->sampleInt > vars->sampleIntOld ) {
-    if( !vars->debias ) {
-      resampleScalar = vars->fftTool->resample( samples, vars->filter != mod_resample::FILTER_NONE, vars->normOption == mod_resample::NORM_RMS );
-    } // Remove DC bias first
-    else {
+    float mean = 0.0f;
+    if( vars->debias ) { // Remove DC bias first
       double sum = 0.0;
       int sampleCounter = 0;
       for( int isamp = 0; isamp < vars->numSamplesOld; isamp++ ) {
-        if( samples[isamp] != 0 ) {
-          sampleCounter += 1;
-          sum += samples[isamp];
-        }
+        sampleCounter += 1;
+        sum += samples[isamp];
       }
-      float mean = sum / (double)sampleCounter;
+      mean = sum / (double)sampleCounter;
       for( int isamp = 0; isamp < vars->numSamplesOld; isamp++ ) {
-        if( samples[isamp] != 0 ) {
-          samples[isamp] -= mean;
-        }
-      }
-
-      resampleScalar = vars->fftTool->resample( samples, vars->filter != mod_resample::FILTER_NONE, vars->normOption == mod_resample::NORM_RMS );
-
-      // Reapply DC bias afterwards
-      for( int isamp = 0; isamp < shdr->numSamples; isamp++ ) {
-        if( samples[isamp] != 0 ) {
-          samples[isamp] += mean;
-        }
+        samples[isamp] -= mean;
       }
     }
+    resampleScalar = vars->fftTool->resample( samples, vars->filterFlag != mod_resample::FILTER_NONE, vars->normOption == mod_resample::NORM_RMS );
     if( vars->normOption == mod_resample::NORM_YES ) {
       for( int isamp = 0; isamp < vars->numSamplesOld; isamp++ ) {
         samples[isamp] *= vars->normScalar;
       }      
+    }
+    if( vars->debias ) { // Reapply DC bias afterwards
+      for( int isamp = 0; isamp < shdr->numSamples; isamp++ ) {
+        samples[isamp] += mean;
+      }
     }
   }
   if( vars->normOption == mod_resample::NORM_RMS ) {
     if( resampleScalar > 0 ) resampleScalar = 1/resampleScalar;
     trace->getTraceHeader()->setFloatValue( vars->hdrID_scalar, resampleScalar );
   }
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -334,9 +289,9 @@ bool exec_mod_resample_(
 //
 //*************************************************************************************************
 void params_mod_resample_( csParamDef* pdef ) {
-  pdef->setModule( "RESAMPLE", "Resample trace to different sample interval (LIMITED FUNCTIONALITY!)" );
+  pdef->setModule( "RESAMPLE", "Resample trace to different sample interval" );
 
-  pdef->addParam( "sample_int", "New sample interval [ms]", NUM_VALUES_FIXED );
+  pdef->addParam( "sample_int", "New sample interval [ms]", NUM_VALUES_FIXED, "Must be even multiplier of current sample interval" );
   pdef->addValue( "", VALTYPE_NUMBER, "Sample interval [ms]" );
 
   pdef->addParam( "debias", "Remove DC bias before resampling?", NUM_VALUES_FIXED );
@@ -344,76 +299,71 @@ void params_mod_resample_( csParamDef* pdef ) {
   pdef->addOption( "yes", "Remove DC bias before resampling, reapply afterwards.", "This should be done to avoid FFT related artefacts due to DC bias" );
   pdef->addOption( "no", "Do not remove DC bias before resampling." );
 
-  pdef->addParam( "anti_alias", "Apply anti-alias filter?", NUM_VALUES_FIXED );
-  pdef->addValue( "no", VALTYPE_OPTION );
-  pdef->addOption( "yes", "Apply anti-alias (Butterworth) filter. Specify input parameters 'cutoff' and 'slope' (or 'order')" );
-  pdef->addOption( "no", "Do not apply anti-alias filter." );
-  //  pdef->addOption( "fir", "Apply anti-alias filter. Specify input parameters 'cutoff' and 'slope' (or 'order')" );
-
-  pdef->addParam( "slope", "Filter slope in dB/oct", NUM_VALUES_FIXED );
-  pdef->addValue( "60", VALTYPE_NUMBER );
-
-  pdef->addParam( "order", "Filter 'order'", NUM_VALUES_FIXED, "The filter 'order' defines the steepness of the filter taper. The higher the order, the shorter the taper." );
-  pdef->addValue( "10", VALTYPE_NUMBER, "Filter order (1-100)" );
-
-  pdef->addParam( "cutoff", "Cut-off (-3db) frequency", NUM_VALUES_FIXED );
-  pdef->addValue( "0.8", VALTYPE_NUMBER, "Cut-off frequency, given as ratio of Nyquist (0.0-1.0)", "For example: 0.9 --> cut-off frequency is 90% of Nyquist" );
+  pdef->addParam( "anti_alias", "Anti-alias filter", NUM_VALUES_FIXED, "Do not specify if no anti-alias filter is required" );
+  pdef->addValue( "", VALTYPE_NUMBER, "Cut-off frequency [Hz] (-3dB point)" );
+  pdef->addValue( "", VALTYPE_NUMBER, "Filter slope [dB/oct]" );
 
   pdef->addParam( "upsampling", "Interpolation method used for upsampling (output sample interval < input sample interval)", NUM_VALUES_FIXED );
   pdef->addValue( "sinc", VALTYPE_OPTION );
   pdef->addOption( "sinc", "Use sinc interpolation" );
-  pdef->addOption( "quad", "Obsolete option. Use quadratic interpolation", "...for backward compatibility: This method was hardcoded in previous versions" );
-
+  pdef->addOption( "quad", "Use quadratic interpolation" );
+  pdef->addOption( "linear", "Linear interpolation" );
+ 
   pdef->addParam( "norm", "Apply normalization?", NUM_VALUES_FIXED );
   pdef->addValue( "yes", VALTYPE_OPTION );
-  pdef->addOption( "yes", "Apply normalization" );
+  pdef->addOption( "yes", "Apply normalization: Ratio of input/output sample intervals" );
   pdef->addOption( "no", "Do not apply normalization" );
-  pdef->addOption( "rms", "Obsolete option: Apply trace-by-trace RMS normalization. Inverse scalar is stored in output trace header 'resample_scalar'. Applying this scalar reverses the normalization" );
-
-  //  pdef->addParam( "filter", "Anti-alias filter method to use", NUM_VALUES_FIXED );
-  //  pdef->addValue( "butterworth", VALTYPE_OPTION );
-  //  pdef->addOption( "butterworth", "Standard butterworth filter" );
-  //  pdef->addOption( "fir", "Standard fir x-t filter" );
+  pdef->addOption( "rms", "Apply trace-by-trace RMS normalization. Inverse scalar is stored in output trace header 'resample_scalar'. Applying this scalar reverses the normalization" );
 }
 
+
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_resample_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  //  mod_resample::VariableStruct* vars = reinterpret_cast<mod_resample::VariableStruct*>( env->execPhaseDef->variables() );
+  //  csExecPhaseDef* edef = env->execPhaseDef;
+  //  csSuperHeader const* shdr = env->superHeader;
+  //  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_resample_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_resample::VariableStruct* vars = reinterpret_cast<mod_resample::VariableStruct*>( env->execPhaseDef->variables() );
+  //  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->buffer != NULL ) {
+    delete [] vars->buffer;
+    vars->buffer = NULL;
+  }
+  if( vars->fftTool != NULL ) {
+    delete vars->fftTool;
+    vars->fftTool = NULL;
+  }
+  if( vars->interpol != NULL ) {
+    delete vars->interpol;
+    vars->interpol = NULL;
+  }
+  delete vars; vars = NULL;
+}
 
 extern "C" void _params_mod_resample_( csParamDef* pdef ) {
   params_mod_resample_( pdef );
 }
-extern "C" void _init_mod_resample_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_resample_( param, env, log );
+extern "C" void _init_mod_resample_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_resample_( param, env, writer );
 }
-extern "C" bool _exec_mod_resample_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_resample_( trace, port, env, log );
+extern "C" bool _start_exec_mod_resample_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_resample_( env, writer );
 }
-
-/*
- * Create filter coefficients for standard FIR low-pass filter
- *
- * h(n) = w/pi  * sin(w*m)/(w*m)
- * m = (n - N/2)
- * N: Order
- * w = 2*pi*f
- * f = cut-off frequency
- */
-void create_filter_coef( float cutOffFreqHz, int order, float* coef, int numCoef ) {
-  double angularFreq = cutOffFreqHz * M_PI * 2.0;
-  double orderHalf = (double)order / 2.0;
-
-  for( int i = 0; i < order; i++ ) {
-    double id = (double)i;
-    coef[i] = (float)( sin( angularFreq * ( id - orderHalf ) ) / (M_PI * ( id - orderHalf )) );
-  }
-  for( int i = order+1; i < numCoef; i++ ) {
-    double id = (double)i;
-    coef[i] = (float)( sin( angularFreq * ( id - orderHalf ) ) / (M_PI * ( id - orderHalf )) );
-  }
-  coef[order] = (float)( 2.0*cutOffFreqHz );
-
-  // Apply Hamming window:
-  for( int i = 0; i < numCoef; i++ ) {
-    coef[i] *= (float)( ( 0.54 - 0.46 * cos(2.0*M_PI*(double)i/(double)numCoef) ) );
-  }
+extern "C" void _exec_mod_resample_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_resample_( traceGather, port, numTrcToKeep, env, writer );
 }
-
-
+extern "C" void _cleanup_mod_resample_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_resample_( env, writer );
+}

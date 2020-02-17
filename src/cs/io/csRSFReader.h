@@ -40,10 +40,17 @@ public:
   bool moveToTrace( int firstTraceIndex );
   bool moveToTrace( int firstTraceIndex, int numTracesToRead );
   bool moveToComputedTrace( double val_dim2, double val_dim3 );
+  bool moveToComputedTrace( double val_dim2, double val_dim3, double val_dim4 );
+  bool moveToComputedTrace( double val_dim2, double val_dim3, double val_dim4, double val_dim5 );
 
   int computeTrace( double val_dim2, double val_dim3 ) const;
+  int computeTrace( double val_dim2, double val_dim3, double val_dim4 ) const;
+  int computeTrace( double val_dim2, double val_dim3, double val_dim4, double val_dim5 ) const;
   double computeDim2( int traceIndex ) const;
   double computeDim3( int traceIndex ) const;
+  double computeDim4( int traceIndex ) const;
+  double computeDim5( int traceIndex ) const;
+  int numDim() const;
 
   bool setHeaderToPeek( std::string const& headerName );
   bool setHeaderToPeek( std::string const& headerName, cseis_geolib::type_t& headerType );
@@ -89,7 +96,7 @@ public:
   cseis_geolib::csFlexNumber const* getSelectedValue( int traceIndex ) const;
   int getSelectedIndex( int traceIndex ) const;
   int getCurrentTraceIndex() const { return myCurrentTraceIndex; }
-private:
+protected:
 
   bool seekg_relative( csInt64_t bytePosRelative );
   void convert2standardUnit();
@@ -129,18 +136,19 @@ private:
 
   float mySampleInt;
   int   myNumSamples;
+  int   myNumDimensions;
 
   bool myHasBeenInitialized;
 
   cseis_geolib::csIOSelection* myIOSelection;
-//-----------------------------------------------------------------------------------------
-//
-private:
+
   void openBinFile();
   void readRSFHdr();
   bool readDataBuffer();
   int currentTraceIndex() const;
-
+//-----------------------------------------------------------------------------------------
+//
+private:
   csRSFReader();
   csRSFReader( csRSFReader const& obj );
   csRSFReader& operator=( csRSFReader const& obj );

@@ -4,6 +4,7 @@
 #include "csLogWriter.h"
 #include "csException.h"
 #include <stdarg.h>
+#include <cstring>
 
 using namespace cseis_system;
 
@@ -101,6 +102,10 @@ void csLogWriter::flush() {
   if( myLogFile ) {
     fflush(myLogFile);
   }
+}
+
+char const* csLogWriter::getFilename() const {
+  return myFilename;
 }
 
 

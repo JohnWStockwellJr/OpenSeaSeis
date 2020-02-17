@@ -3,6 +3,8 @@
 
 #include <string>
 #include <iostream>
+#include <sstream>
+#include <cmath>
 #include "csUserParam.h"
 #include "csParamDef.h"
 // From geolib
@@ -105,12 +107,21 @@ void csUserParam::csUserParam::dump() const {
 void csUserParam::convertToLowerCase( int valIndex ) {
   myValueList->set( cseis_geolib::toLowerCase( myValueList->at(valIndex) ), valIndex );
 }
-/*
-void csUserParam::setValue( int valIndex, int valueType ) {
-  if( valueType == VALTYPE_OPTION && valIndex < getNumValues()) {
-     myValueList->set( toLowerCase( myValueList->at(valIndex) ), valIndex );
-   }
+void csUserParam::setValue( int valIndex, double value ) {
+  if( valIndex < getNumValues() ) {
+    double diff = fabs( value - (double)(int)value );
+    std::ostringstream sstream;
+    if( value == 0 || diff < 1e-7 ) {
+      sstream << (int)value;
+    }
+    else {
+      sstream << value;
+    }
+    std::string valueAsText = sstream.str();
+    myValueList->set( valueAsText, valIndex );
+  }
 }
+/*
 void csUserParam::setValueTypeVariable( int valIndexStart, int valueType ) {
   if( valueType == VALTYPE_OPTION ) {
     int nValues = getNumValues();

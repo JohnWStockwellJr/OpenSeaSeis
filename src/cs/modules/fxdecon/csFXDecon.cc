@@ -1,9 +1,12 @@
+/* Copyright (c) Colorado School of Mines, 2013.*/
+/* All rights reserved.                       */
+
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
 #include "csFXDecon.h"
 #include "csException.h"
-#include "csFFTTools.h"
+#include "csFFT.h"
 #include "geolib_defines.h"
 
 using namespace mod_fxdecon;
@@ -43,12 +46,12 @@ csFXDecon::~csFXDecon() {
 //--------------------------------------------------------------------------------
 //
 void csFXDecon::initialize( float sampleInt_ms, int numSamplesIn, mod_fxdecon::Attr const& attr ) {
-  myFFT = new cseis_geolib::csFFTTools( numSamplesIn );
-  myNumSamplesFFT = myFFT->numFFTSamples();
+  myFFT = new cseis_geolib::csFFT( numSamplesIn );
+  myNumSamplesFFT = myFFT->numFFTValues();
   // !CHANGE!    Try to reduce the number of samples in FFT: Feed fftTool maximum length of window (numSamplesWinF??) instead of full trace length (numSamples)
-  myNumFreq = myNumSamplesFFT/2 + 1;
-  myFreqStep_hz = 1000.0/(float)(myNumSamplesFFT*sampleInt_ms);
-  mySampleInt_s = sampleInt_ms / 1000.0;
+  myNumFreq       = myFFT->numFreqValues(); // myNumSamplesFFT/2 + 1;
+  myFreqStep_hz   = 1000.0/(float)(myNumSamplesFFT*sampleInt_ms);
+  mySampleInt_s   = sampleInt_ms / 1000.0;
 
   fmin           = attr.fmin;
   fmax           = attr.fmax;
@@ -214,16 +217,13 @@ void csFXDecon::apply( float** samplesIn, float** samplesOut, int numTraces, int
       if( numSamples > numSamplesWinCurrent ) {
         memset( &tidataw[numSamplesWinCurrent], 0, (numSamples-numSamplesWinCurrent)*sizeof(float) );
       }
-      bool success = myFFT->fft_forward( tidataw );
-      if( !success ) {
-        throw( cseis_geolib::csException("csFXDecon::apply(): FFT forward transform failed for unknown reasons") );
-      }
 
-      // Store values
-      double const* realPtr = myFFT->realData();
-      double const* imagPtr = myFFT->imagData();
+      myFFT->forwardTransform( tidataw, bufferRealImag, cseis_geolib::FX_REAL_IMAG );
+      float const* realPtr = &bufferRealImag[0];
+      float const* imagPtr = &bufferRealImag[myNumFreq];
       for( int ifq = 0; ifq < myNumFreq; ifq++ ) {
-        fdata[itrc][ifq] = std::complex<float>( (float)realPtr[ifq] ,(float)imagPtr[ifq] );
+        fdata[itrc][ifq] = std::complex<float>( realPtr[ifq], imagPtr[ifq] );
+        // fdata[itrc][ifq] = std::complex<float>( (float)realPtr[ifq] ,(float)imagPtr[ifq] );
         //  float amp = sqrt( fdata[itrc][ifq].real()*fdata[itrc][ifq].real() + fdata[itrc][ifq].imag()*fdata[itrc][ifq].imag() );
         //  float phase = atan2( -fdata[itrc][ifq].imag(), fdata[itrc][ifq].real() );
         //  fprintf(stdout,"%d %f  %f  %f  %f  %f\n",itrc,ifq*myFreqStep_hz,realPtr[ifq],imagPtr[ifq],amp,phase);
@@ -274,7 +274,7 @@ void csFXDecon::apply( float** samplesIn, float** samplesOut, int numTraces, int
               fdataw[itrc][ifq] = fdata[numTraces-1][ifq];
             }
           }
-	} // for ifq
+        } // for ifq
       } // for itrc
 
 
@@ -383,22 +383,12 @@ void csFXDecon::apply( float** samplesIn, float** samplesOut, int numTraces, int
       for( int itrc = 0; itrc < ntrwu; itrc++ ) {
     
         for( int isamp = 0; isamp < myNumFreq; isamp++ ) {
-          bufferRealImag[isamp]      = ffreq[itrc][isamp].real();
-          bufferRealImag[isamp+myNumSamplesFFT] = ffreq[itrc][isamp].imag();
+          bufferRealImag[isamp]           = ffreq[itrc][isamp].real();
+          bufferRealImag[isamp+myNumFreq] = ffreq[itrc][isamp].imag();
         }
+        myFFT->inverseTransform( bufferRealImag, ttodataw, cseis_geolib::FX_REAL_IMAG );
 
-        memset( &bufferRealImag[myNumFreq], 0, (myNumSamplesFFT-myNumFreq)*sizeof(float) );
-        memset( &bufferRealImag[myNumFreq+myNumSamplesFFT], 0, (myNumSamplesFFT-myNumFreq)*sizeof(float) );
-
-        bool success = myFFT->fft_inverse( bufferRealImag, cseis_geolib::FX_REAL_IMAG );
-        if( !success ) {
-          throw( cseis_geolib::csException("csFXDecon::apply(): FFT inverse transform failed for unknown reasons") );
-        }
-        double const* real = myFFT->realData();
         int minNumSamples = std::min(numSamples,myNumSamplesFFT);
-        for( int isamp = 0; isamp < minNumSamples; isamp++ ) {
-          ttodataw[isamp] = 2.0 * real[isamp];
-        }
 
         if( numSamples != myNumSamplesFFT ) {
           memset( &ttodataw[minNumSamples], 0, (std::max(numSamples,myNumSamplesFFT)-minNumSamples)*sizeof(float) );
@@ -511,31 +501,32 @@ void csFXDecon::cconv( int num1, int index1, std::complex<float>* in1,
 void csFXDecon::LUDecomposition( float** AA, int nIn, int* indx, float* dd )
 {
   float dum, sum, temp;
-  int imax = 0;
+  unsigned int imax = 0;
+  unsigned int nIn_unsigned = (unsigned int)nIn;
 
-  float* vv = new float[ nIn ];
+  float* vv = new float[ nIn_unsigned ];
   if( !vv ) fprintf(stderr,"Allocation failure in ludcmpBO\n");
 
   *dd = 1.0;
-  for( int i = 0; i < nIn; i++ ) {
+  for( unsigned int i = 0; i < nIn_unsigned; i++ ) {
     float big = 0.0;
-    for( int j = 0; j < nIn; j++ ) {
+    for( unsigned int j = 0; j < nIn_unsigned; j++ ) {
       if ((temp = fabs(AA[i][j])) > big) big = temp;
     }
-    if (big == 0.0) fprintf(stderr,"Singular matrix in routine ludcmpBO\n");
+    if (big == 0.0) fprintf(stderr,"Singular matrix in routine LUDecomposition\n");
     vv[i] = 1.0 / big;
   }
 
-  for( int j = 0; j < nIn; j++ ) {
-    for( int i = 0; i < j; i++ ) {
+  for( unsigned int j = 0; j < nIn_unsigned; j++ ) {
+    for( unsigned int i = 0; i < j; i++ ) {
       sum = AA[i][j];
-      for( int k = 0; k < i; k++) sum -= AA[i][k]*AA[k][j];
+      for( unsigned int k = 0; k < i; k++) sum -= AA[i][k]*AA[k][j];
       AA[i][j] = sum;
     }
     float big = 0.0;
-    for( int i = j; i < nIn; i++ ) {
+    for( unsigned int i = j; i < nIn_unsigned; i++ ) {
       sum = AA[i][j];
-      for( int k = 0; k < j; k++ ) {
+      for( unsigned int k = 0; k < j; k++ ) {
         sum -= AA[i][k]*AA[k][j];
       }
       AA[i][j] = sum;
@@ -545,7 +536,7 @@ void csFXDecon::LUDecomposition( float** AA, int nIn, int* indx, float* dd )
       }
     }
     if( j != imax ) {
-      for( int k = 0; k < nIn; k++ ) {
+      for( unsigned int k = 0; k < nIn_unsigned; k++ ) {
         dum = AA[imax][k];
         AA[imax][k] = AA[j][k];
         AA[j][k] = dum;
@@ -555,9 +546,9 @@ void csFXDecon::LUDecomposition( float** AA, int nIn, int* indx, float* dd )
     }
     indx[j] = imax;
     if( AA[j][j] == 0.0 ) AA[j][j] = 1.0e-10;
-    if( j != nIn ) {
+    if( j != nIn_unsigned ) {
       dum = 1.0 / AA[j][j];
-      for( int i = j+1; i < nIn; i++ ) AA[i][j] *= dum;
+      for( unsigned int i = j+1; i < nIn_unsigned; i++ ) AA[i][j] *= dum;
     }
   }
 

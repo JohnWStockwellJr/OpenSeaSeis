@@ -35,14 +35,14 @@ private:
   };
 
 public:
-//  static int const TAPER_NONE   = 210;
-//  static int const TAPER_COSINE = 211;
   /// COSINE_TAPER: Apply cosine taper around each identified spike event
-  static int const COSINE_TAPER = 212;
-  /// SET_TO_ZERO: Set al samples around each identified spike event to zero
+  static int const COSINE_TAPER = 212;  /// SET_TO_ZERO: Set al samples around each identified spike event to zero
   static int const SET_TO_ZERO  = 213;
   /// LINEAR_INTERPOLATION: Interpolate samples around each identified spike event, between first and last sample
   static int const LINEAR_INTERPOLATION = 214;
+
+  static int const METHOD_WIN_MEAN   = 301;
+  static int const METHOD_WIN_MEDIAN = 302;
 
 public:
   csDespike( int numSamples, double sampleInt, DespikeConfig& config );
@@ -61,6 +61,8 @@ private:
   double mySampleInt;
   bool   myPerformDebias;
   int    myMethod;
+  int    myMethodRefWin;
+  int    myMethodSpikeWin;
 
   // Widths, increments etc are all in number of samples
   int myIncWin;
@@ -73,6 +75,7 @@ private:
 
   float myMaxRatio;
   float* myRatios;
+  float* myValueRefWin;
   
   // Special advanced settings
   int myRatioAmplifier;
@@ -101,6 +104,8 @@ struct DespikeConfig {
     performDebias = false;
     maxRatio   = 0.0;
     method     = csDespike::COSINE_TAPER;
+    methodRefWin = csDespike::METHOD_WIN_MEDIAN;
+    methodSpikeWin = csDespike::METHOD_WIN_MEAN;
   }
   /// Width of reference window (for example in [ms] or [Hz], depending on data domain)
   /// The reference window is used to determine the energy level of the background
@@ -119,6 +124,8 @@ struct DespikeConfig {
   bool performDebias;
   float maxRatio;
   int method;
+  int methodRefWin;
+  int methodSpikeWin;
 
   struct Advanced {
     /// Width of window over which mean (spike) amplitude is determined

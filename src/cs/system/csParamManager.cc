@@ -11,10 +11,13 @@ using namespace cseis_system;
 
 csParamManager::csParamManager( cseis_geolib::csVector<csUserParam*> const* userParamList, csLogWriter* log ) {
   myUserParamList = userParamList;
-  myNumValueCalls = new int[myUserParamList->size()];
   myLog = log;
-  for( int i = 0; i < myUserParamList->size(); i++ ) {
-    myNumValueCalls[i] = 0;
+  myNumValueCalls = NULL;
+  if( myUserParamList->size() > 0 ) {
+    myNumValueCalls = new int[myUserParamList->size()];
+    for( int i = 0; i < myUserParamList->size(); i++ ) {
+      myNumValueCalls[i] = 0;
+    }
   }
   myIndexCurrentParam = NOT_FOUND;
   myLineIndexCurrentParam = NOT_FOUND;

@@ -25,12 +25,13 @@ import cseis.seis.csISeismicReader;
  * 
  * @author 2013 Felipe Punto
  */
+@SuppressWarnings("serial")
 public class csCombineDataDialog extends JDialog {
   private SeaView mySeaView;
   
-  private JComboBox  myComboBundle1;
-  private JComboBox  myComboBundle2;
-  private JComboBox  myComboOperation;
+  private JComboBox<csSeisPaneBundle>  myComboBundle1;
+  private JComboBox<csSeisPaneBundle>  myComboBundle2;
+  private JComboBox<String>  myComboOperation;
   private JTextField myTextMultiplier;
   private JTextField myTextAddValue;
 
@@ -42,9 +43,9 @@ public class csCombineDataDialog extends JDialog {
 
     mySeaView = seaview;
 
-    myComboBundle1 = new JComboBox( bundleList );
-    myComboBundle2 = new JComboBox( bundleList );
-    myComboOperation = new JComboBox( csSeisPaneBundle.TEXT_OPERATION );
+    myComboBundle1 = new JComboBox<csSeisPaneBundle>( bundleList );
+    myComboBundle2 = new JComboBox<csSeisPaneBundle>( bundleList );
+    myComboOperation = new JComboBox<String>( csSeisPaneBundle.TEXT_OPERATION );
     if( selectBundle != null ) {
       myComboBundle1.setSelectedItem( selectBundle );
     }

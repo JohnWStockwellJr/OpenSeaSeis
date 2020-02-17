@@ -2,7 +2,7 @@
 /* All rights reserved.                       */
 
 #include "csSegyWriter.h"
-#include "csSegyHeader.h"
+#include "csSegyDefines.h"
 #include "csSegyHdrMap.h"
 #include "csStandardHeaders.h"
 #include "csSegyBinHeader.h"
@@ -38,17 +38,18 @@ csSegyWriter::csSegyWriter( std::string filename, int nTracesBuffer, bool revers
   myIsSUFormat   = isSUFormat;
 
   myTrcHdr            = NULL;
-  myTrcHdrMap         = NULL;//new csSegyHdrMap(csSegyHdrMap::NONE);
+  myTrcHdrMap         = NULL;
 
+  myFile         = NULL;
   myFilename     = filename;
   myIsAtEOF      = false;
   myDoSwapEndian = isPlatformLittleEndian();
   if( reverseByteOrder ) myDoSwapEndian = !myDoSwapEndian;
 
-  myCharHdrBlock = new char[csSegyHeader::SIZE_CHARHDR];
-  memset( myCharHdrBlock, 0, csSegyHeader::SIZE_CHARHDR );
-  myBinHdrBlock  = new byte_t[csSegyHeader::SIZE_BINHDR];
-  memset( myBinHdrBlock, 0, csSegyHeader::SIZE_BINHDR );
+  myCharHdrBlock = new char[cseis_segy::SIZE_CHARHDR];
+  memset( myCharHdrBlock, 0, cseis_segy::SIZE_CHARHDR );
+  myBinHdrBlock  = new byte_t[cseis_segy::SIZE_BINHDR];
+  memset( myBinHdrBlock, 0, cseis_segy::SIZE_BINHDR );
   myBinHdr       = new csSegyBinHeader( myDoSwapEndian );
 
   // Create SEGY file if it does not exist yet.
@@ -93,7 +94,7 @@ void csSegyWriter::initialize( csSegyHdrMap const* hdrMap, char const* newCharHd
   myNumSamples = myBinHdr->numSamples;
   mySampleInt = myBinHdr->sampleIntUS * 0.001;
   mySampleByteSize = 4;   // assume 4 byte floating point
-  myTotalTraceSize = myNumSamples*mySampleByteSize+csSegyHeader::SIZE_TRCHDR;
+  myTotalTraceSize = myNumSamples*mySampleByteSize+cseis_segy::SIZE_TRCHDR;
 
   myBigBuffer = new char[ NTRACES_BUFFER * myTotalTraceSize ];
   memset( myBigBuffer, 0, NTRACES_BUFFER * myTotalTraceSize );
@@ -142,7 +143,7 @@ void csSegyWriter::closeFile() {
 //
 //*******************************************************************
 void csSegyWriter::setCharHdr( char const* newCharHdr ) {
-  int size = MIN( (int)strlen( newCharHdr ), csSegyHeader::SIZE_CHARHDR );
+  int size = std::min( (int)strlen( newCharHdr ), cseis_segy::SIZE_CHARHDR );
   char space = ' ';
   if( myIsEBCDIC ) {
     for( int i = 0; i < size; i++ ) {
@@ -153,8 +154,8 @@ void csSegyWriter::setCharHdr( char const* newCharHdr ) {
   else {
     memcpy( myCharHdrBlock, newCharHdr, size );
   }
-  if( size < csSegyHeader::SIZE_CHARHDR ) {
-    memset( &myCharHdrBlock[size], space, csSegyHeader::SIZE_CHARHDR-size );
+  if( size < cseis_segy::SIZE_CHARHDR ) {
+    memset( &myCharHdrBlock[size], space, cseis_segy::SIZE_CHARHDR-size );
   }
 }
 
@@ -163,14 +164,14 @@ void csSegyWriter::setCharHdr( char const* newCharHdr ) {
 void csSegyWriter::writeCharBinHdr() {
   int sizeWrite = 0;
   if( !myIsSUFormat ) {
-    sizeWrite = fwrite( myCharHdrBlock, csSegyHeader::SIZE_CHARHDR, 1, myFile );
+    sizeWrite = fwrite( myCharHdrBlock, cseis_segy::SIZE_CHARHDR, 1, myFile );
     if( sizeWrite != 1 ) {
       throw csException("Unexpected error encountered while writing SEGY char header");
     }
   }
 
   if( !myIsSUFormat ) {
-    sizeWrite = fwrite( (char*)myBinHdrBlock, csSegyHeader::SIZE_BINHDR, 1, myFile );
+    sizeWrite = fwrite( (char*)myBinHdrBlock, cseis_segy::SIZE_BINHDR, 1, myFile );
     if( sizeWrite != 1 ) {
       throw csException("Unexpected end-of-file encountered while writing SEGY binary header");
     }
@@ -205,15 +206,15 @@ void csSegyWriter::writeNextTrace( byte_t const* theBuffer, csSegyTraceHeader co
   if( nSamples == 0 || nSamples > myNumSamples ) nSamples = myNumSamples;
 
   if( myCurrentTrace == NTRACES_BUFFER || myForceToWrite ) {
-    if( myDataSampleFormat == csSegyHeader::DATA_FORMAT_IBM ) {
+    if( myDataSampleFormat == cseis_segy::DATA_FORMAT_IBM ) {
       for( int itrc = 0; itrc < myNumSavedTraces; itrc++ ) {
-        ieee2ibm( (unsigned char*)(myBigBuffer+myTotalTraceSize*itrc+csSegyHeader::SIZE_TRCHDR), nSamples );
+        ieee2ibm( (unsigned char*)(myBigBuffer+myTotalTraceSize*itrc+cseis_segy::SIZE_TRCHDR), nSamples );
       }
     }
     // Convert trace header, store into trace header output array:
     if( myDoSwapEndian ) {
       for( int itrc = 0; itrc < myNumSavedTraces; itrc++ ) {
-        swapEndian4( myBigBuffer+myTotalTraceSize*itrc+csSegyHeader::SIZE_TRCHDR, nSamples*mySampleByteSize );
+        swapEndian4( myBigBuffer+myTotalTraceSize*itrc+cseis_segy::SIZE_TRCHDR, nSamples*mySampleByteSize );
       }
     } // END doSwapEndian
 
@@ -237,10 +238,10 @@ void csSegyWriter::writeNextTrace( byte_t const* theBuffer, csSegyTraceHeader co
     return;
   }
   // Set input buffers
-  //  fprintf(stdout,"Copy buffer: %d %d  (ntraces: %d, %d)\n", myCurrentTrace*myTotalTraceSize+csSegyHeader::SIZE_TRCHDR, nSamples*mySampleByteSize, NTRACES_BUFFER, myTotalTraceSize);
+  //  fprintf(stdout,"Copy buffer: %d %d  (ntraces: %d, %d)\n", myCurrentTrace*myTotalTraceSize+cseis_segy::SIZE_TRCHDR, nSamples*mySampleByteSize, NTRACES_BUFFER, myTotalTraceSize);
 
   int indexCurrentTrace = myCurrentTrace*myTotalTraceSize;
-  memcpy( &myBigBuffer[indexCurrentTrace+csSegyHeader::SIZE_TRCHDR], theBuffer, nSamples*mySampleByteSize );
+  memcpy( &myBigBuffer[indexCurrentTrace+cseis_segy::SIZE_TRCHDR], theBuffer, nSamples*mySampleByteSize );
   
   byte_t* trcHdrPtr = reinterpret_cast<byte_t*>( &myBigBuffer[indexCurrentTrace] );
   trcHdr->writeHeaderValues( trcHdrPtr, myDoSwapEndian, myIsAutoScaleHeaders );

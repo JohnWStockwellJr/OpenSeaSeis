@@ -289,24 +289,24 @@ JNIEXPORT jboolean JNICALL Java_cseis_jni_csNativeSegdReader_native_1getNextTrac
       cseis_segd::commonRecordHeaderStruct comRecordHdr;
       bool isSuccess = ptr->readNextRecord( comRecordHdr );
       if( !isSuccess ) {
-	return JNI_FALSE;
+        return JNI_FALSE;
       }
       else {
-	//        vars->recordCounter += 1;
-	// vars->traceCounter = 0;
+        //        vars->recordCounter += 1;
+        // vars->traceCounter = 0;
       }
     }
     catch( cseis_geolib::csException& exc ) {
       jclass newExcCls = (env)->FindClass( "java/lang/Exception");
       if( newExcCls != NULL ) {
-	(env)->ThrowNew( newExcCls, exc.getMessage() );
+        (env)->ThrowNew( newExcCls, exc.getMessage() );
       }
       return JNI_FALSE;
     }
     catch( ... ) {
       jclass newExcCls = (env)->FindClass( "java/lang/Exception");
       if( newExcCls != NULL ) {
-	(env)->ThrowNew( newExcCls, "\nUnknown exception occurred during SEGD read operation...\nTerminated...\n" );
+        (env)->ThrowNew( newExcCls, "\nUnknown exception occurred during SEGD read operation...\nTerminated...\n" );
       }
       return JNI_FALSE;
     }
@@ -352,23 +352,23 @@ JNIEXPORT jboolean JNICALL Java_cseis_jni_csNativeSegdReader_native_1moveToTrace
 {
   //  cseis_segd::csSegdReader* ptr = reinterpret_cast<cseis_segd::csSegdReader*>(ptr_in);
   /*
-  try {
+    try {
     if( ptr->moveToTrace( firstTraceIndex, numTracesToRead ) ) {
-      return JNI_TRUE;
+    return JNI_TRUE;
     }
-  }
-  catch( csException& e ) {
+    }
+    catch( csException& e ) {
     printf( "Error when moving to new position in SEGY file: %s\n", e.getMessage() );
     fflush(stderr);
     jclass newExcCls = (env)->FindClass( "java/lang/Exception");
     if( newExcCls == NULL ) {
-      return 0;
+    return 0;
     }
     else {
-      (env)->ThrowNew( newExcCls, e.getMessage() );
-      return 0;
+    (env)->ThrowNew( newExcCls, e.getMessage() );
+    return 0;
     }
-  }
+    }
   */
   return JNI_FALSE;
 }

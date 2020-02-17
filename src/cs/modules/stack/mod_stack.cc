@@ -30,6 +30,8 @@ namespace mod_stack {
     float normFactor;
     cseis_system::csStackUtil* stackUtil;
     bool isFirstCall;
+    bool doResetFold;
+    bool foldHdrExists;
   }; 
   static int const MODE_ENSEMBLE = 11;
   static int const MODE_SORTED   = 12;
@@ -44,7 +46,7 @@ using namespace mod_stack;
 //
 //
 //*************************************************************************************************
-void init_mod_stack_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_stack_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -52,7 +54,6 @@ void init_mod_stack_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
 
   vars->mode              = -1;
   vars->stackedTraces     = NULL;
@@ -65,6 +66,15 @@ void init_mod_stack_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   vars->hdrId_fold      = -1;
   vars->normFactor      = 1;
   vars->isFirstCall     = true;
+  vars->doResetFold = true;
+  vars->foldHdrExists = false;
+
+  float zeroThreshold = 0;
+
+  if( param->exists("zero_threshold") ) {
+    param->getFloat("zero_threshold", &zeroThreshold );
+    zeroThreshold = abs(zeroThreshold);
+  }
 
   std::string text;
   int outputOption = csStackUtil::OUTPUT_FIRST;
@@ -78,11 +88,11 @@ void init_mod_stack_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       outputOption = csStackUtil::OUTPUT_LAST;
     }
     else if( !text.compare("average") ) {
-//      log->error("Option AVERAGE is not supported yet...");
+//      writer->error("Option AVERAGE is not supported yet...");
       outputOption = csStackUtil::OUTPUT_AVERAGE;
     }
     else {
-      log->line("Unknown option: '%s'", text.c_str());
+      writer->line("Unknown option: '%s'", text.c_str());
       env->addError();
     }
   }
@@ -107,7 +117,7 @@ void init_mod_stack_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       vars->mode = MODE_UNSORTED;
     }
     else {
-      log->line("Unknown option: '%s'", text.c_str());
+      writer->line("Unknown option: '%s'", text.c_str());
     }
     edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
     vars->stackedTraces        = new csTraceGather();
@@ -126,7 +136,7 @@ void init_mod_stack_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       normTimeVariant = true;
     }
     else {
-      log->line("Unknown option: '%s'", text.c_str());
+      writer->line("Unknown option: '%s'", text.c_str());
     }
     if( param->getNumValues("norm_time_variant" ) > 1 ) {
       param->getString("norm_time_variant", &text, 1);
@@ -137,8 +147,21 @@ void init_mod_stack_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
         outputNormTrace = false;
       }
       else {
-        log->line("Unknown option: '%s'", text.c_str());
+        writer->line("Unknown option: '%s'", text.c_str());
       }
+    }
+  }
+
+  if( param->exists("reset_fold") ) {
+    param->getString("resetFold", &text);
+    if( !text.compare("no") ) {
+      vars->doResetFold = false;
+    }
+    else if( !text.compare("yes") ) {
+      vars->doResetFold = true;
+    }
+    else {
+      writer->line("Unknown option: '%s'", text.c_str());
     }
   }
 
@@ -146,7 +169,11 @@ void init_mod_stack_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
     param->getFloat("norm", &vars->normFactor);
   }
   if( !hdef->headerExists( HDR_FOLD.name ) ) {
+    vars->foldHdrExists = false;
     hdef->addStandardHeader( HDR_FOLD.name );
+  }
+  else {
+    vars->foldHdrExists = true;
   }
   vars->hdrId_fold = hdef->headerIndex( HDR_FOLD.name );
 
@@ -156,7 +183,7 @@ void init_mod_stack_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   }
 
   vars->stackUtil = new csStackUtil( shdr->numSamples, vars->normFactor, outputOption );
-  vars->stackUtil->setTimeVariantNorm( normTimeVariant, vars->hdrId_stack );
+  vars->stackUtil->setTimeVariantNorm( normTimeVariant, vars->hdrId_stack, zeroThreshold );
   vars->stackUtil->setOutputNormTrace( outputNormTrace );
 }
 
@@ -171,37 +198,13 @@ void exec_mod_stack_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   //  csTraceHeaderDef const* hdef = env->headerDef;
   //  csSuperHeader const*    shdr = env->superHeader;
 
-  if( edef->isCleanup() ) {
-    if( vars->stackedTraces != NULL) {
-      delete vars->stackedTraces;
-      vars->stackedTraces = NULL;
-    }
-    if( vars->stackTraceList != NULL ) {
-      delete vars->stackTraceList;
-      vars->stackTraceList = NULL;
-    }
-    if( vars->hdrValueList != NULL ) {
-      delete vars->hdrValueList;
-      vars->hdrValueList = NULL;
-    }
-    if( vars->numStackedTracesList != NULL ) {
-      delete vars->numStackedTracesList;
-      vars->numStackedTracesList = NULL;
-    }
-    if( vars->stackUtil != NULL ) {
-      delete vars->stackUtil;
-      vars->stackUtil = NULL;
-    }
-    delete vars; vars = NULL;
-    return;
-  }
 
   int numTracesIn = traceGather->numTraces();
 
@@ -217,11 +220,19 @@ void exec_mod_stack_(
       return;
     }
     else if( vars->mode == MODE_SORTED ) {
+      if( vars->stackedTraces->numTraces() == 0 || vars->numStackedTracesList->size() == 0 ) {
+        // Must be a single input trace: Do nothing except setting fold header
+        if( numTracesIn > 0 ) traceGather->trace(0)->getTraceHeader()->setIntValue( vars->hdrId_fold, 1 );
+        return;
+      }
       csTrace* traceOut = vars->stackedTraces->trace(0);
       int numStackedTraces = vars->numStackedTracesList->at(0);
       if( numTracesIn != 0 ) {
         csTrace* traceIn  = traceGather->trace(0);
         double hdrValueIn = traceIn->getTraceHeader()->doubleValue(vars->hdrId_stack);
+        if( vars->hdrValueList->size() == 0 ) {
+          writer->error("Program bug in module STACK: Header value list is zero.");
+        }
         if( vars->hdrValueList->at(0) == hdrValueIn ) {  // Same header value? --> Stack input trace into buffered trace
           vars->stackUtil->stackTrace( traceOut, traceIn );
           vars->numStackedTracesList->set( numStackedTraces+1, 0 );
@@ -239,7 +250,7 @@ void exec_mod_stack_(
       return;
     }
     else if( vars->mode == MODE_ENSEMBLE && numTracesIn != 0 ) {
-      vars->stackUtil->stackTraces( traceGather );
+      vars->stackUtil->stackAndNormalizeTraces( traceGather );
       traceGather->trace(0)->getTraceHeader()->setIntValue( vars->hdrId_fold, numTracesIn );
       return;
     }
@@ -263,7 +274,7 @@ void exec_mod_stack_(
   // Simply stack all input traces into one stacked output trace
   //
   if( vars->mode == MODE_ENSEMBLE ) {
-    vars->stackUtil->stackTraces( traceGather );
+    vars->stackUtil->stackAndNormalizeTraces( traceGather );
     traceGather->trace(0)->getTraceHeader()->setIntValue( vars->hdrId_fold, numTracesIn );
   }
   //---------------------------------------------------------------------
@@ -279,7 +290,7 @@ void exec_mod_stack_(
   }
   else {
     if( numTracesIn > 1 ) {
-      log->error("STACK: Wrong number of input traces: %d (expected: 1). This is probably due to a program bug within this module.", numTracesIn);
+      writer->error("STACK: Wrong number of input traces: %d (expected: 1). This is probably due to a program bug within this module.", numTracesIn);
     }
 
     // One new input trace to stack...
@@ -341,6 +352,7 @@ void exec_mod_stack_(
         csTrace* traceOut = vars->stackedTraces->trace(stackedTraceIndex);
         vars->stackUtil->stackTrace( traceOut, traceIn );
         vars->numStackedTracesList->set( vars->numStackedTracesList->at(stackedTraceIndex)+1, stackedTraceIndex );
+
         traceGather->freeTrace( 0 );
       }
       if( edef->isLastCall() ) {
@@ -398,17 +410,73 @@ void params_mod_stack_( csParamDef* pdef ) {
   pdef->addValue( "stack_trace", VALTYPE_OPTION );
   pdef->addOption( "stack_trace", "Do not output normalisation trace - output stacked trace" );
   pdef->addOption( "norm_trace", "Output normalisation trace instead of stacked data");
+
+  pdef->addParam( "zero_threshold", "Threshold below which trace amplitude is considered zero", NUM_VALUES_FIXED );
+  pdef->addValue( "0", VALTYPE_NUMBER, "Absolute zero threshold value. Values below this threshold are considered zero values"  );
+
+  // Not fully implemented yet:
+  //  pdef->addParam( "reset_fold", "Reset fold (trace header 'fold') of each input trace to zero?", NUM_VALUES_FIXED );
+  //  pdef->addValue( "yes", VALTYPE_OPTION );
+  //  pdef->addOption( "yes", "Reset fold of each input trace to zero");
+  //  pdef->addOption( "no", "Do not reset fold of input traces. Accumulate fold" );
 }
 
+
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_stack_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_stack::VariableStruct* vars = reinterpret_cast<mod_stack::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_stack_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_stack::VariableStruct* vars = reinterpret_cast<mod_stack::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->stackedTraces != NULL) {
+    delete vars->stackedTraces;
+    vars->stackedTraces = NULL;
+  }
+  if( vars->stackTraceList != NULL ) {
+    delete vars->stackTraceList;
+    vars->stackTraceList = NULL;
+  }
+  if( vars->hdrValueList != NULL ) {
+    delete vars->hdrValueList;
+    vars->hdrValueList = NULL;
+  }
+  if( vars->numStackedTracesList != NULL ) {
+    delete vars->numStackedTracesList;
+    vars->numStackedTracesList = NULL;
+  }
+  if( vars->stackUtil != NULL ) {
+    delete vars->stackUtil;
+    vars->stackUtil = NULL;
+  }
+  delete vars; vars = NULL;
+}
 
 extern "C" void _params_mod_stack_( csParamDef* pdef ) {
   params_mod_stack_( pdef );
 }
-extern "C" void _init_mod_stack_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_stack_( param, env, log );
+extern "C" void _init_mod_stack_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_stack_( param, env, writer );
 }
-extern "C" void _exec_mod_stack_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_stack_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_stack_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_stack_( env, writer );
 }
-
-
+extern "C" void _exec_mod_stack_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_stack_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_stack_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_stack_( env, writer );
+}

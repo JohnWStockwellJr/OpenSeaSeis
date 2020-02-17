@@ -91,12 +91,15 @@ namespace mod_input_segd {
     int chanSetIndexToRead;
     std::string filenameDumpHeaders;
     bool isFirstCall;
+
+    bool hasCharHdr;
+    int numCharBytes;
   };
 }
 using mod_input_segd::VariableStruct;
 
-//void dumpEssentialHeaders_record( essentialSegdHeaders const* essHdrs, csLogWriter* log );
-//void dumpEssentialHeaders_trace( essentialSegdHeaders const* essHdrs, csLogWriter* log );
+//void dumpEssentialHeaders_record( essentialSegdHeaders const* essHdrs, csLogWriter* writer );
+//void dumpEssentialHeaders_trace( essentialSegdHeaders const* essHdrs, csLogWriter* writer );
 
 //*************************************************************************************************
 // Init phase
@@ -104,7 +107,7 @@ using mod_input_segd::VariableStruct;
 //
 //
 //*************************************************************************************************
-void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -179,6 +182,9 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   vars->filenameDumpHeaders = "";
   vars->isFirstCall = true;
 
+  vars->hasCharHdr = false;
+  vars->numCharBytes = 0;
+
   //---------------------------------------------------------------
   csSegdReader::configuration config;
   config.readAuxTraces     = false;
@@ -187,7 +193,7 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   config.numSamplesAddOne  = false;
   config.thisIsRev0        = false;
   config.navSystemID       = cseis_segd::NAV_HEADER_NONE;
-
+  config.numBytes_genhdr2_extHdrBlocks = 2;
 
   if( edef->isDebug() ) fprintf(stdout,"Starting init phase of INPUT SEGD...\n");
 
@@ -222,11 +228,11 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
           searchSubDirs = false;
         }
         else {
-          log->error("Unknown option: %s", text.c_str() );
+          writer->error("Unknown option: %s", text.c_str() );
         }
       }
     }
-    csFileUtils::retrieveFiles( directory, extension, &fileList, searchSubDirs, log->getFile() );
+    csFileUtils::retrieveFiles( directory, extension, &fileList, searchSubDirs, writer->getFile() );
 
     // Sort file names
     string* names = new string[fileList.size()];
@@ -241,7 +247,7 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   }
 
   if( numSingleFiles <= 0 && fileList.size() == 0 ) {
-    log->error("No filename specified.");
+    writer->error("No filename specified.");
   }
   vars->numFiles = numSingleFiles + fileList.size();
   vars->filenames = new char*[vars->numFiles];
@@ -264,9 +270,9 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   }
 
   for( int i = 0; i < vars->numFiles; i++ ) {
-    log->line("Input file #%4d: %s", i, vars->filenames[i]);
+    writer->line("Input file #%4d: %s", i, vars->filenames[i]);
   }
-  log->line("");
+  writer->line("");
 
   //********************************************************************************
 
@@ -289,7 +295,7 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       vars->hdrSet = csStandardSegdHeader::HDR_MAPPING_STANDARD;
     }
     else {
-      log->error("Header set name not recognised: %s", hdrSetName.c_str());
+      writer->error("Header set name not recognised: %s", hdrSetName.c_str());
     }
   }
 
@@ -303,7 +309,26 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       config.numSamplesAddOne = false;
     }
     else {
-      log->error("Unknow option: %s", text.c_str());
+      writer->error("Unknow option: %s", text.c_str());
+    }
+  }
+
+  if( param->exists("nbytes_genhdr2_exthdr") ) {
+    param->getInt( "nbytes_genhdr2_exthdr", &config.numBytes_genhdr2_extHdrBlocks );
+  }
+
+  if( param->exists("override_trchdr_ext") ) {
+    string text;
+    param->getString( "override_trchdr_ext", &text );
+    if( !text.compare("yes") ) {
+      config.overrideTraceHdrExtensions = true;
+      param->getInt( "override_trchdr_ext", &config.numTraceHdrExtensions, 1 );
+    }
+    else if( !text.compare("no") ) {
+      config.overrideTraceHdrExtensions = false;
+    }
+    else {
+      writer->error("Unknow option: %s", text.c_str());
     }
   }
 
@@ -317,11 +342,14 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     else if( !text.compare("geores") ) {
       vars->recSystemID = cseis_segd::RECORDING_SYSTEM_GEORES;
     }
-    else if( !text.compare("unknown") ) {
+    else if( !text.compare("fairfield") ) {
+      vars->recSystemID = cseis_segd::RECORDING_SYSTEM_FAIRFIELD;
+    }
+   else if( !text.compare("unknown") ) {
       vars->recSystemID = cseis_segd::UNKNOWN;
     }
     else {
-      log->line("Option not recognized: '%s'", text.c_str() );
+      writer->line("Option not recognized: '%s'", text.c_str() );
       env->addError();
     }
   }
@@ -344,7 +372,7 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       config.navSystemID = cseis_segd::NAV_HEADER_NONE;
     }
     else {
-      log->line("Option not recognized: '%s'", text.c_str() );
+      writer->line("Option not recognized: '%s'", text.c_str() );
       env->addError();
     }
   }
@@ -360,7 +388,7 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       config.thisIsRev0 = false;
     }
     else {
-      log->error("Unknown option: %s", text.c_str() );
+      writer->error("Unknown option: %s", text.c_str() );
     }
   }
 
@@ -374,7 +402,7 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       config.readAuxTraces = false;
     }
     else {
-      log->error("Unknown option: %s", text.c_str() );
+      writer->error("Unknown option: %s", text.c_str() );
     }
   }
 
@@ -398,7 +426,7 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       vars->dumpEssFileInfo = false;
     }
     else {
-      log->line("Parameter value not recognized: %s", yesno.c_str() );
+      writer->line("Parameter value not recognized: %s", yesno.c_str() );
       env->addError();
     }
   }
@@ -438,7 +466,7 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
         vars->dumpTrcHeaders = true;      
       }
       else {
-        log->warning(" Option for user parameter 'dump_hdr' not recognised: '%s'", text.c_str());
+        writer->warning(" Option for user parameter 'dump_hdr' not recognised: '%s'", text.c_str());
       }
     }
   }
@@ -471,7 +499,7 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       vars->hdrIndexSegd[ihdr] = hdef->headerIndex( info->name );
       vars->hdrTypeSegd[ihdr]  = hdef->headerType( info->name );
     }
-    if( edef->isDebug() ) log->line("Create new header %s", info->name.c_str());
+    if( edef->isDebug() ) writer->line("Create new header %s", info->name.c_str());
   }
   stdHdrList.clear();
 
@@ -480,13 +508,13 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   if( param->exists("header_ens") ) {
     param->getString( "header_ens", &headerName );
 //    headerName = toLowerCase(headerName);
-    log->line("Specified ensemble header: '%s'.", headerName.c_str() );
+    writer->line("Specified ensemble header: '%s'.", headerName.c_str() );
     if( !hdef->headerExists( headerName ) ) {
-      log->error("Specified ensemble header does not exist: '%s'.", headerName.c_str() );
+      writer->error("Specified ensemble header does not exist: '%s'.", headerName.c_str() );
     }
     type_t type_hdr_ens = hdef->headerType( headerName );
     if( type_hdr_ens != TYPE_INT && type_hdr_ens != TYPE_FLOAT && type_hdr_ens != TYPE_DOUBLE ) {
-      log->error("Ensemble header can only be of number type, not string or array type.");
+      writer->error("Ensemble header can only be of number type, not string or array type.");
     }
     shdr->setEnsembleKey( headerName, 0 );
   }
@@ -502,11 +530,26 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   if( vars->dumpHdrFlag != 0 || vars->dumpTrcHeaders ) {
     if( vars->filenameDumpHeaders.size() > 0 ) {
       if( !csFileUtils::createDoNotOverwrite( vars->filenameDumpHeaders ) ) {
-        log->error("Error when opening header dump file '%s' for writing.", vars->filenameDumpHeaders.c_str() );
+        writer->error("Error when opening header dump file '%s' for writing.", vars->filenameDumpHeaders.c_str() );
       }
     }
   }
   
+  if( param->exists("char_hdr") ) {
+    std::string text;
+    param->getString("char_hdr",&text,0);
+    if( !text.compare("yes") ) {
+      vars->hasCharHdr = true;      
+      param->getInt("char_hdr",&vars->numCharBytes,1);
+    }
+    else if( !text.compare("no") ) {
+      vars->hasCharHdr = false;      
+    }
+    else {
+      writer->warning(" Option for user parameter 'dump_hdr' not recognised: '%s'", text.c_str());
+    }
+  }
+ 
   //----------------------------------------------------
   // Check that all files exist
   //
@@ -516,14 +559,14 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     file = fopen( vars->filenames[i], "rb" );
     if( file == NULL ) {
       isError = true;
-      log->line("Input file '%s' does not exist\n", vars->filenames[i] );
+      writer->line("Input file '%s' does not exist\n", vars->filenames[i] );
     }
     else {
       fclose( file );
     }
   }
   if( isError ) {
-    log->error("Could not find input file(s).\n" );
+    writer->error("Could not find input file(s).\n" );
   }
   vars->currentFile = 0;
   
@@ -537,6 +580,13 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
 
   try {
     vars->segdReader->open( vars->filenames[0] );
+    if( vars->hasCharHdr ) {
+      char* buffer_charHdr = new char[vars->numCharBytes+1];
+      vars->segdReader->readCharHdr( buffer_charHdr, vars->numCharBytes );
+      buffer_charHdr[vars->numCharBytes] = '\0';
+      writer->write( "%d-byte ASCII header:\n%s", vars->numCharBytes, buffer_charHdr );
+      delete [] buffer_charHdr;
+    }
     vars->segdReader->readNewRecordHeaders();
 
     // TEMP
@@ -548,23 +598,23 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
 
     if( vars->chanSetIndexToRead >= 0 ) vars->segdReader->setChanSetToRead( vars->chanSetIndexToRead );
     bool isSuccess = vars->segdReader->readNextRecord( vars->comRecordHdr );
-    if( !isSuccess ) log->error("Cannot read in first record");
+    if( !isSuccess ) writer->error("Cannot read in first record");
   }
   catch( csException& e ) {
     try {
-      vars->segdReader->dumpEssentialFileInfo( log->getFile() );
+      vars->segdReader->dumpEssentialFileInfo( writer->getFile() );
       vars->dumpHdrFlag = cseis_segd::DUMP_GENERAL;
       vars->dumpHdrFlag |= cseis_segd::DUMP_CHANSET;
       vars->dumpHdrFlag |= cseis_segd::DUMP_EXTENDED;
       vars->segdReader->dumpFileHeaders( vars->dumpHdrFlag, (std::ofstream*)(&std::cout) );
     } catch(...) {}
-    log->error("Error when opening SEGD file '%s'.\nSystem message: %s", vars->filenames[0], e.getMessage() );
+    writer->error("Error when opening SEGD file '%s'.\nSystem message: %s", vars->filenames[0], e.getMessage() );
   }
   catch( string text ) {
-    log->error("Error when opening SEGD file '%s'.\nSystem message: %s", vars->filenames[0], text.c_str() );
+    writer->error("Error when opening SEGD file '%s'.\nSystem message: %s", vars->filenames[0], text.c_str() );
   }
   catch( ... ) {
-    log->error("Unknown error occurred when opening SEGD file '%s'.", vars->filenames[0] );
+    writer->error("Unknown error occurred when opening SEGD file '%s'.", vars->filenames[0] );
   }
 
   //------------------------------------
@@ -649,7 +699,7 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   vars->comFileHdr = vars->segdReader->getCommonFileHeaders();
 
   if( vars->dumpEssFileInfo ) {
-    vars->segdReader->dumpEssentialFileInfo( log->getFile() );
+    vars->segdReader->dumpEssentialFileInfo( writer->getFile() );
   }
 
   commonChanSetStruct info;
@@ -660,28 +710,28 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       vars->segdReader->retrieveChanSetInfo( i, info );
       if( info.numChannels == 0 ) continue;
       if( info.numSamples > shdr->numSamples ) {
-      vars->segdReader->dumpEssentialFileInfo( log->getFile() );
+      vars->segdReader->dumpEssentialFileInfo( writer->getFile() );
       vars->dumpHdrFlag = cseis_segd::DUMP_GENERAL;
       vars->dumpHdrFlag |= cseis_segd::DUMP_CHANSET;
       vars->dumpHdrFlag |= cseis_segd::DUMP_EXTENDED;
       vars->segdReader->dumpFileHeaders( vars->dumpHdrFlag, (std::ofstream*)(&std::cout) );
 
-        log->error("Number of samples for channel set #%d (=%d) exceeds number of samples specified in SEG-D general header (=%d) or trace header extension (=%d).\nThis is not supported yet. Please read in a single channel set at a time.",
+        writer->error("Number of samples for channel set #%d (=%d) exceeds number of samples specified in SEG-D general header (=%d) or trace header extension (=%d).\nThis is not supported yet. Please read in a single channel set at a time.",
                    i+1, info.numSamples, (int)round(vars->segdReader->generalHdr1()->recordLenMS/shdr->sampleInt), shdr->numSamples);
       }
       else if( info.numSamples != shdr->numSamples ) {
-        log->warning("Number of samples for channel set #%d (=%d) differs from number of samples specified in SEG-D general header or trace header extension (=%d).\n  Suggestion: Dump all SEG-D header information to the terminal by setting parameter  'dump_hdr all'\n   ...otherwise try to set parameter  'nsamples_plus_one  yes/no'  and see if this helps (often it does)",
+        writer->warning("Number of samples for channel set #%d (=%d) differs from number of samples specified in SEG-D general header or trace header extension (=%d).\n  Suggestion: Dump all SEG-D header information to the terminal by setting parameter  'dump_hdr all'\n   ...otherwise try to set parameter  'nsamples_plus_one  yes/no'  and see if this helps (often it does)",
                      i+1, info.numSamples, shdr->numSamples);
       }
       if( vars->comFileHdr->sampleInt_us != info.sampleInt_us ) {
-        log->warning("Sample interval for channel set #%d (=%.4fms) differs from sample interval specified in SEG-D general header (=%.4fms).",
+        writer->warning("Sample interval for channel set #%d (=%.4fms) differs from sample interval specified in SEG-D general header (=%.4fms).",
                      i+1, (float)(info.sampleInt_us/1000.0), shdr->sampleInt);
       }
     }
   }
   else {  // Set number of samples & sample interval to the values for this specific channel set
     if( vars->chanSetIndexToRead >= vars->segdReader->numChanSets() ) {
-      log->error("Cannot read in user specified channel set #%d: Input file only contains %d channel sets per scan type.",
+      writer->error("Cannot read in user specified channel set #%d: Input file only contains %d channel sets per scan type.",
                  vars->chanSetIndexToRead+1,
                  vars->segdReader->numChanSets() );
     }
@@ -690,11 +740,11 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     shdr->numSamples = info.numSamples;
   }
 
-  log->line("");
-  log->line("  File name:             %s", vars->filenames[0]);
-  log->line("  Sample interval [ms]:  %f", shdr->sampleInt);
-  log->line("  Number of samples:     %d", shdr->numSamples);
-  log->line("");
+  writer->line("");
+  writer->line("  File name:             %s", vars->filenames[0]);
+  writer->line("  Sample interval [ms]:  %f", shdr->sampleInt);
+  writer->line("  Number of samples:     %d", shdr->numSamples);
+  writer->line("");
 
   vars->totalTraceCounter = 0;
   vars->traceCounter      = 0;
@@ -707,10 +757,12 @@ void init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
 //
 //==================================================================================
 
-bool exec_mod_input_segd_(
-  csTrace* trace,
+void exec_mod_input_segd_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   //  csSuperHeader const* shdr = env->superHeader;
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
@@ -718,36 +770,9 @@ bool exec_mod_input_segd_(
   csSuperHeader const* shdr = env->superHeader;
 //  csTraceHeaderDef const* hdef = env->headerDef;
 
+  csTrace* trace = traceGather->trace(0);
 
-  if( edef->isCleanup() ){
-    if( vars->hdrId_extra ) {
-      delete [] vars->hdrId_extra;
-      vars->hdrId_extra = NULL;
-    }
-    if( vars->segdReader != NULL ) {
-      delete vars->segdReader;
-    }
-    if( vars->hdrIndexSegd ) {
-      delete [] vars->hdrIndexSegd; vars->hdrIndexSegd = NULL;
-    }
-    if( vars->hdrTypeSegd ) {
-      delete [] vars->hdrTypeSegd; vars->hdrTypeSegd = NULL;
-    }
-    if( vars->file_dumpHeaders ) {
-      vars->file_dumpHeaders->close();
-      //      delete vars->file_dumpHeaders;  Do not delete this
-      vars->file_dumpHeaders = NULL;
-    }
-    if( vars->filenames ) {
-      for( int i = 0; i < vars->numFiles; i++ ) {
-        delete [] vars->filenames[i];
-      }
-      delete [] vars->filenames; vars->filenames = NULL;
-    }
-    delete vars;
-    vars = NULL;
-    return true;
-  }
+
 
   if( vars->isFirstCall ) {
     vars->isFirstCall = false;
@@ -756,7 +781,7 @@ bool exec_mod_input_segd_(
         if( vars->filenameDumpHeaders.size() > 0 ) {
           vars->file_dumpHeaders = new std::ofstream ( vars->filenameDumpHeaders.c_str() );
           if( vars->file_dumpHeaders == NULL ) {
-            log->error("Could not open header dump file '%s'.", vars->filenameDumpHeaders.c_str() );
+            writer->error("Could not open header dump file '%s'.", vars->filenameDumpHeaders.c_str() );
           }
         }
         else {
@@ -764,17 +789,18 @@ bool exec_mod_input_segd_(
         }
       }
       catch( string text ) {
-        log->error("Error when opening header dump file '%s'.\nSystem message: %s", vars->filenameDumpHeaders.c_str(), text.c_str() );
+        writer->error("Error when opening header dump file '%s'.\nSystem message: %s", vars->filenameDumpHeaders.c_str(), text.c_str() );
       }
       catch(...) {
-        log->error("Error when opening header dump file '%s'.", vars->filenameDumpHeaders.c_str() );
+        writer->error("Error when opening header dump file '%s'.", vars->filenameDumpHeaders.c_str() );
       }
       vars->segdReader->dumpFileHeaders( vars->dumpHdrFlag, vars->file_dumpHeaders );
     }
   }
 
   if( vars->isAtEOF ) {
-    return false;
+    traceGather->freeAllTraces();
+    return;
   }
 //---------------------------------------------------------------
   cseis_segd::commonTraceHeaderStruct  comTrcHdr;
@@ -788,7 +814,7 @@ bool exec_mod_input_segd_(
 
   while( !vars->segdReader->getNextTrace( samples, comTrcHdr ) ) {
     try {
-      if( edef->isDebug() ) log->write("Read next record... #%d", (vars->recordCounter+1) );
+      if( edef->isDebug() ) writer->write("Read next record... #%d", (vars->recordCounter+1) );
       cseis_segd::commonRecordHeaderStruct newComRecordHdr;
       bool isSuccess = vars->segdReader->readNextRecord( newComRecordHdr );
       while( !isSuccess && vars->currentFile < vars->numFiles-1 ) {
@@ -798,36 +824,37 @@ bool exec_mod_input_segd_(
         isSuccess = true;
         if( vars->chanSetIndexToRead >= 0 ) vars->segdReader->setChanSetToRead( vars->chanSetIndexToRead );
         isSuccess = vars->segdReader->readNextRecord( newComRecordHdr );
-        if( !isSuccess ) log->warning("INPUT_SEGD: Cannot read in first record form file %s", vars->filenames[vars->currentFile]);
+        if( !isSuccess ) writer->warning("INPUT_SEGD: Cannot read in first record form file %s", vars->filenames[vars->currentFile]);
       }
       if( isSuccess ) {
         vars->comRecordHdr = newComRecordHdr;
         vars->recordCounter += 1;
         vars->traceCounter = 0;
-        if( edef->isDebug() ) log->line(", ...read file number (total traces so far): %d (%ld)", vars->comRecordHdr.fileNum, vars->totalTraceCounter );
-        if( vars->dumpHdrFlag != 0 && vars->recordCounter != 1 ) {
+        if( edef->isDebug() ) writer->line(", ...read file number (total traces so far): %d (%ld)", vars->comRecordHdr.fileNum, vars->totalTraceCounter );
+        if( vars->dumpHdrFlag != 0 && vars->recordCounter != 0 ) {
           vars->segdReader->dumpFileHeaders( vars->dumpHdrFlag, vars->file_dumpHeaders );
         }
         if( vars->dumpEssFileInfo ) {
-          vars->segdReader->dumpEssentialFileInfo( log->getFile() );
+          vars->segdReader->dumpEssentialFileInfo( writer->getFile() );
         }
         if( vars->dumpHdrFlag != cseis_segd::DUMP_NONE ) {
-          vars->segdReader->dumpRecordHeaders( log->getFile() );
-          vars->comRecordHdr.dump( log->getFile() );
+          vars->segdReader->dumpRecordHeaders( writer->getFile() );
+          vars->comRecordHdr.dump( writer->getFile() );
         }
       }
       // ...last record has been reached. Terminate with grace
       else {
-        log->line("");
+        writer->line("");
         vars->isAtEOF = true;
-        return false;
+        traceGather->freeAllTraces();
+        return;
       }
     }
     catch( cseis_geolib::csException& exc ) {
-      log->error("\nException occurred: %s\nTerminated...\n", exc.getMessage());
+      writer->error("\nException occurred: %s\nTerminated...\n", exc.getMessage());
     }
     catch( ... ) {
-      log->error("\nUnknown exception occurred during SEGD read operation...\nTerminated...\n");
+      writer->error("\nUnknown exception occurred during SEGD read operation...\nTerminated...\n");
     }
   }
 
@@ -839,22 +866,23 @@ bool exec_mod_input_segd_(
   // If specified number of traces or records have been read in --> terminate gracefully
   if( (vars->numTracesToRead > 0 && vars->totalTraceCounter > vars->numTracesToRead) ||
       ((vars->numRecordsToRead > 0 && vars->recordCounter > vars->numRecordsToRead) ) ) {
-    vars->isAtEOF = true;
-    return false;
+     vars->isAtEOF = true;
+    traceGather->freeAllTraces();
+    return;
   }
   
   vars->traceCounter += 1;
   vars->totalTraceCounter += 1;
   if( vars->dumpTrcHeaders ) {
-    log->line("Trace #%d (total #%d), traces to read: %d", vars->traceCounter, vars->totalTraceCounter, vars->numTracesToRead );
-    // comTrcHdr.dump( log->getFile() );
+    writer->line("Trace #%d (total #%d), traces to read: %d", vars->traceCounter, vars->totalTraceCounter, vars->numTracesToRead );
+    // comTrcHdr.dump( writer->getFile() );
     vars->segdReader->dumpTrace( vars->file_dumpHeaders );
   }
 
   //-------------------------------------------------------------
   if( edef->isDebug() ) {
-    log->line( "Reading in trace #%d of %d", vars->traceCounter, vars->comFileHdr->totalNumChan );
-    log->flush();
+    writer->line( "Reading in trace #%d of %d", vars->traceCounter, vars->comFileHdr->totalNumChan );
+    writer->flush();
   }
 // Assume TOWED:
   cseis_system::csTraceHeader* trcHdr = trace->getTraceHeader();
@@ -876,19 +904,34 @@ bool exec_mod_input_segd_(
   trcHdr->setIntValue(vars->hdrId_time_hour, vars->comRecordHdr.shotTime.hour );
   trcHdr->setIntValue(vars->hdrId_time_min, vars->comRecordHdr.shotTime.minute );
   trcHdr->setIntValue(vars->hdrId_time_sec, vars->comRecordHdr.shotTime.second );
-  trcHdr->setIntValue(vars->hdrId_time_nano, vars->segdReader->extendedHdr()->nanoSeconds());
-  csInt64_t startTime = csGeolibUtils::date2UNIXmsec( year,
-                                                      vars->comRecordHdr.shotTime.julianDay,
-                                                      vars->comRecordHdr.shotTime.hour,
-                                                      vars->comRecordHdr.shotTime.minute,
-                                                      vars->comRecordHdr.shotTime.second,
-                                                      vars->segdReader->extendedHdr()->nanoSeconds()/1000 );
-  int time_samp1_s  = (int)(startTime/1000LL);
-  int time_samp1_us = (int)(startTime%1000LL)*1000;
+
+  int nanosec = vars->segdReader->traceHdrExtension()->nanoSeconds();
+  //  fprintf(stderr,"Shottime nanosec:  %d\n", nanosec );
+  if( nanosec == 0 ) {
+    nanosec = vars->segdReader->extendedHdr()->nanoSeconds();
+  }
+  csInt64_t time_us = vars->segdReader->traceHdrExtension()->timeSamp1_us();
+  int time_samp1_s  = 0;
+  int time_samp1_us = 0;
+  if( time_us != 0 ) {
+    time_samp1_s  = (int)( time_us / 1000000ULL );
+    time_samp1_us = (int)( time_us - (csInt64_t)time_samp1_s * 1000000ULL );
+  }
+  else {
+    time_samp1_us = nanosec/1000;
+    int extraSeconds  = time_samp1_us/1000/1000;
+    time_samp1_us    -= extraSeconds*1000*1000;
+    time_samp1_s  = csGeolibUtils::date2UNIXsec( year,
+                                                 vars->comRecordHdr.shotTime.julianDay,
+                                                 vars->comRecordHdr.shotTime.hour,
+                                                 vars->comRecordHdr.shotTime.minute,
+                                                 vars->comRecordHdr.shotTime.second + extraSeconds );
+  }
+  trcHdr->setIntValue(vars->hdrId_time_nano, nanosec );
   trcHdr->setIntValue( vars->hdrId_time_samp1, time_samp1_s );
   trcHdr->setIntValue( vars->hdrId_time_samp1_us, time_samp1_us );
   if( edef->isDebug() ) {
-    log->line("Start time: %lldms  =  %ds (x1000)  +  %dus (/1000)", startTime, time_samp1_s, time_samp1_us);
+    writer->line("Start time: %lld.%06ds  =  %ds  +  %dus", time_samp1_s, nanosec/1000, time_samp1_s, time_samp1_us );
   }
 
   trcHdr->setIntValue(vars->hdrId_chan_set, comTrcHdr.chanSet );
@@ -924,7 +967,7 @@ bool exec_mod_input_segd_(
   trcHdr->setIntValue( vars->hdrId_fileno, vars->currentFile+1 );
 
 
-  return true;
+  return;
   
 }
 
@@ -1002,6 +1045,7 @@ void params_mod_input_segd_( csParamDef* pdef ) {
   pdef->addValue( "", VALTYPE_OPTION );
   pdef->addOption( "seal", "Sercel SEAL recording system" );
   pdef->addOption( "geores", "Geospace GEORES recording system" );
+  pdef->addOption( "fairfield", "Fairfield Nodal recording system" );
 
   pdef->addParam( "nav_header", "Navigation header type", NUM_VALUES_FIXED, "The navigation header forms the first part of the external header. If data does not read in correctly, try different nav headers, or 'none'" );
   pdef->addValue( "none", VALTYPE_OPTION );
@@ -1020,17 +1064,85 @@ void params_mod_input_segd_( csParamDef* pdef ) {
   pdef->addOption( "yes", "Read in auxiliary channels" );
   pdef->addOption( "no", "Do not read in auxiliary channels" );
 
+  pdef->addParam( "override_trchdr_ext", "Override trace header extensions in channels set/trace header?", NUM_VALUES_FIXED );
+  pdef->addValue( "no", VALTYPE_OPTION );
+  pdef->addOption( "yes", "Override number of trace header extensions" );
+  pdef->addOption( "no", "Do not override number of trace header extensions" );
+  pdef->addValue( "0", VALTYPE_NUMBER, "Number of trace header extensions" );
+
+  pdef->addParam( "nbytes_genhdr2_exthdr", "Number of bytes of general header #2 field to read number of external header blocks from", NUM_VALUES_FIXED );
+  pdef->addValue( "2", VALTYPE_NUMBER );
+
+  pdef->addParam( "char_hdr", "Does SEGD file have ASCII character header? If yes, specify number of bytes in char header", NUM_VALUES_FIXED );
+  pdef->addValue( "no", VALTYPE_OPTION );
+  pdef->addOption( "no", "No char header" );
+  pdef->addOption( "yes", "Has char header" );
+  pdef->addValue( "0", VALTYPE_NUMBER, "Number of bytes in char header" );
+
 //  pdef->addParam( "decode_hdr", "Decode additional header", NUM_VALUES_FIXED );
 //  pdef->addValue( "", VALTYPE_STRING, "Name of additional SEGD header to decode", "Must be one of: nano_sec" );
+}
+
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_input_segd_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_input_segd::VariableStruct* vars = reinterpret_cast<mod_input_segd::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_input_segd_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_input_segd::VariableStruct* vars = reinterpret_cast<mod_input_segd::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->hdrId_extra ) {
+    delete [] vars->hdrId_extra;
+    vars->hdrId_extra = NULL;
+  }
+  if( vars->segdReader != NULL ) {
+    delete vars->segdReader;
+  }
+  if( vars->hdrIndexSegd ) {
+    delete [] vars->hdrIndexSegd; vars->hdrIndexSegd = NULL;
+  }
+  if( vars->hdrTypeSegd ) {
+    delete [] vars->hdrTypeSegd; vars->hdrTypeSegd = NULL;
+  }
+  if( vars->file_dumpHeaders ) {
+    vars->file_dumpHeaders->close();
+    //      delete vars->file_dumpHeaders;  Do not delete this
+    vars->file_dumpHeaders = NULL;
+  }
+  if( vars->filenames ) {
+    for( int i = 0; i < vars->numFiles; i++ ) {
+      delete [] vars->filenames[i];
+    }
+    delete [] vars->filenames; vars->filenames = NULL;
+  }
+  delete vars;
+  vars = NULL;
 }
 
 extern "C" void _params_mod_input_segd_( csParamDef* pdef ) {
   params_mod_input_segd_( pdef );
 }
-extern "C" void _init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_input_segd_( param, env, log );
+extern "C" void _init_mod_input_segd_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_input_segd_( param, env, writer );
 }
-extern "C" bool _exec_mod_input_segd_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_input_segd_( trace, port, env, log );
+extern "C" bool _start_exec_mod_input_segd_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_input_segd_( env, writer );
 }
-
+extern "C" void _exec_mod_input_segd_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_input_segd_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_input_segd_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_input_segd_( env, writer );
+}

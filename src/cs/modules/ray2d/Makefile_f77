@@ -10,7 +10,7 @@ OBJS_WFRONT = $(OBJDIR)/model.o $(OBJDIR)/velocity.o $(OBJDIR)/get_min.o $(OBJDI
 
 LIB_v1.0  = libmod_$(MODULE_NAME).so.1.0
 
-INCS =  -I"$(SRCDIR)/cs/geolib"  -I"$(SRCDIR)/cs/system" -I"$(MODDIR)"
+INCS =  -I"$(SRCDIR)/cs/geolib"  -I"$(SRCDIR)/cs/system" -I"$(SRCDIR)/cs/segy" -I"$(MODDIR)"
 
 ALL_FLAGS = $(INCS) $(COMMON_FLAGS) -fPIC
 

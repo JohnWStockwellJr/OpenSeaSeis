@@ -8,7 +8,7 @@
 #include "csSegyReader.h"
 #include "csSegyTraceHeader.h"
 #include "csSegyHeaderInfo.h"
-#include "csSegyHeader.h"
+#include "csSegyDefines.h"
 #include "csSegyBinHeader.h"
 #include "csStandardHeaders.h"
 #include "csFileUtils.h"
@@ -22,6 +22,16 @@ using namespace cseis_geolib;
 using namespace std;
  
 namespace mod_input_segy {
+  struct CharInfo {
+    int line;
+    int byte1;
+    int byte2;
+    int numBytes;
+    int hdrId;
+    int hdrType;
+    int intValue;
+    int doubleValue;
+  };
   struct VariableStruct {
     long traceCounter;
     double startTimeUNIXsec;
@@ -61,11 +71,13 @@ namespace mod_input_segy {
     int sortMethod;
     std::string selectionText;
     std::string selectionHdrName;
+    bool readFirstLast;
+    CharInfo* charInfo;
   };
+  void dumpFileHeaders( csLogWriter* writer, csSegyReader* reader, int hdr_mapping );
+  void extractInfoFromCharHdr( char const* charHdr, CharInfo* charInfo );
 }
 using mod_input_segy::VariableStruct;
- 
-void dumpFileHeaders( csLogWriter* log, csSegyReader* reader, int hdr_mapping );
  
 //*************************************************************************************************
 // Init phase
@@ -73,7 +85,7 @@ void dumpFileHeaders( csLogWriter* log, csSegyReader* reader, int hdr_mapping );
 //
 //
 //*************************************************************************************************
-void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -126,7 +138,10 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   vars->sortMethod = cseis_geolib::csSortManager::SIMPLE_SORT;
   vars->selectionText = "";
   vars->selectionHdrName = "";
- 
+
+  vars->readFirstLast = false;
+  vars->charInfo = NULL;
+
   //------------------------------------------------
  
   std::string headerName;
@@ -135,7 +150,7 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   int numTracesBuffer = 0;
   bool searchSubDirs  = false;
  
-  if( edef->isDebug() ) log->line("Starting init phase of INPUT_SEGY...");
+  if( edef->isDebug() ) writer->line("Starting init phase of INPUT_SEGY...");
  
   /*
    * Trace selection based on header value
@@ -150,7 +165,7 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     std::string text;
     param->getAll( "header_select", &valueList );
     if( valueList.size() > 1 ) {
-      log->error("Currently, trace selection is only supported for one trace header. Number of supplied header names: %d", valueList.size());
+      writer->error("Currently, trace selection is only supported for one trace header. Number of supplied header names: %d", valueList.size());
     }
     vars->selectionHdrName = valueList.at(0);
     valueList.clear();
@@ -163,12 +178,12 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       }
       else if( !text.compare("increasing") ) {
         vars->sortOrder = cseis_geolib::csIOSelection::SORT_INCREASING;
-     }
+      }
       else if( !text.compare("decreasing") ) {
         vars->sortOrder = cseis_geolib::csIOSelection::SORT_DECREASING;
       }
       else {
-        log->error("Unknow option: %s", text.c_str());
+        writer->error("Unknow option: %s", text.c_str());
       }
       if( param->getNumValues( "sort" ) > 1 ) {
         param->getString( "sort", &text, 1 );
@@ -179,12 +194,12 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
           vars->sortMethod = cseis_geolib::csSortManager::TREE_SORT;
         }
         else {
-          log->error("Unknown option: %s", text.c_str());
+          writer->error("Unknown option: %s", text.c_str());
         }
       }
     }
     if( vars->sortOrder == cseis_geolib::csIOSelection::SORT_NONE ) {
-      log->warning("Selecting traces on input using user parameters 'header' & 'select' is typically slower than reading in all traces and performing the selection afterwards, e.g. by using module 'SELECT'. It is recommended to use input selection only when traces shall be sorted on input");
+      writer->warning("Selecting traces on input using user parameters 'header' & 'select' is typically slower than reading in all traces and performing the selection afterwards, e.g. by using module 'SELECT'. It is recommended to use input selection only when traces shall be sorted on input");
     }
   }
  
@@ -214,11 +229,11 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
           searchSubDirs = false;
         }
         else {
-          log->error("Unknown option: %s", text.c_str() );
+          writer->error("Unknown option: %s", text.c_str() );
         }
       }
     }
-    csFileUtils::retrieveFiles( directory, extension, &fileList, searchSubDirs, log->getFile() );
+    csFileUtils::retrieveFiles( directory, extension, &fileList, searchSubDirs, writer->getFile() );
  
     // Sort file names
     string* names = new string[fileList.size()];
@@ -233,7 +248,7 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   }
  
   if( numSingleFiles <= 0 && fileList.size() == 0 ) {
-    log->error("No filename specified.");
+    writer->error("No filename specified.");
   }
   vars->numFiles = numSingleFiles + fileList.size();
   vars->filenames = new char*[vars->numFiles];
@@ -256,9 +271,9 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   }
  
   for( int i = 0; i < vars->numFiles; i++ ) {
-    log->line("Input file #%4d: %s", i, vars->filenames[i]);
+    writer->line("Input file #%4d: %s", i, vars->filenames[i]);
   }
-  log->line("");
+  writer->line("");
  
   //----------------------------------------------------
  
@@ -276,7 +291,7 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
         overrideNumSamples = false;
       }
       else {
-        log->error("Unknown option: %s", text.c_str() );
+        writer->error("Unknown option: %s", text.c_str() );
       }
     }
   }
@@ -287,7 +302,7 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     param->getFloat( "sample_int", &sampleInt );
     overrideSampleInt = true;
     if( sampleInt <= 0 ) {
-      log->error("Wrong sample interval specified: %f", sampleInt);
+      writer->error("Wrong sample interval specified: %f", sampleInt);
     }
   }
  
@@ -310,7 +325,7 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       isSUFormat = false;
     }
     else {
-      log->error("Unknown option: %s", text.c_str());
+      writer->error("Unknown option: %s", text.c_str());
     }
   }
   else {
@@ -338,6 +353,9 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     else if( !hdr_mappingName.compare("node") ) {
       vars->hdr_mapping = csSegyHdrMap::SEGY_NODE;
     }
+    else if( !hdr_mappingName.compare("das") ) {
+      vars->hdr_mapping = csSegyHdrMap::SEGY_DAS;
+    }
     else if( !hdr_mappingName.compare("node_old") ) {
       vars->hdr_mapping = csSegyHdrMap::SEGY_NODE_OLD;
     }
@@ -364,7 +382,7 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       vars->hdr_mapping   = csSegyHdrMap::NONE;
     }
     else {
-      log->error("Option for user parameter 'hdr_map' not recognised: %s", hdr_mappingName.c_str());
+      writer->error("Option for user parameter 'hdr_map' not recognised: %s", hdr_mappingName.c_str());
     }
   }
   else if( isSUFormat ) { // Set default map for SU input data
@@ -392,7 +410,7 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       printEbcdic = false;
     }
     else {
-      log->line("%s: Parameter value not recognized: %s", edef->moduleName().c_str(), yesno.c_str() );
+      writer->line("%s: Parameter value not recognized: %s", edef->moduleName().c_str(), yesno.c_str() );
       env->addError();
     }
   }
@@ -410,7 +428,7 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       vars->dumpTrchdr = false;
     }
     else {
-      log->line("%s: Parameter value not recognized: %s", edef->moduleName().c_str(), yesno.c_str() );
+      writer->line("%s: Parameter value not recognized: %s", edef->moduleName().c_str(), yesno.c_str() );
       env->addError();
     }
   }
@@ -421,11 +439,11 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   if( param->exists( "ntraces_buffer" ) ) {
     param->getInt( "ntraces_buffer", &numTracesBuffer );
     if( numTracesBuffer < 0 || numTracesBuffer > 9999999 ) {
-      log->warning("Number of buffered traces out of range (=%d). Changed to default.", numTracesBuffer);
+      writer->warning("Number of buffered traces out of range (=%d). Changed to default.", numTracesBuffer);
       numTracesBuffer = 0;
     }
   }
- bool autoscale_hdrs = true;
+  bool autoscale_hdrs = true;
   if( param->exists("auto_scale") ) {
     string text;
     param->getString( "auto_scale", &text );
@@ -448,7 +466,7 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       overrideHdrs = false;
     }
     else {
-      log->error("Unknown option '%s'", text.c_str() );
+      writer->error("Unknown option '%s'", text.c_str() );
     }
   }
  
@@ -463,7 +481,7 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       isEBCDIC = true;
     }
     else {
-      log->error("Unknown option: %s", text.c_str());
+      writer->error("Unknown option: %s", text.c_str());
     }
   }
   bool rev_byte_order_hdr  = false;
@@ -472,31 +490,32 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     string text;
     param->getString( "reverse_byte_order", &text, 0 );
     if( !text.compare("yes") ) {
-      rev_byte_order_hdr = true;
+      rev_byte_order_hdr  = true;
+      rev_byte_order_data = true; // By default, reverse byte order for both header & data
     }
     if( param->getNumValues("reverse_byte_order") > 1 ) {
       param->getString( "reverse_byte_order", &text, 1 );
       if( !text.compare("yes") ) {
-                rev_byte_order_data = true;
+        rev_byte_order_data = true;
       }
     }
   }
  
-  int data_format = csSegyHeader::AUTO;
+  int data_format = cseis_segy::AUTO;
   if( param->exists("data_format") ) {
     string text;
     param->getString( "data_format", &text );
     if( !text.compare("auto") ) {
-      data_format = csSegyHeader::AUTO;
+      data_format = cseis_segy::AUTO;
     }
     else if( !text.compare("ieee") ) {
-      data_format = csSegyHeader::DATA_FORMAT_IEEE;
+      data_format = cseis_segy::DATA_FORMAT_IEEE;
     }
     else if( !text.compare("ibm") ) {
-      data_format = csSegyHeader::DATA_FORMAT_IBM;
+      data_format = cseis_segy::DATA_FORMAT_IBM;
     }
     else {
-      log->error("Option for user parameter 'data_format' not recognised: %s", text.c_str());
+      writer->error("Option for user parameter 'data_format' not recognised: %s", text.c_str());
     }
   }
  
@@ -511,14 +530,14 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     file = fopen( vars->filenames[i], "rb" );
     if( file == NULL ) {
       isError = true;
-      log->line("Input file '%s' does not exist\n", vars->filenames[i] );
+      writer->line("Input file '%s' does not exist\n", vars->filenames[i] );
     }
     else {
       fclose( file );
     }
   }
   if( isError ) {
-    log->error("Could not find input file(s).\n" );
+    writer->error("Could not find input file(s).\n" );
   }
   vars->currentFile = 0;
  
@@ -534,8 +553,8 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     param->getAll( "header", &valueList, iline );
     int nValues = valueList.size();
     if( nValues < 3 ) {
-      log->error("Incorrect number of parameter values for parameter 'header'. Expected number of parameter values: At least 3, found: %d",
-                 nValues);
+      writer->error("Incorrect number of parameter values for parameter 'header'. Expected number of parameter values: At least 3, found: %d",
+                    nValues);
     }
     headerName  = valueList.at(0);
     int byteLoc = atoi( valueList.at(1).c_str() ) - 1;  // -1 to reduce byte location to start at 0
@@ -548,22 +567,22 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     if( valueList.size() > 4 ) desc = valueList.at(4);
     if( byteLoc <= 0 || byteLoc > 240 ) {
       throw( csException("Inconsistent byte location for trace header '%s': %d. Must be number between 1-240",
-                                                headerName.c_str(), byteLoc) );
+                         headerName.c_str(), byteLoc) );
     }
  
     if( !vars->hdrMap->addHeader( byteLoc, typeNameIn, typeNameOut, headerName, desc ) ) {
       if( overrideHdrs && vars->hdrMap->removeHeader( headerName ) ) {
-                if( !vars->hdrMap->addHeader( byteLoc, typeNameIn, typeNameOut, headerName, desc ) ) {
-                  log->error( "Cannot add trace header '%s'. Header already exists.\n", headerName.c_str() );
-                }
+        if( !vars->hdrMap->addHeader( byteLoc, typeNameIn, typeNameOut, headerName, desc ) ) {
+          writer->error( "Cannot add trace header '%s'. Header already exists.\n", headerName.c_str() );
+        }
       }
       else if( !overrideHdrs ) {
-        log->line("Error: Cannot add user defined header '%s': Trace header is already defined in specified default header map.", headerName.c_str());
-        log->line("       Termination of job can be avoided by specifying parameter 'hdr_duplicate  override'.");
+        writer->line("Error: Cannot add user defined header '%s': Trace header is already defined in specified default header map.", headerName.c_str());
+        writer->line("    Termination of job can be avoided by specifying parameter 'hdr_duplicate  override'.");
         env->addError();
       }
       else {
-                log->error( "Unknown error occurred while auto-removing previously defined trace header '%s'. Program bug? Does header already exist?\n", headerName.c_str() );
+        writer->error( "Unknown error occurred while auto-removing previously defined trace header '%s'. Program bug? Does header already exist?\n", headerName.c_str() );
       }
     }
   }
@@ -572,20 +591,27 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     param->getString( "dump_hdrmap", &yesno );
     yesno = toLowerCase( yesno );
     if( !yesno.compare( "yes" ) ) {
-      log->line(" *** Dump of SEGY trace header map, including user specified non-standard headers ***");
-      vars->hdrMap->dump( log->getFile() );
-      log->line("");
+      writer->line(" *** Dump of SEGY trace header map, including user specified non-standard headers ***");
+      vars->hdrMap->dump( writer->getFile() );
+      writer->line("");
     }
     else if( !yesno.compare( "no" ) ) {
       // Nothing
     }
     else {
-      log->line("%s: Parameter value not recognized: %s", edef->moduleName().c_str(), yesno.c_str() );
+      writer->line("%s: Parameter value not recognized: %s", edef->moduleName().c_str(), yesno.c_str() );
       env->addError();
     }
   }
  
- 
+  if( param->exists("read_first_last_only") ) {
+    std::string text;
+    param->getString("read_first_last_only", &text);
+    if( !text.compare("yes") ) {
+      vars->readFirstLast = true;
+    }
+  } 
+
   //----------------------------------------------------
   //
   vars->hdrIndexSegy = NULL;
@@ -599,16 +625,24 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   vars->config.autoscaleHdrs         = autoscale_hdrs;
   vars->config.overrideSampleFormat  = data_format;
   vars->config.isSUFormat            = isSUFormat;
-  vars->config.enableRandomAccess    = vars->isHdrSelection;
+  vars->config.enableRandomAccess    = vars->isHdrSelection || vars->readFirstLast;
   try {
     vars->segyReader = new csSegyReader( vars->filenames[vars->currentFile], vars->config, vars->hdrMap );
   }
   catch( csException& e ) {
     vars->segyReader = NULL;
-    log->error("Error when opening SEGY file '%s'.\nSystem message: %s", vars->filenames[vars->currentFile], e.getMessage() );
+    writer->error("Error when opening SEGY file '%s'.\nSystem message: %s", vars->filenames[vars->currentFile], e.getMessage() );
   }
+
+  if( param->exists("var_trace_len") ) {
+    std::string text;
+    param->getString("var_trace_len", &text);
+    if( !text.compare("yes") ) {
+      vars->segyReader->setVariableTraceLength();
+    }
+  } 
  
-//  log->line("Number of traces")  vars->segyReader->numTracesCapacity();
+  //  writer->line("Number of traces")  vars->segyReader->numTracesCapacity();
   vars->segyReader->setCharHdrFormat( isEBCDIC );
  
  
@@ -644,11 +678,11 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   if( param->exists("hdr_ens") ) {
     param->getString( "hdr_ens", &headerName );
     if( !hdef->headerExists( headerName ) ) {
-      log->error("Specified ensemble header does not exist: '%s'.", headerName.c_str() );
+      writer->error("Specified ensemble header does not exist: '%s'.", headerName.c_str() );
     }
     type_t type_hdr_ens = hdef->headerType( headerName );
     if( type_hdr_ens != TYPE_INT && type_hdr_ens != TYPE_FLOAT && type_hdr_ens != TYPE_DOUBLE ) {
-      log->error("Ensemble header can only be of number type, not a string or array type.");
+      writer->error("Ensemble header can only be of number type, not a string or array type.");
     }
     shdr->setEnsembleKey( headerName, 0 );
   }
@@ -662,11 +696,11 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     }
   }
   catch( csException& e ) {
-    log->line("\n\n\n");
-    dumpFileHeaders( log, vars->segyReader, vars->hdr_mapping );
-    log->line("\n\n");
+    writer->line("\n\n\n");
+    mod_input_segy::dumpFileHeaders( writer, vars->segyReader, vars->hdr_mapping );
+    writer->line("\n\n");
     vars->segyReader = NULL;
-    log->error("Error when initializing SEGY reader object.\nSystem message: %s", e.getMessage() );
+    writer->error("Error when initializing SEGY reader object.\nSystem message: %s", e.getMessage() );
   }
  
   //--------------------------------------------------------------------------------
@@ -676,17 +710,17 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   if( vars->isHdrSelection ) {
     hdef->resetByteLocation();  // This will otherwise be done by base system AFTER init phase
     if( !hdef->headerExists( vars->selectionHdrName ) ) {
-      log->error("Selection trace header '%s' is not defined in input file '%s'", vars->selectionHdrName.c_str(), vars->filenames[vars->currentFile]);
+      writer->error("Selection trace header '%s' is not defined in input file '%s'", vars->selectionHdrName.c_str(), vars->filenames[vars->currentFile]);
     }
     type_t selectionHdrType = hdef->headerType( vars->selectionHdrName );
     if( !hdef->headerExists( vars->selectionHdrName ) || hdef->headerType( vars->selectionHdrName ) != selectionHdrType ) {
-      log->error("Selection trace header '%s' is not defined in input file, or has different type",
-                 vars->selectionHdrName.c_str(), vars->filenames[vars->currentFile]);
+      writer->error("Selection trace header '%s' is not defined in input file, or has different type",
+                    vars->selectionHdrName.c_str(), vars->filenames[vars->currentFile]);
     }
     bool success = vars->segyReader->setSelection( vars->selectionText, vars->selectionHdrName, vars->sortOrder, vars->sortMethod );
     if( !success ) {
-      log->error("Error occurred when intializing header selection for input file '%s'.\n --> No input traces found that match specified selection '%s' for header '%s'.\n",
-                 vars->filenames[vars->currentFile], vars->selectionText.c_str(), vars->selectionHdrName.c_str() );
+      writer->error("Error occurred when intializing header selection for input file '%s'.\n --> No input traces found that match specified selection '%s' for header '%s'.\n",
+                    vars->filenames[vars->currentFile], vars->selectionText.c_str(), vars->selectionHdrName.c_str() );
     }
   }
  
@@ -697,22 +731,53 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
  
   cseis_geolib::csSegyBinHeader const* binHdr = vars->segyReader->binHdr();
  
+  if( param->exists("charhdr_extract") ) {
+    vars->charInfo = new mod_input_segy::CharInfo();
+    vars->charInfo->intValue    = 0;
+    vars->charInfo->doubleValue = 0;
+
+    param->getString( "charhdr_extract", &headerName, 0 );
+    if( !hdef->headerExists( headerName ) ) {
+      writer->error("Specified header does not exist: '%s'.", headerName.c_str() );
+    }
+    vars->charInfo->hdrId   = hdef->headerIndex( headerName );
+    vars->charInfo->hdrType = hdef->headerType( headerName );
+    param->getInt( "charhdr_extract", &vars->charInfo->line, 1 );
+    param->getInt( "charhdr_extract", &vars->charInfo->byte1, 2 );
+    param->getInt( "charhdr_extract", &vars->charInfo->byte2, 3 );
+    int numLines = 40;
+    int numLettersPerLine = 80;
+    if( vars->charInfo->line < 1 || vars->charInfo->line > numLines ) writer->error("Wrong line number (=%d) provided to extract char header information. Must be in the range 1-%d", vars->charInfo->line, numLines);
+    if( vars->charInfo->byte1 < 1 || vars->charInfo->byte1 > numLettersPerLine ) writer->error("Wrong byte number (=%d) provided to extract char header information. Must be in the range 1-%d", vars->charInfo->byte1, numLettersPerLine);
+    if( vars->charInfo->byte2 < 1 || vars->charInfo->byte2 > numLettersPerLine ) writer->error("Wrong byte number (=%d) provided to extract char header information. Must be in the range 1-%d", vars->charInfo->byte2, numLettersPerLine);
+    if( vars->charInfo->byte2 <= vars->charInfo->byte1 ) writer->error("Inconsistent byte numbers provided to extract char header information. byte1 %d >= byte2 %d", vars->charInfo->byte1, vars->charInfo->byte2);
+    vars->charInfo->numBytes = vars->charInfo->byte2 - vars->charInfo->byte1 + 1;
+
+    mod_input_segy::extractInfoFromCharHdr( vars->segyReader->charHdrBlock(), vars->charInfo );
+    if( vars->charInfo->hdrType == TYPE_DOUBLE || vars->charInfo->hdrType == TYPE_FLOAT ) {
+      writer->line("Value extracted from char hdr: %f, trace header '%s'", vars->charInfo->doubleValue, headerName.c_str());
+    }
+    else {
+      writer->line("Value extracted from char hdr: %d, trace header '%s'", vars->charInfo->intValue, headerName.c_str());
+    }
+  }
+
   if( printEbcdic && !isSUFormat ) {
     char const* charHdr = vars->segyReader->charHdrBlock();
-    log->line( "Segy EBCDIC header:\n" );
+    writer->line( "Segy EBCDIC header:\n" );
     char line[83];
     line[80] = '+';
-   line[81] = '+';
+    line[81] = '+';
     line[82] = '\0';
-    for( int i = 0; i < csSegyHeader::SIZE_CHARHDR; i++) {
+    for( int i = 0; i < cseis_segy::SIZE_CHARHDR; i++) {
       line[i%80] = charHdr[i];
       if( ((i+1) % 80) == 0 ) {
-        log->line( line );
+        writer->line( line );
       }
     }
-    log->line( "Segy binary header:\n" );
+    writer->line( "Segy binary header:\n" );
     if( vars->hdr_mapping != csSegyHdrMap::SEGY_PSEGY ) {
-      binHdr->dump( log->getFile() );
+      binHdr->dump( writer->getFile() );
     }
   }
   if( overrideSampleInt ) {
@@ -722,20 +787,40 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     shdr->sampleInt = vars->segyReader->sampleIntMS();
   }
  
-  log->line("");
-  log->line( "  File name:            %s", vars->filenames[vars->currentFile]);
-  log->line( "  Sample interval [ms]: %f", shdr->sampleInt );
-  log->line( "  Number of samples:    %d", vars->segyReader->numSamples() );
-  log->write("  Sample data format:   %d   (Supported formats are: 1:IBM, 2:32bit INT, 3:16bit INT, 5:IEEE)\n", vars->segyReader->dataSampleFormat() );
-  if( data_format != csSegyHeader::AUTO ) {
-    log->line("                NOTE: The sample format will be overridden by the user specified value: %d", data_format );
+  writer->line("");
+  writer->line( "       File name:            %s", vars->filenames[vars->currentFile]);
+  writer->line( "       Sample interval [ms]: %f", shdr->sampleInt );
+  writer->line( "       Number of samples:    %d", vars->segyReader->numSamples() );
+  writer->write("       Sample data format:   %d   (Supported formats are: 1:IBM, 2:32bit INT, 3:16bit INT, 5:IEEE)\n", vars->segyReader->dataSampleFormat() );
+  if( data_format != cseis_segy::AUTO ) {
+    writer->line("                     NOTE: The sample format will be overridden by the user specified value: %d", data_format );
   }
-  //  else if( edef->isDebug() && data_format != csSegyHeader::AUTO ) {
-  //    log->write(" ...overridden by user specified value: %d", data_format );
+  //  else if( edef->isDebug() && data_format != cseis_segy::AUTO ) {
+  //    writer->write(" ...overridden by user specified value: %d", data_format );
   //  }
-  log->line("");
-  log->line("\nMaximum number of buffered traces:    %d", vars->segyReader->numTracesCapacity() );
- 
+  writer->line("");
+  writer->line("\nMaximum number of buffered traces:    %d", vars->segyReader->numTracesCapacity() );
+
+  //--------------------------------------------------
+  // Sanity check of binary header: Sample interval & number of samples OK?
+  //
+  if( binHdr->sampleIntUS <= 0 ) {
+    if( overrideSampleInt ) {
+      writer->warning("Incorrect sample interval in binary header: %d us", binHdr->sampleIntUS);
+    }
+    else {
+      writer->error("Incorrect sample interval in binary header: %d us", binHdr->sampleIntUS);
+    }
+  }
+  if( binHdr->numSamples <= 0 ) {
+    if( overrideNumSamples ) {
+      writer->warning("Incorrect number of samples in binary header: %d us", binHdr->numSamples);
+    }
+    else {
+      writer->error("Incorrect number of samples in binary header: %d us", binHdr->numSamples);
+    }
+  }
+
   if( numSamplesOut == 0 ) {
     shdr->numSamples = vars->segyReader->numSamples();
   }
@@ -745,7 +830,6 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   vars->jobID      = binHdr->jobID;
   vars->reelNum    = binHdr->reelNum;
   vars->lineNum    = binHdr->lineNum;
- 
  
   if( vars->hdr_mapping != csSegyHdrMap::SEGY_SU_ONLY ) {
     vars->hdrId_time_year = hdef->headerIndex("time_year");
@@ -771,12 +855,11 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
  
   vars->segyReader->freeCharBinHdr();  // Don't need these headers anymore -> free memory
  
- 
   if( vars->dumpTrchdr ) {
-    log->line( "Segy trace header dump:\n" );
+    writer->line( "Segy trace header dump:\n" );
     int nHeaders = vars->segyReader->numTraceHeaders();
-    log->line( "... %d trace headers\n", nHeaders );
-    vars->segyReader->getTrcHdrMap()->dump( log->getFile() );
+    writer->line( "... %d trace headers\n", nHeaders );
+    vars->segyReader->getTrcHdrMap()->dump( writer->getFile() );
   }
 }
  
@@ -786,41 +869,24 @@ void init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
 //
 //
 //*************************************************************************************************
-bool exec_mod_input_segy_(
-                          csTrace* trace,
-                          int* port,
-                          csExecPhaseEnv* env, csLogWriter* log )
+void exec_mod_input_segy_(
+  csTraceGather* traceGather,
+  int* port,
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
+
+  csTrace* trace = traceGather->trace(0);
  
   csExecPhaseDef*         edef = env->execPhaseDef;
  
-  if( edef->isCleanup() ) {
-    if( vars->segyReader != NULL ) {
-      delete vars->segyReader;
-      vars->segyReader = NULL;
-    }
-    if( vars->hdrMap != NULL ) {
-      delete vars->hdrMap;
-      vars->hdrMap = NULL;
-    }
-    if( vars->filenames != NULL ) {
-      for( int i = 0; i < vars->numFiles; i++ ) {
-        if( vars->filenames[i] != NULL ) {
-          delete [] vars->filenames[i];
-        }
-      }
-      delete [] vars->filenames;
-      vars->filenames = NULL;
-    }
-    delete [] vars->hdrIndexSegy; vars->hdrIndexSegy = NULL;
-    delete [] vars->hdrTypeSegy; vars->hdrTypeSegy = NULL;
-    delete vars; vars = NULL;
-    return true;
+  if( vars->atEOF ) {
+    traceGather->freeAllTraces();
+    return;
   }
- 
-  if( vars->atEOF ) return false;
- 
+  
   csSuperHeader const*    shdr = env->superHeader;
   csTraceHeader* trcHdr = trace->getTraceHeader();
   float* samples = trace->getTraceSamples();
@@ -829,17 +895,23 @@ bool exec_mod_input_segy_(
   for( int isamp = numSamplesActual; isamp < shdr->numSamples; isamp++ ) {
     samples[isamp] = 0.0;
   }
-  if( edef->isDebug() ) log->line("INPUT SEGY...");
+  if( edef->isDebug() ) writer->line("INPUT SEGY...");
+  if( vars->readFirstLast ) {
+    if( vars->traceCounter == 1 ) {
+      vars->segyReader->moveToTrace( vars->segyReader->numTraces()-1, 1 );
+    }
+  }
   if( (vars->nTracesToRead > 0 && vars->nTracesToRead == vars->traceCounter) ||
       !vars->segyReader->getNextTrace( (byte_t*)samples, numSamplesActual ) ) {
     if( vars->traceCounter == 0 ) {
-      log->warning("SEGY file '%s' does not contain any data trace, only char & bin headers.", vars->segyReader->filename() );
+      writer->warning("SEGY file '%s' does not contain any data trace, only char & bin headers.", vars->segyReader->filename() );
     }
     vars->currentFile += 1;
     if( vars->currentFile == vars->numFiles ) {
       vars->atEOF = true;
-      return false;
-   }
+      traceGather->freeAllTraces();
+      return;
+    }
     delete vars->segyReader;
     vars->segyReader = NULL;
  
@@ -848,39 +920,42 @@ bool exec_mod_input_segy_(
       if( vars->isHdrSelection ) {
         bool success = vars->segyReader->setSelection( vars->selectionText, vars->selectionHdrName, vars->sortOrder, vars->sortMethod );
         if( !success ) {
-          log->error("Error occurred when intializing header selection for input file '%s'.\n --> No input traces found that match specified selection '%s' for header '%s'.\n",
-                     vars->filenames[vars->currentFile], vars->selectionText.c_str(), vars->selectionHdrName.c_str() );
+          writer->error("Error occurred when intializing header selection for input file '%s'.\n --> No input traces found that match specified selection '%s' for header '%s'.\n",
+                        vars->filenames[vars->currentFile], vars->selectionText.c_str(), vars->selectionHdrName.c_str() );
         }
       }
     }
     catch( csException& e ) {
       vars->segyReader = NULL;
-      log->error("Error when opening SEGY file '%s'.\nSystem message: %s", vars->filenames[vars->currentFile], e.getMessage() );
+      writer->error("Error when opening SEGY file '%s'.\nSystem message: %s", vars->filenames[vars->currentFile], e.getMessage() );
     }
     try {
       vars->segyReader->initialize();
       if( edef->isDebug() ) {
-        log->line("");
-        log->line("  File name:            %s", vars->filenames[vars->currentFile]);
-        log->line("  Sample interval [ms]: %f", vars->segyReader->sampleIntMS() );
-        log->line("  Number of samples:    %d", vars->segyReader->numSamples() );
-        log->line("  Sample data format:  %d   (Supported formats are: 1:IBM, 5:IEEE, 2:32bit INT)", vars->segyReader->dataSampleFormat() );
-        log->line("\n...Maximum number of traces buffered in reader:    %d", vars->segyReader->numTracesCapacity() );
+        writer->line("");
+        writer->line("  File name:                 %s", vars->filenames[vars->currentFile]);
+        writer->line("  Sample interval [ms]: %f", vars->segyReader->sampleIntMS() );
+        writer->line("  Number of samples:         %d", vars->segyReader->numSamples() );
+        writer->line("  Sample data format:  %d   (Supported formats are: 1:IBM, 5:IEEE, 2:32bit INT)", vars->segyReader->dataSampleFormat() );
+        writer->line("\n...Maximum number of traces buffered in reader: %d", vars->segyReader->numTracesCapacity() );
       }
     }
     catch( csException& e ) {
       vars->segyReader = NULL;
-      log->error("Error when initializing SEGY reader object.\nSystem message: %s", e.getMessage() );
+      writer->error("Error when initializing SEGY reader object.\nSystem message: %s", e.getMessage() );
     }
     cseis_geolib::csSegyBinHeader const* binHdr = vars->segyReader->binHdr();
  
     float diff = fabs( shdr->sampleInt - (float)(binHdr->sampleIntUS)/1000.0 );
     if( diff > 0.001 ) {
-      log->error("Input SEGY files have different sample intervals: %f (1)  !=  %f (2)\n", shdr->sampleInt, (float)(binHdr->sampleIntUS)/1000.0 );
+      writer->error("Input SEGY files have different sample intervals: %f (1)  !=       %f (2)\n", shdr->sampleInt, (float)(binHdr->sampleIntUS)/1000.0 );
     }
     vars->jobID      = binHdr->jobID;
     vars->reelNum    = binHdr->reelNum;
     vars->lineNum    = binHdr->lineNum;
+    if( vars->charInfo != NULL ) {
+      mod_input_segy::extractInfoFromCharHdr( vars->segyReader->charHdrBlock(), vars->charInfo );
+    }
     vars->segyReader->freeCharBinHdr();  // Don't need these headers anymore -> free memory
  
     numSamplesActual = MIN( vars->segyReader->numSamples(), shdr->numSamples );
@@ -891,10 +966,11 @@ bool exec_mod_input_segy_(
     if( (vars->nTracesToRead > 0 && vars->nTracesToRead == vars->traceCounter) ||
         !vars->segyReader->getNextTrace( (byte_t*)samples, numSamplesActual ) ) {
       if( vars->traceCounter == 0 ) {
-        log->warning("SEGY file '%s' does not contain any data trace, only char & bin headers.", vars->segyReader->filename() );
+        writer->warning("SEGY file '%s' does not contain any data trace, only char & bin headers.", vars->segyReader->filename() );
       }
       vars->atEOF = true;
-      return false;
+      traceGather->freeAllTraces();
+      return;
     }
   }
   vars->traceCounter++;
@@ -907,23 +983,23 @@ bool exec_mod_input_segy_(
     switch( vars->hdrTypeSegy[ihdr] ) {
     case TYPE_FLOAT:
       trcHdr->setFloatValue( hdrIdOut, segyTrcHdr->floatValue(ihdr) );
-      if( edef->isDebug() ) log->line( "Segy header %2d: %d   '%s'  %f", ihdr, segyTrcHdr->intValue(ihdr), segyTrcHdr->headerName(ihdr), segyTrcHdr->floatValue(ihdr) );
+      if( edef->isDebug() ) writer->line( "Segy header %2d: %d   '%s'  %f", ihdr, segyTrcHdr->intValue(ihdr), segyTrcHdr->headerName(ihdr), segyTrcHdr->floatValue(ihdr) );
       break;
     case TYPE_DOUBLE:
       trcHdr->setDoubleValue( hdrIdOut, segyTrcHdr->doubleValue(ihdr) );
-      if( edef->isDebug() ) log->line( "Segy header %2d: %d   '%s'  %f", ihdr, segyTrcHdr->intValue(ihdr), segyTrcHdr->headerName(ihdr), segyTrcHdr->doubleValue(ihdr) );
+      if( edef->isDebug() ) writer->line( "Segy header %2d: %d   '%s'  %f", ihdr, segyTrcHdr->intValue(ihdr), segyTrcHdr->headerName(ihdr), segyTrcHdr->doubleValue(ihdr) );
       break;
     case TYPE_INT:
       trcHdr->setIntValue( hdrIdOut, segyTrcHdr->intValue(ihdr) );
-      if( edef->isDebug() ) log->line( "Segy header %2d: %d   '%s'  %d", ihdr, segyTrcHdr->intValue(ihdr), segyTrcHdr->headerName(ihdr), segyTrcHdr->intValue(ihdr) );
+      if( edef->isDebug() ) writer->line( "Segy header %2d: %d   '%s'  %d", ihdr, segyTrcHdr->intValue(ihdr), segyTrcHdr->headerName(ihdr), segyTrcHdr->intValue(ihdr) );
       break;
     case TYPE_INT64:
       trcHdr->setInt64Value( hdrIdOut, (csInt64_t)segyTrcHdr->intValue(ihdr) );
-      if( edef->isDebug() ) log->line( "Segy header %2d: %d   '%s'  %d", ihdr, segyTrcHdr->intValue(ihdr), segyTrcHdr->headerName(ihdr), segyTrcHdr->intValue(ihdr) );
+      if( edef->isDebug() ) writer->line( "Segy header %2d: %d   '%s'  %d", ihdr, segyTrcHdr->intValue(ihdr), segyTrcHdr->headerName(ihdr), segyTrcHdr->intValue(ihdr) );
       break;
     case TYPE_STRING:
       trcHdr->setStringValue( hdrIdOut, segyTrcHdr->stringValue(ihdr) );
-      if( edef->isDebug() ) log->line( "Segy header %2d: %d   '%s'  %s", ihdr, segyTrcHdr->intValue(ihdr), segyTrcHdr->headerName(ihdr), segyTrcHdr->stringValue(ihdr).c_str() );
+      if( edef->isDebug() ) writer->line( "Segy header %2d: %d   '%s'  %s", ihdr, segyTrcHdr->intValue(ihdr), segyTrcHdr->headerName(ihdr), segyTrcHdr->stringValue(ihdr).c_str() );
       break;
     }
   }
@@ -950,14 +1026,25 @@ bool exec_mod_input_segy_(
   trcHdr->setIntValue( vars->hdrId_time_samp1, time_samp1_s );
   trcHdr->setIntValue( vars->hdrId_time_samp1_us, time_samp1_us );
   if( edef->isDebug() ) {
-    log->line("Start time: %lldms  =  %ds (x1000)  +  %dus (/1000)", startTime, time_samp1_s, time_samp1_us);
+    writer->line("Start time: %lldms  =  %ds (x1000)  +  %dus (/1000)", startTime, time_samp1_s, time_samp1_us);
   }
  
-  if( vars->dumpTrchdr ) {
-    log->line( "\n ****** Segy trace header dump, trace #%d ******", vars->traceCounter );
-    vars->segyReader->dumpTrcHdr( log->getFile() );
+  if( vars->charInfo != NULL ) {
+    switch( vars->charInfo->hdrType ) {
+    case TYPE_DOUBLE:
+    case TYPE_FLOAT:
+      trcHdr->setDoubleValue( vars->charInfo->hdrId, vars->charInfo->doubleValue );
+      break;
+    default:
+      trcHdr->setIntValue( vars->charInfo->hdrId, vars->charInfo->intValue );
+    }
   }
-  return true;
+
+  if( vars->dumpTrchdr ) {
+    writer->line( "\n ****** Segy trace header dump, trace #%d ******", vars->traceCounter );
+    vars->segyReader->dumpTrcHdr( writer->getFile() );
+  }
+  return;
 }
 //********************************************************************************
 // Parameter definition
@@ -1039,14 +1126,14 @@ void params_mod_input_segy_( csParamDef* pdef ) {
   pdef->addOption( "su_both", "Read in trace headers in Seismic Unix (SU) standard naming AND in Seaseis standard naming", "This means some byte locations are mapped to two identical trace headers but with different names" );
  
   pdef->addParam( "filename_hdrmap", "File name containing trace header map setup", NUM_VALUES_FIXED,
-                                  "All trace headers already defined in the specified pre-set trace header map at the same byte locations will be overriden. If no pre-set trace headers are required, specify user parameter 'hdr_map  none'");
+                  "All trace headers already defined in the specified pre-set trace header map at the same byte locations will be overriden. If no pre-set trace headers are required, specify user parameter 'hdr_map  none'");
   pdef->addValue( "", VALTYPE_STRING, "Input file name containing trace header map definition",
-                                  "File format:  NAME  BYTELOC  TYPE_SEGY  TYPE_CEIS   DESC, where\n"\
-                                  "BYTELOC:    Byte location, starting at 1 for first byte,\n"\
-                                  "TYPE_SEGY:  Header type as stored in SEGY file, see user parameter 'header' for options,\n"\
-                                  "TYPE_CSEIS: Header type of Seaseis trace header, see user parameter 'header' for options,\n"\
-                                  "NAME:       Trace header name,\n"\
-                                  "DESC:       Description of Seaseis trace header, enclosed in double-quotes.");
+                  "File format:  NAME  BYTELOC  TYPE_SEGY  TYPE_CEIS   DESC, where\n"\
+                  "BYTELOC:    Byte location, starting at 1 for first byte,\n"\
+                  "TYPE_SEGY:  Header type as stored in SEGY file, see user parameter 'header' for options,\n"\
+                  "TYPE_CSEIS: Header type of Seaseis trace header, see user parameter 'header' for options,\n"\
+                  "NAME:       Trace header name,\n"\
+                  "DESC:       Description of Seaseis trace header, enclosed in double-quotes.");
  
   pdef->addParam( "header", "Set user specified header byte location etc", NUM_VALUES_VARIABLE);
   pdef->addValue( "", VALTYPE_STRING, "Trace header name" );
@@ -1055,7 +1142,8 @@ void params_mod_input_segy_( csParamDef* pdef ) {
   pdef->addOption( "int", "Integer (4 byte)" );
   pdef->addOption( "short", "Short (2 byte)" );
   pdef->addOption( "ushort", "Unsigned short (2 byte)" );
-  pdef->addOption( "float", "Float (4 byte)" );
+  pdef->addOption( "float", "Float (4 byte) IEEE" );
+  pdef->addOption( "float_ibm", "Float (4 byte) (IBM)" );
   pdef->addOption( "4", "Integer (4 byte)", "...for backward compatibility" );
   pdef->addOption( "2", "Short (2 byte)", "...for backward compatibility" );
   pdef->addValue( "int", VALTYPE_OPTION, "Trace header output type", "This is the number type of the Seaseis output trace header" );
@@ -1092,7 +1180,7 @@ void params_mod_input_segy_( csParamDef* pdef ) {
   pdef->addValue( "ebcdic", VALTYPE_OPTION );
   pdef->addOption( "ebcdic", "EBCDIC" );
   pdef->addOption( "ascii", "ASCII" );
-//  pdef->addOption( "ebcdic_su", "EBCDIC code format used in Seismic Unix", "Differs slightly from EBCDIC code defined in SEGY rev1" );
+  //  pdef->addOption( "ebcdic_su", "EBCDIC code format used in Seismic Unix", "Differs slightly from EBCDIC code defined in SEGY rev1" );
  
   pdef->addParam( "su_format", "Is input data in SU (Seismic Unix) format?", NUM_VALUES_FIXED,
                   "Use this parameter to override the default format which is determined by the (first) file's extension: *.su or *.SU == SU file" );
@@ -1117,39 +1205,111 @@ void params_mod_input_segy_( csParamDef* pdef ) {
   pdef->addParam( "year", "Override year found in SEGY trace header", NUM_VALUES_FIXED );
   pdef->addValue( "", VALTYPE_NUMBER, "Year" );
  
+  pdef->addParam( "var_trace_len", "Does input data have variable trace length?", NUM_VALUES_FIXED, "Requires the number of samples to be defined in each trace's header bytes 115-117" );
+  pdef->addValue( "no", VALTYPE_OPTION );
+  pdef->addOption( "no", "No" );
+  pdef->addOption( "yes", "Yes" );
+
+  pdef->addParam( "read_first_last_only", "read first and last trace only", NUM_VALUES_FIXED );
+  pdef->addValue( "no", VALTYPE_OPTION );
+  pdef->addOption( "no", "No" );
+  pdef->addOption( "yes", "Yes" );
 }
  
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_input_segy_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  //  mod_input_segy::VariableStruct* vars = reinterpret_cast<mod_input_segy::VariableStruct*>( env->execPhaseDef->variables() );
+  //  csExecPhaseDef* edef = env->execPhaseDef;
+  //  csSuperHeader const* shdr = env->superHeader;
+  //  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_input_segy_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_input_segy::VariableStruct* vars = reinterpret_cast<mod_input_segy::VariableStruct*>( env->execPhaseDef->variables() );
+  //  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->segyReader != NULL ) {
+    delete vars->segyReader;
+    vars->segyReader = NULL;
+  }
+  if( vars->hdrMap != NULL ) {
+    delete vars->hdrMap;
+    vars->hdrMap = NULL;
+  }
+  if( vars->filenames != NULL ) {
+    for( int i = 0; i < vars->numFiles; i++ ) {
+      if( vars->filenames[i] != NULL ) {
+        delete [] vars->filenames[i];
+      }
+    }
+    delete [] vars->filenames;
+    vars->filenames = NULL;
+  }
+  if( vars->charInfo != NULL ) {
+    delete vars->charInfo;
+    vars->charInfo = NULL;
+  }
+  delete [] vars->hdrIndexSegy; vars->hdrIndexSegy = NULL;
+  delete [] vars->hdrTypeSegy; vars->hdrTypeSegy = NULL;
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_input_segy_( csParamDef* pdef ) {
   params_mod_input_segy_( pdef );
 }
-extern "C" void _init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_input_segy_( param, env, log );
+extern "C" void _init_mod_input_segy_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_input_segy_( param, env, writer );
 }
-extern "C" bool _exec_mod_input_segy_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_input_segy_( trace, port, env, log );
+extern "C" bool _start_exec_mod_input_segy_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_input_segy_( env, writer );
 }
- 
- 
-void dumpFileHeaders( csLogWriter* log, csSegyReader* reader, int hdr_mapping ) {
+extern "C" void _exec_mod_input_segy_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_input_segy_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_input_segy_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_input_segy_( env, writer );
+}
+
+void mod_input_segy::dumpFileHeaders( csLogWriter* writer, csSegyReader* reader, int hdr_mapping ) {
   cseis_geolib::csSegyBinHeader const* binHdr = reader->binHdr();
  
   char const* charHdr = reader->charHdrBlock();
-  log->line( "Segy EBCDIC header:\n" );
+  writer->line( "Segy EBCDIC header:\n" );
   char line[83];
   line[80] = '+';
   line[81] = '+';
   line[82] = '\0';
-  for( int i = 0; i < csSegyHeader::SIZE_CHARHDR; i++) {
+  for( int i = 0; i < cseis_segy::SIZE_CHARHDR; i++) {
     line[i%80] = charHdr[i];
     if( ((i+1) % 80) == 0 ) {
-      log->line( line );
+      writer->line( line );
     }
   }
-  log->line( "Segy binary header:\n" );
+  writer->line( "Segy binary header:\n" );
   if( hdr_mapping != csSegyHdrMap::SEGY_PSEGY ) {
-    binHdr->dump( log->getFile() );
+    binHdr->dump( writer->getFile() );
   }
  
 }
- 
- 
+
+void mod_input_segy::extractInfoFromCharHdr( char const* charHdr, CharInfo* charInfo ) {
+  int numLettersPerLine = 80;
+  char* text = new char[charInfo->numBytes+1];
+  memcpy( text, &charHdr[(charInfo->line-1)*numLettersPerLine+charInfo->byte1-1], charInfo->numBytes*sizeof(char) );
+  text[charInfo->numBytes] = '\0';
+  if( charInfo->hdrType == TYPE_DOUBLE || charInfo->hdrType == TYPE_FLOAT ) {
+    charInfo->doubleValue = atof( text );
+  }
+  else {
+    charInfo->intValue = atoi( text );
+  }
+  delete []text;
+}

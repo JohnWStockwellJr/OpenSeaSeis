@@ -41,6 +41,7 @@ csRSFReader::csRSFReader( std::string filenameRSF, int numTracesBuffer, bool rev
   myFilenameRSF  = filenameRSF;
   myIsAtEOF      = false;
   myDoSwapEndian = reverseByteOrder;
+  myNumDimensions = 3;
 
   mySampleByteSize = 0;
   myTraceByteSize = 0;
@@ -124,14 +125,34 @@ void csRSFReader::initialize( csRSFHeader* hdr ) {
   myNumSamples = myHdr->n1;
   mySampleInt  = myHdr->d1;
   if( myHdr->n2 == 0 ) throw( csException("No traces in second dimension. n2=%d", myHdr->n2) );
-  if( myHdr->n3 != 0 ) {
+  if( myHdr->n5 != 0 ) {
+    if( myHdr->n4 == 0 ) throw( csException("No traces in forth dimension (..but fifth dimension exists). n3=%d, n4=%d, n5=%d", myHdr->n3, myHdr->n4, myHdr->n5) );
+    myTotalNumTraces = myHdr->n2 * myHdr->n3 * myHdr->n4 * myHdr->n5;
+    myNumDimensions  = 5;
+  }
+  else if( myHdr->n4 != 0 ) {
+    if( myHdr->n3 == 0 ) throw( csException("No traces in third dimension (..but forth dimension exists). n3=%d, n4=%d", myHdr->n3, myHdr->n4) );
+    myTotalNumTraces = myHdr->n2 * myHdr->n3 * myHdr->n4;
+    myNumDimensions  = 4;
+  }
+  else if( myHdr->n3 != 0 ) {
     myTotalNumTraces = myHdr->n2 * myHdr->n3;
+    myNumDimensions  = 3;
   }
   else {
-    myTotalNumTraces = myHdr->n2;
+    myTotalNumTraces = myHdr->n2; 
+    myNumDimensions  = 2;
   }
 
-  mySampleByteSize = 4;   // assume 4 byte floating point
+  if( myHdr->esize == 4 ) {
+    mySampleByteSize = 4;   // assume 4 byte floating point
+  }
+  else if( myHdr->esize == 8 ) {
+    mySampleByteSize = 8;   // assume 8 byte floating point
+  }
+  else {
+    throw( csException("Data format not supported. Byte size (esize): %d", myHdr->esize) );
+  }
   myTraceByteSize = myNumSamples*mySampleByteSize;
 
   myBufferCapacityNumTraces = std::min( myTotalNumTraces, myBufferCapacityNumTraces );
@@ -186,28 +207,56 @@ void csRSFReader::readRSFHdr() {
   }
 
   char buffer[256];
+  char buffer2[256];
   while( fgets(buffer,256,fin_rsf) != NULL ) {
+    int length = strlen(buffer);
     if( strlen(buffer) < 2 ) continue;
+    for( int i = 0; i < length; i++ ) {
+      if( buffer[i] == '\t' ) buffer[i] = ' ';
+    }
     std::string bufferStr = trim(buffer);
     if( bufferStr.length() == 0 ) continue;
-    char* cPtr = strtok(buffer,"=");
-    if( cPtr != NULL ) {
-      string name = trim(cPtr);
-      cPtr = strtok(NULL,"=");
-      if( name.length() > 0 && cPtr != NULL ) {
-        string value = trim(cPtr);
-        if( value.length() > 0 ) {
-          myHdr->setField( name.c_str(), value.c_str() );
+    // 1) Split into several pieces if more than one variable is defined in one line
+    //    Example:  "o1=0    d1=6.25    n1=1597 label1=DEPTH"  -->  "o1=0"  "d1=6.25"  "n1=1597"  ...
+    char* cPtrOuter = strtok(buffer," ");
+    csVector<std::string> stringList;
+    while( cPtrOuter != NULL ) {
+      //      fprintf(stderr,"Text: '%s'\n", cPtrOuter);
+      std::string newString( cPtrOuter );
+      stringList.insertEnd( newString );
+      cPtrOuter = strtok(NULL," ");
+    }
+    // 2) Split each item into name and value
+    //    Example:  "n1=1597"  -->  name=n1  value=1597
+    for( int i = 0; i < stringList.size(); i++ ) {
+      char const* stringPtr = stringList.at(i).c_str();
+      memcpy( buffer2, stringPtr, stringList.at(i).size() );
+      buffer2[stringList.at(i).size()] = '\0';
+      char* cPtr = strtok(buffer2,"=");
+      if( cPtr != NULL ) {
+        string name = trim(cPtr);
+        cPtr = strtok(NULL,"=");
+        if( name.length() > 0 && cPtr != NULL ) {
+          string value = trim(cPtr);
+          //          fprintf(stderr,"Name/value: '%s = %s'\n", name.c_str(), value.c_str() ); 
+          if( value.length() > 0 ) {
+            myHdr->setField( name.c_str(), value.c_str() );
+          }
         }
       }
-    }
+    } // END while cPtrOuter
   }
-  //  myHdr->dump(stderr);
-  if( fabs(myHdr->e2-(myHdr->d2*myHdr->n2+myHdr->o2)) > 0.01 ) {
-    myHdr->e2 = (myHdr->d2*myHdr->n2+myHdr->o2);
+  if( fabs( myHdr->e1 - (myHdr->d1 * myHdr->n1 + myHdr->o1 ) ) > 0.01 ) {
+    myHdr->e1 = (myHdr->d1 * myHdr->n1 + myHdr->o1 );
   }
-  if( fabs(myHdr->e3-(myHdr->d3*myHdr->n3+myHdr->o3)) > 0.01 ) {
-    myHdr->e3 = (myHdr->d3*myHdr->n3+myHdr->o3);
+  if( fabs( myHdr->e2 - (myHdr->d2 * myHdr->n2 + myHdr->o2 ) ) > 0.01 ) {
+    myHdr->e2 = (myHdr->d2 * myHdr->n2 + myHdr->o2 );
+  }
+  if( fabs( myHdr->e3 - (myHdr->d3 * myHdr->n3 + myHdr->o3 ) ) > 0.01 ) {
+    myHdr->e3 = (myHdr->d3 * myHdr->n3 + myHdr->o3 );
+  }
+  if( fabs( myHdr->e4 - (myHdr->d4 * myHdr->n4 + myHdr->o4 ) ) > 0.01 ) {
+    myHdr->e4 = (myHdr->d4 * myHdr->n4 + myHdr->o4 );
   }
   if( myHdr->filename_bin.length() == 0 ) {
     throw( csException("Cannot extract filename for binary input file (in=... in rsf header file)") );
@@ -221,7 +270,7 @@ void csRSFReader::readRSFHdr() {
     int counter = myFilenameRSF.length()-1;
     while( counter > 0 ) {
       if( myFilenameRSF.at(counter) == '/' ) {
-	break;
+        break;
       }
       counter -= 1;
     }
@@ -266,7 +315,16 @@ bool csRSFReader::getNextTrace( byte_t* theBuffer, int numSamplesToRead ) {
   }
 
   int minNumSamples = std::min( myNumSamples, numSamplesToRead );
-  memcpy( theBuffer, &myDataBuffer[myBufferCurrentTrace*myTraceByteSize], minNumSamples*mySampleByteSize );
+  if( mySampleByteSize == 4 ) {
+    memcpy( theBuffer, &myDataBuffer[myBufferCurrentTrace*myTraceByteSize], minNumSamples*mySampleByteSize );
+  }
+  else if( mySampleByteSize == 8 ) {
+    double val_dbl;
+    for( int isamp = 0; isamp < minNumSamples; isamp++ ) {
+      memcpy( &val_dbl, &myDataBuffer[myBufferCurrentTrace*myTraceByteSize + isamp*mySampleByteSize], mySampleByteSize );
+      theBuffer[isamp] =  (float)val_dbl;
+    }
+  }
 
   if( numSamplesToRead > myNumSamples ) {
     // Zero out rest of output buffer if necessary:
@@ -311,26 +369,89 @@ bool csRSFReader::readDataBuffer() {
 void csRSFReader::dump( FILE* stream ) {
   myHdr->dump( stream );
 }
+int csRSFReader::numDim() const {
+  return myNumDimensions;
+}
 int csRSFReader::computeTrace( double val_dim2, double val_dim3 ) const {
-  int traceIndex = (int)round( val_dim3 / myHdr->d3 )*myHdr->n2 + (int)round( val_dim2 / myHdr->d2 );
+  int traceIndex = (int)round( (val_dim3-myHdr->o3) / myHdr->d3 ) * myHdr->n2 + (int)round( (val_dim2-myHdr->o2) / myHdr->d2 );
+  return traceIndex;
+}
+int csRSFReader::computeTrace( double val_dim2, double val_dim3, double val_dim4 ) const {
+  int traceIndex = ( (int)round( (val_dim4-myHdr->o4) / myHdr->d4 ) * myHdr->n3 + (int)round( (val_dim3-myHdr->o3) / myHdr->d3 )  ) * myHdr->n2 + (int)round( (val_dim2-myHdr->o2) / myHdr->d2 );
+  return traceIndex;
+}
+int csRSFReader::computeTrace( double val_dim2, double val_dim3, double val_dim4, double val_dim5 ) const {
+  int traceIndex = ( ( ( (int)round( (val_dim5-myHdr->o5) / myHdr->d5 ) * myHdr->n4 + (int)round( (val_dim4-myHdr->o4) / myHdr->d4 ) ) * myHdr->n3 + (int)round( (val_dim3-myHdr->o3) / myHdr->d3 ) ) ) * myHdr->n2 + (int)round( (val_dim2-myHdr->o2) / myHdr->d2 );
   return traceIndex;
 }
 double csRSFReader::computeDim2( int traceIndex ) const {
   if( myHdr == NULL ) throw( cseis_geolib::csException("csRSFReader::computeDim2:") );
-  int steps = (int)( traceIndex / myHdr->n2 );
-  int remainder = traceIndex - ( steps * myHdr->n2 );
-  double value = myHdr->o2 + myHdr->d2 * (double)remainder;
+  double value = 0;
+  if( myNumDimensions == 2 ) {
+    value = myHdr->o2 + myHdr->d2 * (double)traceIndex;
+  }
+  else if( myNumDimensions == 3 ) {
+    int steps = (int)( traceIndex / myHdr->n2 );
+    int remainder = traceIndex - ( steps * myHdr->n2 );
+    value = myHdr->o2 + myHdr->d2 * (double)remainder;
+  }
+  else if( myNumDimensions == 4 ) {
+    int steps4 = (int)( traceIndex / (myHdr->n2 * myHdr->n3) );
+    int traceIndex_red4 = traceIndex - (steps4 * myHdr->n2 * myHdr->n3);
+    int steps3 = (int)( traceIndex_red4 / myHdr->n2 );
+    int remainder2 = traceIndex_red4 - ( steps3 * myHdr->n2 );
+    value = myHdr->o2 + myHdr->d2 * (double)remainder2;
+  }
+  else { // if( myNumDimensions == 5 ) {
+    int steps5 = (int)( traceIndex / (myHdr->n2 * myHdr->n3 * myHdr->n4) );
+    int traceIndex_red5 = traceIndex - (steps5 * myHdr->n2 * myHdr->n3 * myHdr->n4);
+    int steps4 = (int)( traceIndex_red5 / myHdr->n2 );
+    int remainder2 = traceIndex_red5 - ( steps4 * myHdr->n2 );
+    value = myHdr->o2 + myHdr->d2 * (double)remainder2;
+  }
   return value;
 }
 double csRSFReader::computeDim3( int traceIndex ) const {
   if( myHdr == NULL ) throw( cseis_geolib::csException("csRSFReader::computeDim3:") );
-  int steps = (int)( traceIndex / myHdr->n2 );
-  double value = myHdr->o3 + myHdr->d3 * (double)(steps);
+  double value = 0;
+  if( myNumDimensions == 3 ) {
+    int steps = (int)( traceIndex / myHdr->n2 );
+    value = myHdr->o3 + myHdr->d3 * (double)steps;
+  }
+  else if( myNumDimensions == 4 ) {
+    int steps4 = (int)( traceIndex / (myHdr->n2 * myHdr->n3) );
+    int traceIndex_red4 = traceIndex - (steps4 * myHdr->n2 * myHdr->n3);
+    int steps3 = (int)( traceIndex_red4 / myHdr->n2 );
+    value = myHdr->o3 + myHdr->d3 * (double)steps3;
+  }
+  else { // if( myNumDimensions == 5 ) {
+    int steps5 = (int)( traceIndex / (myHdr->n2 * myHdr->n3 * myHdr->n4) );
+    int traceIndex_red5 = traceIndex - (steps5 * myHdr->n2 * myHdr->n3 * myHdr->n4);
+    int steps4 = (int)( traceIndex_red5 / myHdr->n2 );
+    value = myHdr->o4 + myHdr->d4 * (double)steps4;
+  }
+  return value;
+}
+double csRSFReader::computeDim4( int traceIndex ) const {
+  if( myHdr == NULL ) throw( cseis_geolib::csException("csRSFReader::computeDim4:") );
+  int steps4 = (int)( traceIndex / (myHdr->n2 * myHdr->n3) );
+  double value = myHdr->o4 + myHdr->d4 * (double)steps4;
+  return value;
+}
+double csRSFReader::computeDim5( int traceIndex ) const {
+  if( myHdr == NULL ) throw( cseis_geolib::csException("csRSFReader::computeDim5:") );
+  int steps5 = (int)( traceIndex / (myHdr->n2 * myHdr->n3 * myHdr->n4) );
+  double value = myHdr->o5 + myHdr->d5 * (double)steps5;
   return value;
 }
 bool csRSFReader::moveToComputedTrace( double val_dim2, double val_dim3 ) {
-  int traceIndex = (int)round( val_dim3 / myHdr->d3 )*myHdr->n2 + (int)round( val_dim2 / myHdr->d2 );
-  return moveToTrace( traceIndex );
+  return moveToTrace( computeTrace( val_dim2, val_dim3 ) );
+}
+bool csRSFReader::moveToComputedTrace( double val_dim2, double val_dim3, double val_dim4 ) {
+  return moveToTrace( computeTrace( val_dim2, val_dim3, val_dim4 ) );
+}
+bool csRSFReader::moveToComputedTrace( double val_dim2, double val_dim3, double val_dim4, double val_dim5 ) {
+  return moveToTrace( computeTrace( val_dim2, val_dim3, val_dim4, val_dim5 ) );
 }
 bool csRSFReader::moveToTrace( int traceIndex ) {
   return moveToTrace( traceIndex, myTotalNumTraces-traceIndex );
@@ -367,7 +488,7 @@ bool csRSFReader::setHeaderToPeek( std::string const& headerName ) {
 }
 bool csRSFReader::setHeaderToPeek( std::string const& headerName, cseis_geolib::type_t& headerType ) {
   bool success = setHeaderToPeek( headerName );
-  if( myPeekHdr == csRSFHeader::HDR_DIM2 || myPeekHdr == csRSFHeader::HDR_DIM3 ) {
+  if( myPeekHdr == csRSFHeader::HDR_DIM2 || myPeekHdr == csRSFHeader::HDR_DIM3 || myPeekHdr == csRSFHeader::HDR_DIM4 || myPeekHdr == csRSFHeader::HDR_DIM5 ) {
     headerType = cseis_geolib::TYPE_DOUBLE;
   }
   else {
@@ -399,6 +520,12 @@ bool csRSFReader::peekHeaderValue( cseis_geolib::csFlexHeader* hdrValue, int tra
   else if( myPeekHdr == csRSFHeader::HDR_DIM3 ) {
     hdrValue->setDoubleValue( computeDim3(traceIndex) );
   }
+  else if( myPeekHdr == csRSFHeader::HDR_DIM4 ) {
+    hdrValue->setDoubleValue( computeDim4(traceIndex) );
+  }
+  else if( myPeekHdr == csRSFHeader::HDR_DIM5 ) {
+    hdrValue->setDoubleValue( computeDim5(traceIndex) );
+  }
   else if( myPeekHdr == csRSFHeader::HDR_TRCNO ) {
     hdrValue->setIntValue( traceIndex+1 );
   }
@@ -427,58 +554,66 @@ bool csRSFReader::seekg_relative( csInt64_t bytePosRelative ) {
 //********************************************************************************
 
 int csRSFReader::hdrIntValue( int hdrIndex ) const {
-  if( hdrIndex == csRSFHeader::HDR_DIM2 ) {
+  switch( hdrIndex ) {
+  case csRSFHeader::HDR_DIM2:
     return (int)computeDim2(myCurrentTraceIndex);
-  }
-  else if( hdrIndex == csRSFHeader::HDR_DIM3 ) {
+  case csRSFHeader::HDR_DIM3:
     return (int)computeDim3(myCurrentTraceIndex);
-  }
-  else if( hdrIndex == csRSFHeader::HDR_TRCNO ) {
+  case csRSFHeader::HDR_DIM4:
+    return (int)computeDim4(myCurrentTraceIndex);
+  case csRSFHeader::HDR_DIM5:
+    return (int)computeDim5(myCurrentTraceIndex);
+  case csRSFHeader::HDR_TRCNO:
     return( myCurrentTraceIndex+1 );
-  }
-  else {
+  default:
     return 0;
   }
 }
 float csRSFReader::hdrFloatValue( int hdrIndex ) const {
-  if( hdrIndex == csRSFHeader::HDR_DIM2 ) {
+  switch( hdrIndex ) {
+  case csRSFHeader::HDR_DIM2:
     return (float)computeDim2(myCurrentTraceIndex);
-  }
-  else if( hdrIndex == csRSFHeader::HDR_DIM3 ) {
+  case csRSFHeader::HDR_DIM3:
     return (float)computeDim3(myCurrentTraceIndex);
-  }
-  else if( hdrIndex == csRSFHeader::HDR_TRCNO ) {
+  case csRSFHeader::HDR_DIM4:
+    return (float)computeDim4(myCurrentTraceIndex);
+  case csRSFHeader::HDR_DIM5:
+    return (float)computeDim5(myCurrentTraceIndex);
+  case csRSFHeader::HDR_TRCNO:
     return (float)( myCurrentTraceIndex+1 );
-  }
-  else {
+  default:
     return 0;
   }
 }
 double csRSFReader::hdrDoubleValue( int hdrIndex ) const {
-  if( hdrIndex == csRSFHeader::HDR_DIM2 ) {
+  switch( hdrIndex ) {
+  case csRSFHeader::HDR_DIM2:
     return computeDim2(myCurrentTraceIndex);
-  }
-  else if( hdrIndex == csRSFHeader::HDR_DIM3 ) {
+  case csRSFHeader::HDR_DIM3:
     return computeDim3(myCurrentTraceIndex);
-  }
-  else if( hdrIndex == csRSFHeader::HDR_TRCNO ) {
+  case csRSFHeader::HDR_DIM4:
+    return computeDim4(myCurrentTraceIndex);
+  case csRSFHeader::HDR_DIM5:
+    return computeDim5(myCurrentTraceIndex);
+  case csRSFHeader::HDR_TRCNO:
     return (double)( myCurrentTraceIndex+1 );
-  }
-  else {
-    return 0.0;
+  default:
+    return 0;
   }
 }
 csInt64_t csRSFReader::hdrInt64Value( int hdrIndex ) const {
-  if( hdrIndex == csRSFHeader::HDR_DIM2 ) {
+  switch( hdrIndex ) {
+  case csRSFHeader::HDR_DIM2:
     return (csInt64_t)computeDim2(myCurrentTraceIndex);
-  }
-  else if( hdrIndex == csRSFHeader::HDR_DIM3 ) {
+  case csRSFHeader::HDR_DIM3:
     return (csInt64_t)computeDim3(myCurrentTraceIndex);
-  }
-  else if( hdrIndex == csRSFHeader::HDR_TRCNO ) {
+  case csRSFHeader::HDR_DIM4:
+    return (csInt64_t)computeDim4(myCurrentTraceIndex);
+  case csRSFHeader::HDR_DIM5:
+    return (csInt64_t)computeDim5(myCurrentTraceIndex);
+  case csRSFHeader::HDR_TRCNO:
     return (csInt64_t)( myCurrentTraceIndex+1 );
-  }
-  else {
+  default:
     return 0;
   }
 }
@@ -487,7 +622,7 @@ std::string csRSFReader::hdrStringValue( int hdrIndex ) const {
 }
 
 int csRSFReader::numTraceHeaders() const {
-  return 3;
+  return( myNumDimensions ); // Number of spatial dimensions plus trace counter
 }
 int csRSFReader::headerIndex( std::string const& headerName ) const {
   if( !headerName.compare( "dim2" ) ) {
@@ -495,6 +630,12 @@ int csRSFReader::headerIndex( std::string const& headerName ) const {
   }
   else if( !headerName.compare( "dim3" ) ) {
     return csRSFHeader::HDR_DIM3;
+  }
+  else if( !headerName.compare( "dim4" ) ) {
+    return csRSFHeader::HDR_DIM4;
+  }
+  else if( !headerName.compare( "dim5" ) ) {
+    return csRSFHeader::HDR_DIM5;
   }
   else if( !headerName.compare(cseis_geolib::HDR_TRCNO.name) ) {
     return csRSFHeader::HDR_TRCNO;
@@ -510,6 +651,12 @@ std::string csRSFReader::headerName( int hdrIndex ) const {
   else if( hdrIndex == csRSFHeader::HDR_DIM3 ) {
     return "dim3";
   }
+  else if( hdrIndex == csRSFHeader::HDR_DIM4 ) {
+    return "dim4";
+  }
+  else if( hdrIndex == csRSFHeader::HDR_DIM5 ) {
+    return "dim5";
+  }
   else if( hdrIndex == csRSFHeader::HDR_TRCNO ) {
     return cseis_geolib::HDR_TRCNO.name;
   }
@@ -524,6 +671,12 @@ std::string csRSFReader::headerDesc( int hdrIndex ) const {
   else if( hdrIndex == csRSFHeader::HDR_DIM3 ) {
     return "RSF data dimension 3";
   }
+  else if( hdrIndex == csRSFHeader::HDR_DIM4 ) {
+    return "RSF data dimension 4";
+  }
+  else if( hdrIndex == csRSFHeader::HDR_DIM5 ) {
+    return "RSF data dimension 5";
+  }
   else if( hdrIndex == csRSFHeader::HDR_TRCNO ) {
     return cseis_geolib::HDR_TRCNO.description;
   }
@@ -536,6 +689,12 @@ cseis_geolib::type_t csRSFReader::headerType( int hdrIndex ) const {
     return cseis_geolib::TYPE_DOUBLE;
   }
   else if( hdrIndex == csRSFHeader::HDR_DIM3 ) {
+    return cseis_geolib::TYPE_DOUBLE;
+  }
+  else if( hdrIndex == csRSFHeader::HDR_DIM4 ) {
+    return cseis_geolib::TYPE_DOUBLE;
+  }
+  else if( hdrIndex == csRSFHeader::HDR_DIM5 ) {
     return cseis_geolib::TYPE_DOUBLE;
   }
   else if( hdrIndex == csRSFHeader::HDR_TRCNO ) {
@@ -558,24 +717,24 @@ int csRSFReader::getCSEISDomain() const {
   if( myHdr->unit1 == csRSFHeader::SAMPLE_UNIT_MS || myHdr->unit1 == csRSFHeader::SAMPLE_UNIT_S ) {
     return cseis_geolib::DOMAIN_XT;
   }
-  else if( myHdr->unit1 == csRSFHeader::SAMPLE_UNIT_M || myHdr->unit1 == csRSFHeader::SAMPLE_UNIT_KM ) {
+  else if( myHdr->unit1 == csRSFHeader::SAMPLE_UNIT_M || myHdr->unit1 == csRSFHeader::SAMPLE_UNIT_KM || myHdr->domain1 == cseis_geolib::DOMAIN_XD ) {
     return cseis_geolib::DOMAIN_XD;
   }
   return cseis_geolib::DOMAIN_XT;
 }
 
 bool csRSFReader::setSelection( std::string const& hdrValueSelectionText,
-                                 std::string const& headerName,
-                                 int sortOrder,
-                                 int sortMethod )
+                                std::string const& headerName,
+                                int sortOrder,
+                                int sortMethod )
 {
   myIOSelection = new cseis_geolib::csIOSelection( headerName, sortOrder, sortMethod );
   return myIOSelection->initialize( this, hdrValueSelectionText );
 }
 void csRSFReader::setSelectionStep1( std::string const& hdrValueSelectionText,
-                                      std::string const& headerName,
-                                      int sortOrder,
-                                      int sortMethod )
+                                     std::string const& headerName,
+                                     int sortOrder,
+                                     int sortMethod )
 {
   myIOSelection = new cseis_geolib::csIOSelection( headerName, sortOrder, sortMethod );
   myIOSelection->step1( this, hdrValueSelectionText );

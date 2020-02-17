@@ -6,6 +6,7 @@
 
 #include <iostream>
 #include "csSegdDefines.h"
+#include "geolib_defines.h"
 
 namespace cseis_segd {
 
@@ -74,7 +75,7 @@ public:
   virtual ~csGeneralHeader2();
   virtual void extractHeaders( byte const* buffer );
   virtual void dump( std::ostream& cs );
-//  static int const BLOCK_SIZE;
+  void set( int numBytes_externalHdrBlocks );
 public:
   int expandedFileNum;              // 01-03 UINT24 Expanded file number
   int numExtendedChanSets;       // 04-05 UIN16  Extended channel sets and scan types
@@ -84,6 +85,8 @@ public:
   int numGeneralTrailerBlocks;      // 13-14 UINT16 General trailer number
   int extendedRecordLen;            // 15-17 UINT24 Extended record length (0-128000ms)
   int generalHeaderBlockNum;        // 19    UINT8  General header block number
+ private:
+  int myNumBytes_externalHdrBlocks; // Number of bytes of field where 'number of external header blocks' is stored. In standard SEGD rev2, only 2 bytes are read in.
 };
 
 //---------------- General header block #n -------------------------
@@ -200,6 +203,8 @@ public:
   virtual void dump( std::ostream& cs );
   virtual int getNumSamples() const;
   virtual int numBlocks() const;
+  virtual int nanoSeconds() const;
+  virtual csInt64_t timeSamp1_us() const;
 
 public:
   struct block0Struct {
@@ -238,6 +243,7 @@ public:
   virtual void extractHeaders( byte const* buffer, int totalNumBytes = 0 );
   virtual void dump( std::ostream& cs );
   virtual int nanoSeconds() const;
+  virtual int numTraces() const;
 };
 
 

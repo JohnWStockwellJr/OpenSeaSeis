@@ -41,6 +41,8 @@ public:
   inline void applyPercentageChange( float percentage ) { applyPercentageChange(percentage,0); }
   inline void applyPercentageChange( float percentage, int spatialIndex );
 
+  inline void dump() const;
+
 private:
   void resetBuffer( int numValues );
   float mySampleInt;
@@ -183,7 +185,13 @@ template<typename T> void csTimeFunction<T>::resetBuffer( int numValues ) {
   }
   myNumValues = numValues;
 }
-
+template<typename T> void csTimeFunction<T>::dump() const {
+  for( int index = 0; index < myNumSpatialValues; index++ ) {
+    for( int itime = 0; itime < myNumValues; itime++ ) {
+      fprintf(stdout,"%d %d   %f %f\n", index, itime, myTimeBuffer[itime], myValueList->at(index)[itime]);
+    }
+  }
+}
 
 } // namespace
 #endif

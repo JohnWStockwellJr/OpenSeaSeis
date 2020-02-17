@@ -34,14 +34,13 @@ using namespace mod_concatenate;
 //
 //
 //*************************************************************************************************
-void init_mod_concatenate_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_concatenate_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   csSuperHeader*    shdr = env->superHeader;
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
 
   vars->mode           = MODE_TRACES;
   vars->numTraces      = 0;
@@ -62,7 +61,7 @@ void init_mod_concatenate_( csParamManager* param, csInitPhaseEnv* env, csLogWri
       vars->mode = MODE_ENSEMBLE;
     }
     else {
-      log->error("Unknown option: %s", text.c_str() );
+      writer->error("Unknown option: %s", text.c_str() );
     }
   }
 
@@ -90,16 +89,12 @@ void exec_mod_concatenate_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
+  //  csExecPhaseDef* edef = env->execPhaseDef;
 //  csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup()){
-    delete vars; vars = NULL;
-    return;
-  }
 
   int nTraces = traceGather->numTraces();
 //  fprintf(stderr,"Concatenate: Input traces: %d, concatenate %d traces\n", nTraces, vars->numTraces );
@@ -189,15 +184,51 @@ void params_mod_concatenate_( csParamDef* pdef ) {
 
   pdef->addParam( "ntraces", "Number of adjacent traces to concatenate", NUM_VALUES_FIXED );
   pdef->addValue( "", VALTYPE_NUMBER, "Number of traces to concatenate" );
+
+  //  pdef->addParam( "absolute_time", "Take into account absolute time?", NUM_VALUES_VARIABLE );
+  // pdef->addValue( "no", VALTYPE_OPTION );
+  // pdef->addOption( "no", "Concatenate traces last sample trace N / first sample trace N+1" );
+  // pdef->addOption( "yes", "Concatenate traces according to absolute time found in standard trace headers time_samp1 & time_samp1_us" );
+  // pdef->addValue( "first", VALTYPE_OPTION );
+  // pdef->addOption( "first", "In case of overlapping times, use sample values from first trace" );
+  // pdef->addOption( "stack", "Stack overlapping parts" );
+}
+
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_concatenate_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_concatenate::VariableStruct* vars = reinterpret_cast<mod_concatenate::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_concatenate_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_concatenate::VariableStruct* vars = reinterpret_cast<mod_concatenate::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  delete vars; vars = NULL;
 }
 
 extern "C" void _params_mod_concatenate_( csParamDef* pdef ) {
   params_mod_concatenate_( pdef );
 }
-extern "C" void _init_mod_concatenate_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_concatenate_( param, env, log );
+extern "C" void _init_mod_concatenate_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_concatenate_( param, env, writer );
 }
-extern "C" void _exec_mod_concatenate_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_concatenate_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_concatenate_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_concatenate_( env, writer );
 }
-
+extern "C" void _exec_mod_concatenate_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_concatenate_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_concatenate_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_concatenate_( env, writer );
+}

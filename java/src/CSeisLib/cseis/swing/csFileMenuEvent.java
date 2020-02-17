@@ -11,6 +11,7 @@ import java.util.EventObject;
  * File menu event
  * @author Bjorn Olofsson
  */
+@SuppressWarnings("serial")
 public class csFileMenuEvent extends EventObject {
   private File myFile;
 

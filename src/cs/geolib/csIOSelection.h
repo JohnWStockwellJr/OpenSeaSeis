@@ -5,6 +5,8 @@
 #define CS_IO_SELECTION_H
 
 #include <string>
+#include <vector>
+#include <algorithm>
 #include "geolib_defines.h"
 
 namespace cseis_geolib {
@@ -14,6 +16,19 @@ namespace cseis_geolib {
   template <typename T> class csVector;
   class csSortManager;
   class csSelection;
+
+class csIOSortItem {
+ public:
+  csIOSortItem( int traceIndex_in, csFlexNumber* flexNum_in ) {
+    traceIndex = traceIndex_in;
+    flexNum    = flexNum_in;
+  }
+  ~csIOSortItem() {
+  }
+  csFlexNumber const* flexNum;
+  int traceIndex;
+ private:
+};
 
 /**
  * IOSelection.
@@ -78,13 +93,15 @@ class csIOSelection {
   int getSelectedIndex( int traceIndex ) const;
 
  private:
+  void flipSortOrder();
+
   std::string myHdrName;
   int myNumSelectedTraces;
   int mySortOrder;
   int myCurrentSelectedIndex;
   cseis_geolib::csVector<int>* mySelectedTraceIndexList;
-  cseis_geolib::csSortManager* mySortManager;
   cseis_geolib::csVector<csFlexNumber*>* mySelectedValueList;
+  std::vector<csIOSortItem*>* mySortList;
 
   int mySTEPCurrentTraceIndex;
   int mySTEPTraceIndex;

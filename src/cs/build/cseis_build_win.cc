@@ -25,7 +25,7 @@ namespace cseis_system {
 }
 
 namespace cseis {
-  static string const filenameModuleList = "/include/cseis_modules.txt";
+  static string const filenameModuleList = "/include/cseis_modules_win.txt";
 
 /**
  * CSEIS_BUILD for Windows
@@ -37,8 +37,8 @@ namespace cseis {
 void cseis_build( string const& srcdir, string const& bindir,
                   cseis_geolib::csVector<std::string> const& moduleFileList )
 {
-  string filenameOut( bindir + "/include/cseis_modules.h" );
-  string filenameOutAll( bindir + "/include/cseis_modules_all.h" );
+  string filenameOut( bindir + "/include/cseis_modules_win.h" );
+  string filenameOutAll( bindir + "/include/cseis_modules_win_all.h" );
   FILE* fout_names = fopen( filenameOut.c_str(), "w" );
   if( fout_names == NULL ) {
     fprintf(stderr,"Could not open module header output file '%s'\n", filenameOut.c_str());

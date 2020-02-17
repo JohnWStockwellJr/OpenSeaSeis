@@ -20,4 +20,4 @@ $(OBJDIR)/mod_$(MODULE_NAME).o: $(MODULE)
 	$(CPP) -c $(ALL_FLAGS) $(MODULE) -o $(OBJDIR)/mod_$(MODULE_NAME).o
 
 $(LIBDIR)/$(LIB_v1.0): $(OBJS)
-	$(CPP) -shared -Wl,-$(SONAME),$(LIB_v1.0) -o $(LIBDIR)/$(LIB_v1.0) $(OBJS) -L$(LIBDIR) -lc -lgeolib -lcseis_system
+	$(CPP) -shared -fPIC -Wl,-$(SONAME),$(LIB_v1.0) -o $(LIBDIR)/$(LIB_v1.0) $(OBJS) -L$(LIBDIR) -lc -lgeolib -lcseis_system

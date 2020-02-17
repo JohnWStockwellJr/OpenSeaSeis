@@ -72,7 +72,7 @@ std::string random_name( std::string pre, int size, std::string post );
 //
 //
 //*************************************************************************************************
-void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   //  csTraceHeaderDef* hdef = env->headerDef;
@@ -80,7 +80,8 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
 #if PLATFORM_WINDOWS
   // For Windows, add double quotation marks around plotimage command line arguments
@@ -144,8 +145,8 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   vars->propertiesFilename = random_name( tmpfile_template + "", 10, ".prop" );
 
   if( edef->isDebug() ) {
-    log->line("Temporary file template: '%s'", tmpfile_template.c_str());
-    log->line("Temporary property file: '%s'", vars->propertiesFilename.c_str());
+    writer->line("Temporary file template: '%s'", tmpfile_template.c_str());
+    writer->line("Temporary property file: '%s'", vars->propertiesFilename.c_str());
   }
 
   if( param->exists("seismic_filename") ) {
@@ -153,14 +154,14 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
     param->getStringAtLine( "seismic_filename", &text );
     vars->command.append( " -f " + text );
     FILE* fin = fopen(text.c_str(),"r");
-    if( fin == NULL ) log->error("Input file not found: %s", text.c_str());
+    if( fin == NULL ) writer->error("Input file not found: %s", text.c_str());
     fclose(fin);
   }
   else {
     vars->isTmpFile = true;
     vars->seismicFilename = random_name( tmpfile_template + "", 10, ".cseis" );
     if( !csFileUtils::createDoNotOverwrite( vars->seismicFilename ) ) {
-      log->error("Cannot open SeaSeis output file '%s'", vars->seismicFilename.c_str() );
+      writer->error("Cannot open SeaSeis output file '%s'", vars->seismicFilename.c_str() );
     }
     vars->command.append( " -f " + vars->seismicFilename );
   }
@@ -208,7 +209,7 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       vars->command.append( " -trace_spacing auto " );
     }
     else {
-      log->error("Unknown option: %s", text.c_str() );
+      writer->error("Unknown option: %s", text.c_str() );
     }
   }
   if( param->exists( "db" ) ) {
@@ -220,16 +221,16 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       vars->command.append( " -db no " );
     }
     else {
-      log->error("Unknown option: %s", text.c_str() );
+      writer->error("Unknown option: %s", text.c_str() );
     }
   }
   if( param->exists( "color_bar" ) ) {
     param->getString( "color_bar", &text, 0 );
     if( text.compare("bottom") && text.compare("right") ) {
-      log->error("Unknown option: %s", text.c_str() );
+      writer->error("Unknown option: %s", text.c_str() );
     }
     if( !text.compare("bottom") ) {
-      log->error("Option not supported yet: %s", text.c_str() );
+      writer->error("Option not supported yet: %s", text.c_str() );
     }
     text = "right";
     if( param->getNumValues("color_bar" ) > 1 ) {
@@ -242,7 +243,7 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   if( param->exists( "color_bar_ann" ) ) {
     param->getString( "color_bar_ann", &text, 0 );
     if( text.compare("simple") && text.compare("fancy") ) {
-      log->error("Unknown option: %s", text.c_str() );
+      writer->error("Unknown option: %s", text.c_str() );
     }
     if( param->getNumValues("color_bar_ann" ) > 1 ) {
       param->getInt( "color_bar_ann", &valueInt, 1 );
@@ -264,7 +265,7 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       vars->keepPropertyFile = true;
     }
     else {
-      log->error("Unknown option: %s", text.c_str() );
+      writer->error("Unknown option: %s", text.c_str() );
     }
   }
 
@@ -274,7 +275,7 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   /*
   FILE* test = fopen( vars->propertiesFilename.c_str(), "r" );
   while( test != NULL ) {
-    log->line("Info: Random property filename '%s' already exists. Change random name...", vars->propertiesFilename.c_str() );
+    writer->line("Info: Random property filename '%s' already exists. Change random name...", vars->propertiesFilename.c_str() );
     fclose( test );
     vars->propertiesFilename.append("x");
     test = fopen( vars->propertiesFilename.c_str(), "r" );
@@ -305,13 +306,13 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
     fprintf(foutProp,"maxValue:%e\n", valueFloat );
   }
   if( param->exists("time_major_inc")  ) {
-    if( !param->exists("time_minor_inc") ) log->error("Both time_major_inc and time_minor_inc need to be specified, or none (automatic setting)."); 
+    if( !param->exists("time_minor_inc") ) writer->error("Both time_major_inc and time_minor_inc need to be specified, or none (automatic setting)."); 
     fprintf(foutProp,"isTimeLinesAuto:false\n");
     param->getFloat( "time_major_inc", &valueFloat );
     fprintf(foutProp,"timeLineMajorInc:%f\n", valueFloat );
   }
   if( param->exists("time_minor_inc")  ) {
-    if( !param->exists("time_major_inc") ) log->error("Both time_major_inc and time_minor_inc need to be specified, or none (automatic setting)"); 
+    if( !param->exists("time_major_inc") ) writer->error("Both time_major_inc and time_minor_inc need to be specified, or none (automatic setting)"); 
     param->getFloat( "time_minor_inc", &valueFloat );
     fprintf(foutProp,"timeLineMinorInc:%f\n", valueFloat );
   }
@@ -339,7 +340,7 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       vars->command.append( " -hdr_date_type y" );
     }
     else {
-      log->error("Unknown option: ", text.c_str());
+      writer->error("Unknown option: ", text.c_str());
     }
   }
 
@@ -364,7 +365,7 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       fprintf(foutProp,"polarity:-1.0\n");
     }
     else {
-      log->error("Unknown option: %s", text.c_str());
+      writer->error("Unknown option: %s", text.c_str());
     }
   }
 
@@ -381,7 +382,7 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       fprintf(foutProp,"scaleType:%d\n", SCALE_TYPE_TRACE);
     }
     else {
-      log->error("Unknown option: %s", text.c_str());
+      writer->error("Unknown option: %s", text.c_str());
     }
   }
   if( param->exists("wiggle")  ) {
@@ -398,7 +399,7 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
         fprintf(foutProp,"wiggleType:%d\n", WIGGLE_TYPE_CUBIC);
       }
       else {
-        log->error("Unknown option: %s", text.c_str());
+        writer->error("Unknown option: %s", text.c_str());
       }
     }
   }
@@ -420,7 +421,7 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
         fprintf(foutProp,"viType:%d\n", VA_TYPE_2DSPLINE);
       }
       else {
-        log->error("Unknown option: %s", text.c_str());
+        writer->error("Unknown option: %s", text.c_str());
       }
     }
   }
@@ -433,7 +434,7 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       fprintf(foutProp,"showZeroLines:false\n");
     }
     else {
-      log->error("Unknown option: %s", text.c_str());
+      writer->error("Unknown option: %s", text.c_str());
     }
   }
   if( param->exists("show_time_lines")  ) {
@@ -445,7 +446,7 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       fprintf(foutProp,"showTimeLines:false\n");
     }
     else {
-      log->error("Unknown option: %s", text.c_str());
+      writer->error("Unknown option: %s", text.c_str());
     }
   }
   if( param->exists("pos_fill")  ) {
@@ -457,7 +458,7 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       fprintf(foutProp,"isPosFill:false\n");
     }
     else {
-      log->error("Unknown option: %s", text.c_str());
+      writer->error("Unknown option: %s", text.c_str());
     }
   }
   if( param->exists("neg_fill")  ) {
@@ -469,7 +470,7 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       fprintf(foutProp,"isNegFill:false\n");
     }
     else {
-      log->error("Unknown option: %s", text.c_str());
+      writer->error("Unknown option: %s", text.c_str());
     }
   }
   if( param->exists("log_scale")  ) {
@@ -481,7 +482,7 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       fprintf(foutProp,"isLogScale:false\n");
     }
     else {
-      log->error("Unknown option: %s", text.c_str());
+      writer->error("Unknown option: %s", text.c_str());
     }
   }
   if( param->exists("var_color")  ) {
@@ -493,7 +494,7 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       fprintf(foutProp,"isVariableColor:false\n");
     }
     else {
-      log->error("Unknown option: %s", text.c_str());
+      writer->error("Unknown option: %s", text.c_str());
     }
   }
   if( param->exists("plot_direction")  ) {
@@ -505,7 +506,7 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       fprintf(foutProp,"plotDirection:%d\n", PLOT_DIR_HORIZONTAL);
     }
     else {
-      log->error("Unknown option: %s", text.c_str());
+      writer->error("Unknown option: %s", text.c_str());
     }
   }
   if( param->exists("vi_color_map")  ) {
@@ -518,7 +519,7 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   }
   if( param->exists("custom_vi_color_map")  ) {
     if( param->exists("vi_color_map")  ) {
-      log->warning("Specify either parameter vi_color_map OR custom_vi_color_map, not both. custom_vi_color_map will be ignored");
+      writer->warning("Specify either parameter vi_color_map OR custom_vi_color_map, not both. custom_vi_color_map will be ignored");
     }
     else {
       param->getString( "custom_vi_color_map", &text );
@@ -527,10 +528,10 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   }
   if( param->exists("custom_wiggle_color_map")  ) {
     if( param->exists("wiggle_color_map")  ) {
-      log->warning("Specify either parameter wiggle_color_map OR custom_wiggle_color_map, not both. custom_wiggle_color_map will be ignored");
+      writer->warning("Specify either parameter wiggle_color_map OR custom_wiggle_color_map, not both. custom_wiggle_color_map will be ignored");
     }
     else {
-      param->getString( "wiggle_color_map", &text );
+      param->getString( "custom_wiggle_color_map", &text );
       fprintf(foutProp,"wiggleColorMap:%s\n", text.c_str());
     }
   }
@@ -542,7 +543,7 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
 #endif
 
   if( edef->isDebug() ) fprintf(stderr,"Command to execute: '%s'\n", vars->command.c_str() );
-  log->line("\nCommand to execute:\n    %s\n", vars->command.c_str() );
+  writer->line("\nCommand to execute:\n    %s\n", vars->command.c_str() );
 }
 
 //*************************************************************************************************
@@ -551,57 +552,20 @@ void init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
 //
 //
 //*************************************************************************************************
-bool exec_mod_image_(
-                     csTrace* trace,
-                     int* port,
-                     csExecPhaseEnv* env, csLogWriter* log )
+void exec_mod_image_(
+  csTraceGather* traceGather,
+  int* port,
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
-  csExecPhaseDef* edef = env->execPhaseDef;
+  //  csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
   csTraceHeaderDef const* hdef = env->headerDef;
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
 
-  if( edef->isCleanup() ) {
-    if( vars->writer != NULL ) {
-      delete vars->writer;
-      vars->writer = NULL;
-    }
+  csTrace* trace = traceGather->trace(0);
 
-    int returnFlag = 0;
-
-    if( edef->isDebug() ) fprintf(stderr,"Executing command: '%s'\n", vars->command.c_str() );
-    log->line("\n...executing command:\n    %s\n", vars->command.c_str() );
-    returnFlag = system( vars->command.c_str() );
-    if( returnFlag != 0 ) {
-      log->line("$IMAGE: Error occurred when executing system command: '%s'", vars->command.c_str());
-      return false;
-    }
-#if PLATFORM_WINDOWS
-    std::string command_rm = "del ";
-#else
-    std::string command_rm = "rm -f ";
-#endif
-
-    if( !vars->keepPropertyFile ) {
-      std::string command1 = command_rm + vars->propertiesFilename;
-      returnFlag = system( command1.c_str() );
-      if( returnFlag != 0 ) {
-        log->line("$IMAGE: Error occurred when executing system command: '%s'", command1.c_str());
-        return false;
-      }
-    }
-    if( vars->isTmpFile ) {
-      std::string command2 = command_rm + vars->seismicFilename;
-      returnFlag = system( command2.c_str() );
-      if( returnFlag != 0 ) {
-        log->error("$IMAGE: Error occurred when executing system command: '%s'", command2.c_str());
-        return false;
-      }
-    }
-
-    delete vars; vars = NULL;
-    return true;
-  } // END isCleanup
 
   if( vars->isFirstCall ) {
     vars->isFirstCall = false;
@@ -609,7 +573,7 @@ bool exec_mod_image_(
       vars->writer = new csSeismicWriter( vars->seismicFilename, 20 );
     }
     catch( csException& exc ) {
-      log->error("Error occurred when opening SeaSeis file. System message:\n%s", exc.getMessage() );
+      writer->error("Error occurred when opening SeaSeis file. System message:\n%s", exc.getMessage() );
     }
   }
 
@@ -625,17 +589,17 @@ bool exec_mod_image_(
       }
       if( success ) success = vars->writer->writeTrace( samples, hdrValueBlock );
       if( !success ) {
-        log->error("Unknown error occurred when writing to SeaSeis file.\n" );
+        writer->error("Unknown error occurred when writing to SeaSeis file.\n" );
       }
     }
     catch( csException& exc ) {
-      log->error("Error occurred when writing to SeaSeis file. System message:\n%s", exc.getMessage() );
+      writer->error("Error occurred when writing to SeaSeis file. System message:\n%s", exc.getMessage() );
     }
     vars->nTracesOut += 1;
   }
 
 
-  return true;
+  return;
 }
 //********************************************************************************
 // Parameter definition
@@ -861,15 +825,78 @@ void params_mod_image_( csParamDef* pdef ) {
   */
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_image_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_image::VariableStruct* vars = reinterpret_cast<mod_image::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_image_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_image::VariableStruct* vars = reinterpret_cast<mod_image::VariableStruct*>( env->execPhaseDef->variables() );
+  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->writer != NULL ) {
+    delete vars->writer;
+    vars->writer = NULL;
+  }
+
+  int returnFlag = 0;
+
+  if( edef->isDebug() ) fprintf(stderr,"Executing command: '%s'\n", vars->command.c_str() );
+  writer->line("\n...executing command:\n    %s\n", vars->command.c_str() );
+  returnFlag = system( vars->command.c_str() );
+  if( returnFlag != 0 ) {
+    writer->error("$IMAGE: Error occurred when executing system command: '%s'", vars->command.c_str());
+  }
+#if PLATFORM_WINDOWS
+  std::string command_rm = "del ";
+#else
+  std::string command_rm = "rm -f ";
+#endif
+
+  if( !vars->keepPropertyFile ) {
+    std::string command1 = command_rm + vars->propertiesFilename;
+    returnFlag = system( command1.c_str() );
+    if( returnFlag != 0 ) {
+      writer->error("$IMAGE: Error occurred when executing system command: '%s'", command1.c_str());
+    }
+  }
+  if( vars->isTmpFile ) {
+    std::string command2 = command_rm + vars->seismicFilename;
+    returnFlag = system( command2.c_str() );
+    if( returnFlag != 0 ) {
+      writer->error("$IMAGE: Error occurred when executing system command: '%s'", command2.c_str());
+    }
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_image_( csParamDef* pdef ) {
   params_mod_image_( pdef );
 }
-extern "C" void _init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_image_( param, env, log );
+extern "C" void _init_mod_image_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_image_( param, env, writer );
 }
-extern "C" bool _exec_mod_image_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_image_( trace, port, env, log );
+extern "C" bool _start_exec_mod_image_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_image_( env, writer );
 }
+extern "C" void _exec_mod_image_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_image_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_image_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_image_( env, writer );
+}
+
 
 std::string random_name( std::string pre, int size, std::string post ) {
   std::stringstream str;

@@ -35,6 +35,8 @@ namespace mod_p190 {
     int hdrID_time_hour;
     int hdrID_time_min;
     int hdrID_time_sec;
+
+    bool dropUnmatchedTraces;
   };
 }
 using namespace mod_p190;
@@ -44,14 +46,15 @@ using namespace mod_p190;
 //
 //
 //*************************************************************************************************
-void init_mod_p190_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_p190_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
   vars->reader = NULL;
 
@@ -70,7 +73,23 @@ void init_mod_p190_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
   vars->hdrID_time_min = -1;
   vars->hdrID_time_sec = -1;
 
+  vars->dropUnmatchedTraces = false;
+
   //----------------------------------------------------
+
+  if( param->exists("drop_traces") ) {
+    std::string text;
+    param->getString( "drop_traces", &text );
+    if( !text.compare("yes") ) {
+      vars->dropUnmatchedTraces = true;
+    }
+    else if( !text.compare("no") ) {
+      vars->dropUnmatchedTraces = false;
+    }
+    else {
+      writer->error("Unknown option '%s'", text.c_str());
+    }
+  }
 
   std::string filename;
 
@@ -105,7 +124,7 @@ void init_mod_p190_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
     vars->reader->initialize();
   }
   catch( csException e ) {
-    log->error("Error occurred when opening file %s. System message:\n%s", filename.c_str(), e.getMessage() );
+    writer->error("Error occurred when opening file %s. System message:\n%s", filename.c_str(), e.getMessage() );
   }
 
   if( !hdef->headerExists(HDR_REC_X.name) ) {
@@ -162,22 +181,17 @@ void init_mod_p190_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
 //
 //
 //*************************************************************************************************
-bool exec_mod_p190_(
-  csTrace* trace,
+void exec_mod_p190_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
 
-  if( edef->isCleanup()){
-    if( vars->reader ) {
-      delete vars->reader;
-      vars->reader = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
 
   csTraceHeader* trcHdr = trace->getTraceHeader();
   int source = trcHdr->intValue( vars->hdrID_source );
@@ -186,15 +200,21 @@ bool exec_mod_p190_(
 
   cseis_io::csDataSource const* dataSource = vars->reader->getSource( source );
   if( dataSource == NULL ) {
-    log->error("Error: Source not found in P190: %d", source);
-    fprintf(stderr,"Error: Source not found in P190: %d\n", source);
-    return false;
+    if( !vars->dropUnmatchedTraces ) {
+      fprintf(stderr,"Error: Source not found in P190: %d\n", source);
+      writer->error("Error: Source not found in P190: %d", source);
+    }
+    traceGather->freeAllTraces();
+    return;
   }
   cseis_io::csDataChan const* dataChan = vars->reader->getChan( source, chan, cable );
   if( dataChan == NULL ) {
-    log->error("Error: Channel/cable not found in P190: %d/%d", chan, cable);
-    fprintf(stderr,"Error: Channel/cable not found in P190: %d/%d\n", chan, cable);
-    return false;
+    if( !vars->dropUnmatchedTraces ) {
+      fprintf(stderr,"Error: Channel/cable not found in P190: %d/%d\n", chan, cable);
+      writer->error("Error: Channel/cable not found in P190: %d/%d", chan, cable);
+    }
+    traceGather->freeAllTraces();
+    return;
   }
 
   trcHdr->setIntValue( vars->hdrID_sou_index, dataSource->id );
@@ -209,7 +229,7 @@ bool exec_mod_p190_(
   trcHdr->setDoubleValue( vars->hdrID_recy, dataChan->y );
   trcHdr->setDoubleValue( vars->hdrID_recz, dataChan->z );
 
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -233,15 +253,52 @@ void params_mod_p190_( csParamDef* pdef ) {
 
   pdef->addParam( "hdr_cable", "Trace header containing cable number", NUM_VALUES_FIXED, "This must match the cable number in the P1/90 file" );
   pdef->addValue( "cable", VALTYPE_STRING, "Trace header name" );
+
+  pdef->addParam( "drop_traces", "Drop traces which could not be found in P190 file?", NUM_VALUES_FIXED );
+  pdef->addValue( "no", VALTYPE_OPTION );
+  pdef->addOption( "yes", "Drop traces for which no match could be found in P190 file");
+  pdef->addOption( "no", "Do not drop unmatched traces" );
+}
+
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_p190_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_p190::VariableStruct* vars = reinterpret_cast<mod_p190::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_p190_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_p190::VariableStruct* vars = reinterpret_cast<mod_p190::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->reader ) {
+    delete vars->reader;
+    vars->reader = NULL;
+  }
+  delete vars; vars = NULL;
 }
 
 extern "C" void _params_mod_p190_( csParamDef* pdef ) {
   params_mod_p190_( pdef );
 }
-extern "C" void _init_mod_p190_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_p190_( param, env, log );
+extern "C" void _init_mod_p190_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_p190_( param, env, writer );
 }
-extern "C" bool _exec_mod_p190_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_p190_( trace, port, env, log );
+extern "C" bool _start_exec_mod_p190_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_p190_( env, writer );
 }
-
+extern "C" void _exec_mod_p190_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_p190_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_p190_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_p190_( env, writer );
+}

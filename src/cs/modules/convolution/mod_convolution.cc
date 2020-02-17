@@ -37,14 +37,15 @@ using mod_convolution::VariableStruct;
 //
 //
 //*************************************************************************************************
-void init_mod_convolution_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_convolution_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   csSuperHeader*    shdr = env->superHeader;
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
   vars->asciiFormat     = cseis_io::csASCIIFileReader::FORMAT_COLUMNS;
   vars->bufferTrace     = NULL;
   vars->wavelet   = NULL;
@@ -68,7 +69,7 @@ void init_mod_convolution_( csParamManager* param, csInitPhaseEnv* env, csLogWri
       overrideSampleInt = true;
     }
     else {
-      log->error("Unknown option: '%s'", text.c_str());
+      writer->error("Unknown option: '%s'", text.c_str());
     }
   }
   param->getString("input_wavelet", &filename);
@@ -81,7 +82,7 @@ void init_mod_convolution_( csParamManager* param, csInitPhaseEnv* env, csLogWri
       unitTime_ascii = mod_convolution::UNIT_S;
     }
     else {
-      log->error("Unknown option: '%s'", text.c_str());
+      writer->error("Unknown option: '%s'", text.c_str());
     }
   }
   if( param->exists("format") ) {
@@ -90,7 +91,7 @@ void init_mod_convolution_( csParamManager* param, csInitPhaseEnv* env, csLogWri
       vars->asciiFormat = cseis_io::csASCIIFileReader::FORMAT_COLUMNS;
     }
     else {
-      log->error("Unknown option: %s", text.c_str() );
+      writer->error("Unknown option: %s", text.c_str() );
     }
   }
 
@@ -101,12 +102,12 @@ void init_mod_convolution_( csParamManager* param, csInitPhaseEnv* env, csLogWri
   try {
     cseis_io::csASCIIFileReader asciiFileReader( filename, vars->asciiFormat );
     bool success = asciiFileReader.initialize( vars->asciiParam );
-    if( !success ) log->error("Unknown error occurred during initialization of signature input file. Incorrect or unsupported format?");
+    if( !success ) writer->error("Unknown error occurred during initialization of signature input file. Incorrect or unsupported format?");
     success = asciiFileReader.readNextTrace( vars->asciiParam );
-    if( !success ) log->error("Unknown error occurred when reading in samples from signature input file. Incorrect or unsupported format?");
+    if( !success ) writer->error("Unknown error occurred when reading in samples from signature input file. Incorrect or unsupported format?");
   }
   catch( csException& e ) {
-    log->error("Error occurred when initializing input ASCII file: %s", e.getMessage() );
+    writer->error("Error occurred when initializing input ASCII file: %s", e.getMessage() );
   }
 
   //
@@ -121,14 +122,14 @@ void init_mod_convolution_( csParamManager* param, csInitPhaseEnv* env, csLogWri
   }
   if( sampleInt_ms != shdr->sampleInt ) {
     if( !overrideSampleInt ) {
-      log->error("Wavelet input file has different sample interval (=%f ms) than input data (=%f ms). Unsupported case.", sampleInt_ms, shdr->sampleInt);
+      writer->error("Wavelet input file has different sample interval (=%f ms) than input data (=%f ms). Unsupported case.", sampleInt_ms, shdr->sampleInt);
     }
     else {
-      log->warning("Wavelet input file has different sample interval (=%f ms) than input data (=%f ms). Ignored.", sampleInt_ms, shdr->sampleInt);
+      writer->warning("Wavelet input file has different sample interval (=%f ms) than input data (=%f ms). Ignored.", sampleInt_ms, shdr->sampleInt);
     }
   }
   if( vars->asciiParam->numSamples() <= 0 ) {
-    log->error("Could not read in any sample values from input file. Unsupported or incorrect file format?");
+    writer->error("Could not read in any sample values from input file. Unsupported or incorrect file format?");
   }
 
   vars->bufferTrace   = new float[shdr->numSamples];
@@ -171,23 +172,19 @@ void init_mod_convolution_( csParamManager* param, csInitPhaseEnv* env, csLogWri
 //
 //
 //*************************************************************************************************
-bool exec_mod_convolution_(
-  csTrace* trace,
+void exec_mod_convolution_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
+  //  csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup()){
-    if( vars->asciiParam != NULL ) {
-      delete vars->asciiParam;
-      vars->asciiParam = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
 
   float* samples = trace->getTraceSamples();
 
@@ -204,7 +201,7 @@ bool exec_mod_convolution_(
   }
   memcpy( samples, vars->bufferTrace, sizeof(float)*shdr->numSamples );
 
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -239,13 +236,45 @@ void params_mod_convolution_( csParamDef* pdef ) {
   pdef->addOption( "yes", "Ignore sample interval of input wavelet. Assume it is the same as the input data" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_convolution_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_convolution::VariableStruct* vars = reinterpret_cast<mod_convolution::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_convolution_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_convolution::VariableStruct* vars = reinterpret_cast<mod_convolution::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->asciiParam != NULL ) {
+    delete vars->asciiParam;
+    vars->asciiParam = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_convolution_( csParamDef* pdef ) {
   params_mod_convolution_( pdef );
 }
-extern "C" void _init_mod_convolution_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_convolution_( param, env, log );
+extern "C" void _init_mod_convolution_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_convolution_( param, env, writer );
 }
-extern "C" bool _exec_mod_convolution_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_convolution_( trace, port, env, log );
+extern "C" bool _start_exec_mod_convolution_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_convolution_( env, writer );
 }
-
+extern "C" void _exec_mod_convolution_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_convolution_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_convolution_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_convolution_( env, writer );
+}

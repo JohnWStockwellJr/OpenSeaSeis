@@ -21,7 +21,9 @@ class csRSFHeader {
   static int const HDR_NONE  = -1;
   static int const HDR_DIM2  = 0;
   static int const HDR_DIM3  = 1;
-  static int const HDR_TRCNO = 2;
+  static int const HDR_DIM4  = 2;
+  static int const HDR_DIM5  = 3;
+  static int const HDR_TRCNO = 4;
 
 
   /// Sample data unit = Unit of vertical axis = Unit of sample interval, specified in superheader
@@ -47,18 +49,26 @@ public:
   int n1;
   int n2;
   int n3;
+  int n4;
+  int n5;
 
   double o1;
   double o2;
   double o3;
+  double o4;
+  double o5;
 
   double d1;
   double d2;
   double d3;
+  double d4;
+  double d5;
 
   double e1;
   double e2;
   double e3;
+  double e4;
+  double e5;
 
   double world_x1;
   double world_x2;
@@ -79,9 +89,17 @@ public:
   double ild;
   double xld;
 
+  double sou_x;
+  double sou_y;
+  double sou_z;
+
   int unit1;
   int unit2;
   int unit3;
+  int unit4;
+  int unit5;
+
+  int domain1;
 
   int data_format;
   int esize;

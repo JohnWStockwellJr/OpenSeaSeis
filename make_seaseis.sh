@@ -6,12 +6,18 @@
 #*****************************************************
 # Compiler settings
 #
-export CPP=g++
-export CC=gcc
+export BUILD_FFTW=0 # Set to 1 if FFTW3 library is installed. Set details below where to find FFTW library
+export BUILD_F77=1  # Set to 1 if Fortran compiler is available
+export BUILD_SU=0   # Set to 1 if SU module shall be compiled. Requires special SU installation, see file README_SU
+export BUILD_MPI=0  # Set to 1 to build with MPI enabled
+
+if [ ${BUILD_MPI} -eq 1 ]; then
+    export CPP=mpiCC
+else
+    export CPP=g++
+fi
 export F77=gfortran
 export LD=$CPP
-export BUILD_F77=1  # Set to 0 if Fortran compiler is not available
-export BUILD_SU=0   # Set to 1 if SU module shall be compiled. Requires special SU installation, see file doc/README_SEISMIC_UNIX
 
 #*****************************************************
 # Make file settings, command line arguments
@@ -36,10 +42,13 @@ else
   export SONAME=soname
 fi
 
-make_argument="-s"
+make_argument=""
+# Uncomment to make 'silent'
+# make_argument="-s"
 
-export GLOBAL_FLAGS="-fexpensive-optimizations -O3 -Wno-long-long -Wall -pedantic"
+export GLOBAL_FLAGS="-fexpensive-optimizations -O3 -Wno-long-long -Wall -pedantic -Wformat-overflow=0"
 export F77_FLAGS="-ffixed-line-length-132"
+export RM="rm -f"
 
 for arg in $@
 do
@@ -68,8 +77,6 @@ if [ ${numMakeOptions} -gt 1 ]; then
     echo "ERROR: Too many make options. Specify one option only: debug, clean or bleach"
     exit
 fi
-export COMMON_FLAGS="${GLOBAL_FLAGS} -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_GNU_SOURCE"
-export RM="rm -f"
 
 #********************************************************************************
 # Setup environment variables for Seaseis directories
@@ -79,39 +86,52 @@ source src/make/linux/set_environment.sh
 
 # *** FOR DEVELOPERS:  Comment out the following three lines to skip legal statement etc
 ./license.sh
-./mailhome.sh
-make_argument=""; export VERBOSE=1
-
-
-echo "SeaSeis ${VERSION} source root directory:  '${CSEISDIR_SRCROOT}'"
-echo "SeaSeis ${VERSION} obj/lib/bin root dir:   '${CSEISDIR}'"
-echo "SeaSeis ${VERSION} library directory:      '${LIBDIR}'"
-mkdir -p ${LIBDIR}/include
-export CSEIS_MODULE_INCS="-I${LIBDIR}/include"
+#./mailhome.sh
+export VERBOSE=1
 
 #********************************************************************************
 # Check if FFTW3 library is installed
 # How to install fftw library for use with OpenSeaSeis:
 # 1) Download and extract fftw source code distribution from http://www.fftw.org/download.html
-# 2) ./configure --enable-float
+# 2) ./configure --enable-float --enable-shared 
 # 3) make
 # 4) make install
 
-export NO_FFTW=$($CC -lfftw3f 2>&1 | grep -i "cannot find -l" | wc -l)
-if [ ${NO_FFTW} -eq 0 ]; then
-    export NO_FFTW=$($CC -lfftw3f 2>&1 | grep -i "library not found for" | wc -l)
+export INCDIR_FFTW=/usr/local/include
+export LIBDIR_FFTW=/usr/local/lib
+export LIBFFTW=fftw3f
+
+if [ ${BUILD_FFTW} -eq 1 ]; then
+  export FOUND_FFTW=$($CPP -l${LIBFFTW} -L${LIBDIR_FFTW} 2>&1 | grep -i "cannot find -l" | wc -l | awk '{print "1-"$1}' | bc )
+  if [ ${FOUND_FFTW} -eq 0 ]; then
+      echo "WARNING: Library 'lib${LIBFFTW}.so' not found in library path."
+      echo " - Seaseis FFT modules will be compiled without FFTW."
+      echo " - Visit www.fftw.org to download and install FFTW libraries."
+      export BUILD_FFTW=0
+  fi
 fi
-if [ ${NO_FFTW} -eq 1 ]; then
-    echo "WARNING: Library 'libfftw3f.so' not found in standard library path."
-    echo " - Seaseis FFT modules will be compiled without FFTW3."
-    echo " - Visit www.fftw.org to download and install FFTW libraries."
-else
-    export LIBFFTW=fftw3f
+
+echo "SeaSeis ${VERSION} source root directory:  '${CSEISDIR_SRCROOT}'"
+echo "SeaSeis ${VERSION} obj/lib/bin root dir:   '${CSEISDIR}'"
+echo "SeaSeis ${VERSION} library directory:      '${LIBDIR}'"
+if [ ${BUILD_FFTW} -eq 1 ]; then
+  echo "FFTW library:      '${LIBDIR_FFTW}/lib${LIBFFTW}.so'"
 fi
 
 #********************************************************************************
 # Make Seaseis
 #
+
+export COMMON_FLAGS="${GLOBAL_FLAGS} -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_GNU_SOURCE"
+export LD_FLAGS=${GLOBAL_FLAGS}
+export LIB_FLAGS="-lc"
+if [ ${BUILD_FFTW} -eq 1 ]; then
+   export COMMON_FLAGS="${COMMON_FLAGS} -D USE_FFTW -I${INCDIR_FFTW}"
+   export LIB_FLAGS="-Wl,-rpath,${LIBDIR_FFTW} -L${LIBDIR_FFTW} -lc -l${LIBFFTW}"
+fi
+if [ ${BUILD_MPI} -eq 1 ]; then
+   export COMMON_FLAGS="${COMMON_FLAGS} -D USE_MPI"
+fi
 
 ${CSEISDIR_SRCROOT}/src/make/linux/cmake.sh ${make_argument}
 

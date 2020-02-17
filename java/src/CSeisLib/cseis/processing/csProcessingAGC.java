@@ -96,25 +96,18 @@ public class csProcessingAGC implements csIProcessing {
     for( int itrc = 0; itrc < traceBufferIn.numTraces(); itrc++ ) {
       float[] samples = traceBufferIn.samples( itrc );
       float[] samplesOut = new float[numSamples];
-      int samp1Prev = -1;
-      int samp2Prev = -1;
-      float rms = 0.0f;
       for( int isampOut = 0; isampOut < numSamples; isampOut++ ) {
         int samp1 = Math.max( 0, isampOut-myWindowHalfLengthInSamples );
         int samp2 = Math.min( numSamples-1, isampOut+myWindowHalfLengthInSamples );
-        if( samp1 != samp1Prev || samp2 != samp2Prev ) {
-          rms = 0.0f;
-          for( int isampIn = samp1; isampIn <= samp2; isampIn++ ) {
-            rms += samples[isampIn] * samples[isampIn];
-          }
-          samp1Prev = samp1;
-          samp2Prev = samp2;
+        int nsamp = samp2-samp1+1;
+        if( nsamp < 1 ) continue;
+        float rms = 0.0f;
+        for( int isampIn = samp1; isampIn <= samp2; isampIn++ ) {
+          rms += samples[isampIn] * samples[isampIn];
         }
-        if( rms != 0.0f ) {
-          samplesOut[isampOut] = samples[isampOut] / (float)Math.sqrt( rms / (float)(samp2-samp1+1 ) );
-        }
-        else {
-          samplesOut[isampOut] = 0.0f;
+        rms = (float)Math.sqrt( rms / (float)nsamp );
+        if( rms > 1.0e-30f ) {
+          samplesOut[isampOut] = samples[isampOut] / rms;
         }
       }
       dataBufferOut.addDataTrace( new csSeismicData(samplesOut) );

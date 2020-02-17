@@ -60,8 +60,13 @@ public:
     return myEnsKeyInfo[keyIndex].hdrType;
   }
   void removeEnsembleKey( int keyIndex );
+
+  int mpi_getByteSize() const;
+  int mpi_compress( char* data ) const;
+  void mpi_decompress( char const* data );
+
   void dump( FILE* fout ) const;
-public:
+ public:
   /// Number of samples in trace, including sample at time 0
   int   numSamples;
   /// Sample interval. Unit: [ms] or [Hz] or [m]

@@ -15,6 +15,7 @@ import java.util.*;
  * A recent file menu keeps path names of files which have recently been accessed.
  * @author Bjorn Olofsson
  */
+@SuppressWarnings("serial")
 public class csRecentFileMenu extends JMenu {
   /**
    * Maximum width in pixels of text in menu items. File names are shortened to fit this width
@@ -43,7 +44,7 @@ public class csRecentFileMenu extends JMenu {
     myListeners = new Vector<csFileMenuListener>();
     setEnabled(false);
   }
-  public void addFile( String filename ) {
+  public void addFile( String filenameFullPath ) {
     if( super.getItemCount() == 0 ) {
       super.setEnabled(true);
     }
@@ -53,7 +54,7 @@ public class csRecentFileMenu extends JMenu {
     int nItems = super.getItemCount();
     for( int i = 0; i < nItems; i++ ) {
       if( super.getItem(i) instanceof RecentFileItem ) {
-        if( ((RecentFileItem)getItem(i)).fileName.compareTo( filename ) == 0 ) {
+        if( ((RecentFileItem)getItem(i)).filenameFullPath.compareTo( filenameFullPath ) == 0 ) {
           found = true;
           itemPos = i;
           break;
@@ -74,15 +75,15 @@ public class csRecentFileMenu extends JMenu {
     else {
       return;
     }
-    RecentFileItem item = new RecentFileItem( filename );
+    RecentFileItem item = new RecentFileItem( filenameFullPath );
     super.add( item, 0 );
     updateMnemonics( 0 );
   }
-  public void removeFile( String filename ) {
+  public void removeFile( String filenameFullPath ) {
     int nItems = super.getItemCount();
     for( int i = 0; i < nItems; i++ ) {
       if( super.getItem( i ) instanceof RecentFileItem ) {
-        if( ( ( RecentFileItem )getItem( i ) ).fileName.compareTo( filename ) == 0 ) {
+        if( ( ( RecentFileItem )getItem( i ) ).filenameFullPath.compareTo( filenameFullPath ) == 0 ) {
           super.remove( i );
           updateMnemonics(i);
           break;
@@ -98,7 +99,7 @@ public class csRecentFileMenu extends JMenu {
     Vector<String> list = new Vector<String>(nItems);
     for( int i = 0; i < nItems; i++ ) {
       if( getItem(i) instanceof RecentFileItem ) {
-        list.add( ((RecentFileItem)getItem( i )).fileName );
+        list.add(((RecentFileItem)getItem( i )).filenameFullPath );
       }
     }
     return list;
@@ -125,7 +126,7 @@ public class csRecentFileMenu extends JMenu {
     for( int i = startPos; i < nItems; i++ ) {
       if( super.getItem( i ) instanceof RecentFileItem ) {
         RecentFileItem item = ( RecentFileItem )getItem( i );
-        item.setText( (i+1) + " " + item.shortName );
+        item.setText( (i+1) + " " + item.filenameShort );
         item.setMnemonic( getPositionMnemonic(i) );
         item.position = i;
       }
@@ -196,27 +197,27 @@ public class csRecentFileMenu extends JMenu {
   }
 //------------------------------------------------------
   class RecentFileItem extends JMenuItem {
-    String fileName;
-    String shortName;
+    String filenameFullPath;
+    String filenameShort;
     int position = 0;
-    RecentFileItem( String theFilename ) {
+    RecentFileItem( String filenameFullPath_in ) {
       super("TEMP_NAME");
-      this.fileName = theFilename;
+      this.filenameFullPath = filenameFullPath_in;
 
       FontMetrics metrics = getFontMetrics(getFont());
-      int size = metrics.stringWidth(fileName);
-      int charsToChop = (int)( ((double)(size-MAX_WIDTH_PIXELS))/(double)size * fileName.length() );
+      int size = metrics.stringWidth(filenameFullPath);
+      int charsToChop = (int)( ((double)(size-MAX_WIDTH_PIXELS))/(double)size * filenameFullPath.length() );
       if( charsToChop > 0 ) {
-        shortName = "..." + fileName.substring( charsToChop );
+        filenameShort = "..." + filenameFullPath.substring( charsToChop );
       }
       else {
-        shortName = fileName;
+        filenameShort = filenameFullPath;
       }
-      setToolTipText( fileName );
+      setToolTipText( filenameFullPath );
       addActionListener(new ActionListener() {
         public void actionPerformed( ActionEvent e ) {
           if( position != 0 ) moveToFirstPosition( (RecentFileItem)e.getSource() );
-          fireFileSelectedEvent( new csFileMenuEvent(e.getSource(),new File(fileName)) );
+          fireFileSelectedEvent(new csFileMenuEvent(e.getSource(),new File(filenameFullPath)) );
         }
       });
     }

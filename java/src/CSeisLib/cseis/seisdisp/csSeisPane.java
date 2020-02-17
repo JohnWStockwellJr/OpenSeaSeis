@@ -124,7 +124,7 @@ public class csSeisPane extends JPanel implements csISeisViewListener, csIKeyLis
   //--------------------
   private JFrame myParentFrame = null;
   private csAnnotationDialog myAnnotationDialog = null;
-  private boolean myPanSwitch;
+//  private boolean myPanSwitch;
   private JPanel myPanelViewPort;
 
 //---------------------------------------------------------------------------
@@ -155,7 +155,7 @@ public class csSeisPane extends JPanel implements csISeisViewListener, csIKeyLis
   public csSeisPane( csSeisView seisView, csAnnotationAttributes attr ) {
     super( new BorderLayout() );
 
-    myPanSwitch = false;
+//    myPanSwitch = false;
     //    myTraceIndexList = null;
     myTitleVerticalAxis = "Time [seconds]";
     myVerticalDomain    = csUnits.DOMAIN_TIME;
@@ -648,7 +648,10 @@ public class csSeisPane extends JPanel implements csISeisViewListener, csIKeyLis
 //            mySeisViewSize.width + " pane: " + getPreferredSize().width);
 //    }
   }
-  
+
+  public void traceBufferChanged( csISeismicTraceBuffer traceBuffer ){
+    // Nothing to do
+  }
   public void changedSettings( csSeisDispSettings settings ) {
     mySideLabelVert.changedSettings(settings);
     mySideLabelHorz.changedSettings(settings);
@@ -740,6 +743,9 @@ public class csSeisPane extends JPanel implements csISeisViewListener, csIKeyLis
   public void hasPanned(int dx, int dy) {
     scrollHorizontal(dx);
     scrollVertical(dy);
+  }
+  @Override
+  public void mouseExited() {
   }
 
   public class csSideLabelVert extends JPanel {

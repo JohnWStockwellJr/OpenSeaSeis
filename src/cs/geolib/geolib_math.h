@@ -11,13 +11,9 @@
 #ifndef GEOLIB_MATH_H
 #define GEOLIB_MATH_H
 
+#include <limits>
+
 namespace cseis_geolib {
-
-#define ERROR    0
-#define SUCCESS  1
-
-#define REMOVE 11
-#define APPLY  12
 
 #define CS_SQR(a) ((a)*(a))
 
@@ -44,6 +40,14 @@ template<class A> static A MAX( A val1, A val2 ) {
 template<class A> static A MIN( A val1, A val2 ) {
   return( val1 < val2 ? val1 : val2 );
 }
+
+
+ template<class T> bool isInf( T value ) {
+   return std::numeric_limits<T>::has_infinity && value == std::numeric_limits<T>::infinity();
+ }
+ template<class T> bool isNan( T value ) {
+   return value != value;
+ }
 
  /**
  * Compute correlation length for specified maximum time lag
@@ -87,6 +91,9 @@ template<class A> static A MIN( A val1, A val2 ) {
  void compute_onesided_auto_correlation( float const* samples, int nSampIn, float* autocorr );
  void compute_onesided_auto_correlation( float const* samples, int nSampIn, float* autocorr, int maxlag_in_num_samples );
  void compute_onesided_auto_correlation( float const* samples, int nSampIn, float* autocorr, int maxlag_in_num_samples, bool dampen );
+ void compute_onesided_correlation( float const* samplesLeft, float const* samplesRight, int nSampIn, float* autocorr, int maxlag_in_num_samples, bool dampen );
+
+ float compute_correlation_coefficient( float const* samplesLeft, float const* samplesRight, int nSampIn );
 
  /**
  * Compute RMS value for given data series
@@ -95,6 +102,12 @@ template<class A> static A MIN( A val1, A val2 ) {
  * @return RMS value
  */
  float compute_rms( float const* samples, int nSamples );
+
+ void meanFilter( double const* valuesIn, double* valuesOut, int numValues, int numValuesFilter );
+
+ void medianFilter( double const* valuesIn, double* valuesOut, int numValues, int numValuesFilterALL, bool applyAtEdges );
+
+ void padTraceCosineTaper( float const* samplesIn, float* samplesOut, int numSamplesIn, int numSampPad );
 
 ////////////////////////////////////////////////////////////////////////////////
 // Return the first multiple of small primes (2,3,5 and 7) greater than or 
@@ -116,7 +129,22 @@ template<class A> static A MIN( A val1, A val2 ) {
 // value will still be -1.
 //
 ////////////////////////////////////////////////////////////////////////////////
- int factor_2357( int *my_in );
+ int factor_2357( int valIn );
+ bool factor_2357( int valIn, int& valOut );
+    
+ /**
+  * Is float value Inf?
+  */
+ bool is_inf( float value );
+ /**
+  * Is float value Nan?
+  */
+ bool is_nan( float value );
+
+ /**
+  * @return true if value is not-a-number (NAN) of Infinity
+  */
+ bool is_nan_inf( float value );
 
 } // namespace
 

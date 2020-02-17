@@ -22,14 +22,14 @@ public class csProcessingInterpolation implements csIProcessing {
   public static final String NAME = "Interpolation";
 
   private int myInterpolationFactor;
-  private final float mySampleInt;
+//  private final float mySampleInt;
   private final JTextField myTextFactor;
 
   private final JPanel myParameterPanel;
   private boolean myIsActive;
   
   public csProcessingInterpolation( int interpolationFactor, float sampleInt ) {
-    mySampleInt = sampleInt;
+//    mySampleInt = sampleInt;
     
     myIsActive = true;
     

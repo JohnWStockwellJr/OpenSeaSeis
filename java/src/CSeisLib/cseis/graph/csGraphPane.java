@@ -13,6 +13,7 @@ import java.awt.*;
  * @author Bjorn Olofsson
  */
 // ...this class is a work in progress
+@SuppressWarnings("serial")
 public class csGraphPane extends JPanel implements csIGraph2DListener {
   private JScrollBar myScrollBarVert;
   private JScrollBar myScrollBarHorz;

@@ -8,9 +8,6 @@
 #include "csException.h"
 #include "csGeolibUtils.h"
 
-#include "csSuperHeader.h"
-#include "csTraceHeaderDef.h"
-#include "csTraceHeaderInfo.h"
 #include "csFlexHeader.h"
 #include "csFlexNumber.h"
 #include "csIOSelection.h"
@@ -260,15 +257,17 @@ bool csGeneralSeismicReader::setHeaderToPeek(std::string const& headerName) {
   else {
     myReader->revertFromPeekPosition();
     myHdrCheckType       = headerType(idx);
-    myHdrCheckByteSize   = headerElements(idx) * cseis_geolib::csGeolibUtils::numBytes(myHdrCheckType);      
     myHdrCheckByteOffset = myByteLocation[idx]; 
+    int hdrCheckByteSize   = headerElements(idx) * cseis_geolib::csGeolibUtils::numBytes(myHdrCheckType);      
     
-    if( myHdrCheckBuffer != NULL ) {
+    if( hdrCheckByteSize != myHdrCheckByteSize && myHdrCheckBuffer != NULL ) {
       delete [] myHdrCheckBuffer;
       myHdrCheckBuffer = NULL;
-    }    
-    myHdrCheckBuffer = new char[myHdrCheckByteSize];
-    
+    }
+    if( myHdrCheckBuffer == NULL ) {
+      myHdrCheckByteSize = hdrCheckByteSize;
+      myHdrCheckBuffer = new char[myHdrCheckByteSize];
+    }
     return true;
   }      
 }

@@ -36,6 +36,9 @@
 #define  INT32(x)  ((*(x) & 0x80) == 0x80 ? UINT32(x)-0x1000000 : UINT32(x))
 #define UINT32(x)  (*(x+3) + (*(x+2)<<8) + (*(x+1)<<16) + (*(x)<<24))
 
+// Does not work for some reason...use csSegdFunctions-->convert2uint64 instead
+//#define UINT64(x) ( ((csInt64_t)*(buffer+7)) + (((csInt64_t)*(buffer+6)<<8UL)) + (((csInt64_t)*(buffer+5)<<16UL)) + (((csInt64_t)*(buffer+4)<<24UL)) + (((csInt64_t)*(buffer+3)<<32UL)) + (((csInt64_t)*(buffer+2)<<40UL)) + (((csInt64_t)*(buffer+1)<<48UL)) + (((csInt64_t)*(buffer)<<56UL)) )
+
 namespace cseis_segd {
   typedef unsigned char byte;
 
@@ -46,6 +49,7 @@ namespace cseis_segd {
   static int const RECORDING_SYSTEM_GEORES  = 122;
   static int const RECORDING_SYSTEM_GECO    = 123;
   static int const RECORDING_SYSTEM_DIGISTREAMER  = 124;
+  static int const RECORDING_SYSTEM_FAIRFIELD  = 125;
 
   /// External header/nav system IDs
   static int const NAV_HEADER_NONE     = 200;
@@ -109,7 +113,7 @@ namespace cseis_segd {
       manufactCode   = 0;
       manufactSerialNum = 0;
       for( int i = 0; i < 14; i++ ) {
-	srcLineName[i]    = ' ';
+        srcLineName[i]    = ' ';
       }
       srcLineName[13]    = '\0';
       recordLength_ms = 0;

@@ -37,6 +37,7 @@ import javax.swing.event.ChangeListener;
  * @author 2013 Felipe Punto
  */
 // TODO: Add functionality so that users can define their own custom SEGY trace header maps.
+@SuppressWarnings("serial")
 public class csSegySetupDialog extends JDialog {
 
   private JRadioButton myButtonSEGYDataBig;
@@ -51,8 +52,8 @@ public class csSegySetupDialog extends JDialog {
   private JCheckBox myButtonSEGYScaleHdrs;
   private JRadioButton myButtonPresetMap;
   private JRadioButton myButtonCustomMap;
-  private JComboBox myComboPresetMap;
-  private JComboBox myComboCustomMap;
+  private JComboBox<String> myComboPresetMap;
+//  private JComboBox<String> myComboCustomMap;
   private JButton myButtonShowPresetMap;
   private JButton myButtonShowCustomMap;
   
@@ -94,8 +95,8 @@ public class csSegySetupDialog extends JDialog {
     
     myButtonSEGYScaleHdrs = new JCheckBox("Auto-scale coord/elev headers",attr.autoScaleCoord);
 
-    myComboPresetMap = new JComboBox( csNativeSegyReader.NAME_DEFAULT_MAPS );
-    myComboCustomMap  = new JComboBox();
+    myComboPresetMap = new JComboBox<String>( csNativeSegyReader.NAME_DEFAULT_MAPS );
+//    myComboCustomMap  = new JComboBox<String>();
     myButtonPresetMap = new JRadioButton("Preset:");
     myButtonCustomMap  = new JRadioButton("Custom:");
     myButtonShowPresetMap = new JButton("Show");

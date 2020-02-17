@@ -42,8 +42,6 @@ namespace mod_gain {
     float* scalarTGain;
     float traceAmp;
     int outputOption;
-
-    int traceCounter;
   };
   static int const OUTPUT_DATA = 0;
   static int const OUTPUT_GAIN = 1;
@@ -59,7 +57,7 @@ using mod_gain::VariableStruct;
 //
 //
 //*************************************************************************************************
-void init_mod_gain_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_gain_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   csSuperHeader*    shdr = env->superHeader;
@@ -67,7 +65,8 @@ void init_mod_gain_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
   vars->applyTGain = false;
   vars->applyAGC   = false;
@@ -87,8 +86,6 @@ void init_mod_gain_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
   vars->scalarTGain   = NULL;
   vars->traceAmp = 0;
   vars->outputOption = mod_gain::OUTPUT_DATA;
-
-  vars->traceCounter = 0;
 //---------------------------------------------
 //
   
@@ -103,7 +100,7 @@ void init_mod_gain_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
     for( int isamp = 1; isamp < shdr->numSamples; isamp++ ) {
       float time = (float)isamp*sampleInt_s;
       vars->scalarTGain[isamp] = pow( time, tgain );
-      if( edef->isDebug() ) log->line("Gain (sample,time,scalar):  %d  %.2f %.6f", isamp, time, vars->scalarTGain[isamp]);
+      if( edef->isDebug() ) writer->line("Gain (sample,time,scalar):  %d  %.2f %.6f", isamp, time, vars->scalarTGain[isamp]);
     }
   }
   else {
@@ -119,7 +116,7 @@ void init_mod_gain_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
       vars->outputOption = mod_gain::OUTPUT_GAIN;
     }
     else {
-      log->error("Option not recognized: %s.", text.c_str());
+      writer->error("Option not recognized: %s.", text.c_str());
     }
   }
 
@@ -138,7 +135,7 @@ void init_mod_gain_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
       vars->applySphDiv = false;
     }
     else {
-      log->error("Option not recognized: %s.", text.c_str());
+      writer->error("Option not recognized: %s.", text.c_str());
     }
     if( vars->applySphDiv ) {
       std::string tableFilename;
@@ -147,7 +144,7 @@ void init_mod_gain_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
       param->getString("table", &tableFilename );
       param->getInt("table_col",&colTime,0);
       param->getInt("table_col",&colVel,1);
-      if( colTime < 1 || colVel < 1 ) log->error("Column numbers in table ('table_col') must be larger than 0");
+      if( colTime < 1 || colVel < 1 ) writer->error("Column numbers in table ('table_col') must be larger than 0");
       vars->table = new csTableNew( csTableNew::TABLE_TYPE_TIME_FUNCTION, colTime-1 );
       int numKeys = param->getNumLines("table_key");
       if( numKeys > 0 ) {
@@ -167,12 +164,12 @@ void init_mod_gain_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
               interpolate = false;
             }
             else {
-              log->error("Unknown option: %s", text.c_str() );
+              writer->error("Unknown option: %s", text.c_str() );
             }
           }
           vars->table->addKey( col-1, interpolate );  // -1 to convert from 'user' column to 'C' column
           if( !hdef->headerExists( headerName ) ) {
-            log->error("No matching trace header found for table key '%s'", headerName.c_str() );
+            writer->error("No matching trace header found for table key '%s'", headerName.c_str() );
           }
           vars->hdrId_keys[ikey] = hdef->headerIndex( headerName );
         } // END for ikey
@@ -184,7 +181,7 @@ void init_mod_gain_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
         vars->table->initialize( tableFilename, sortTable );
       }
       catch( csException& exc ) {
-        log->error("Error when initializing input table '%s': %s\n", text.c_str(), exc.getMessage() );
+        writer->error("Error when initializing input table '%s': %s\n", text.c_str(), exc.getMessage() );
       }
       vars->keyValueBuffer = new double[vars->table->numKeys()];
       vars->isVelSet = false;
@@ -215,15 +212,15 @@ void init_mod_gain_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
   int sum = (int)vars->applyTGain + (int)vars->applyAGC + (int)vars->applyTraceEqualization + (int)vars->applySphDiv;
   //  if( (vars->applyTGain && vars->applyAGC) || (vars->applyTGain && vars->applyTraceEqualization) || (vars->applyAGC && vars->applyTraceEqualization) ) {
   if( sum > 1 ) {
-    log->error("More than one gain option specified. Can only specify one gain option at one time.");
+    writer->error("More than one gain option specified. Can only specify one gain option at one time.");
   }
   else if( sum == 0 ) { // !vars->applyTGain && !vars->applyAGC && !vars->applyTraceEqualization ) {
-    log->error("No gain option specified.");
+    writer->error("No gain option specified.");
   }
 
   // TEMP:
   //  for( int i = 0; i < hdef->numHeaders(); i++ ) {
-  //   log->line( "GAIN header #%2d: %s %s\n", i, hdef->headerName(i).c_str(), csGeolibUtils::typeText(hdef->headerType(i)) );
+  //   writer->line( "GAIN header #%2d: %s %s\n", i, hdef->headerName(i).c_str(), csGeolibUtils::typeText(hdef->headerType(i)) );
   //  }
 }
 
@@ -233,43 +230,18 @@ void init_mod_gain_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
 //
 //
 //*************************************************************************************************
-bool exec_mod_gain_(
-  csTrace* trace,
+void exec_mod_gain_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup()){
-    if( vars->scalarTGain ) {
-      delete [] vars->scalarTGain;
-      vars->scalarTGain = NULL;
-    }
-    if( vars->buffer ) {
-      delete [] vars->buffer;
-      vars->buffer = NULL;
-    }
-    if( vars->keyValueBuffer ) {
-      delete [] vars->keyValueBuffer;
-      vars->keyValueBuffer = NULL;
-    }
-    if( vars->velocityTrace ) {
-      delete [] vars->velocityTrace;
-      vars->velocityTrace = NULL;
-    }
-    if( vars->hdrId_keys ) {
-      delete [] vars->hdrId_keys;
-      vars->hdrId_keys = NULL;
-    }
-    if( vars->table ) {
-      delete vars->table;
-      vars->table = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
 
   float* samples = trace->getTraceSamples();
   //  float sampleInt_s = shdr->sampleInt/1000.0;
@@ -329,7 +301,7 @@ bool exec_mod_gain_(
     if( vars->table->numKeys() > 0 ) {
       double* keyValueBuffer = new double[vars->table->numKeys()];
       for( int ikey = 0; ikey < vars->table->numKeys(); ikey++ ) {
-	keyValueBuffer[ikey] = trace->getTraceHeader()->doubleValue( vars->hdrId_keys[ikey] );
+        keyValueBuffer[ikey] = trace->getTraceHeader()->doubleValue( vars->hdrId_keys[ikey] );
       }
       if( vars->isVelSet ) { // If velocity trace has been set previously, check if this trace has different key values
         for( int ikey = 0; ikey < vars->table->numKeys(); ikey++ ) {
@@ -413,15 +385,7 @@ bool exec_mod_gain_(
     }
 
   } // END: if applySphDiv
-
-  // TEMP:
-  if( vars->traceCounter == 0 ) {
-    for( int i = 0; i < env->headerDef->numHeaders(); i++ ) {
-      log->line( "GAIN header #%2d: %s %s", i, env->headerDef->headerName(i).c_str(), csGeolibUtils::typeText(env->headerDef->headerType(i)) );
-    }
-    vars->traceCounter++;
-  }
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -478,13 +442,65 @@ void params_mod_gain_( csParamDef* pdef ) {
   //  pdef->addOption( "remove", "Remove gain = Inverse application (if possible)." );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_gain_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_gain::VariableStruct* vars = reinterpret_cast<mod_gain::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_gain_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_gain::VariableStruct* vars = reinterpret_cast<mod_gain::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->scalarTGain ) {
+    delete [] vars->scalarTGain;
+    vars->scalarTGain = NULL;
+  }
+  if( vars->buffer ) {
+    delete [] vars->buffer;
+    vars->buffer = NULL;
+  }
+  if( vars->keyValueBuffer ) {
+    delete [] vars->keyValueBuffer;
+    vars->keyValueBuffer = NULL;
+  }
+  if( vars->velocityTrace ) {
+    delete [] vars->velocityTrace;
+    vars->velocityTrace = NULL;
+  }
+  if( vars->hdrId_keys ) {
+    delete [] vars->hdrId_keys;
+    vars->hdrId_keys = NULL;
+  }
+  if( vars->table ) {
+    delete vars->table;
+    vars->table = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_gain_( csParamDef* pdef ) {
   params_mod_gain_( pdef );
 }
-extern "C" void _init_mod_gain_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_gain_( param, env, log );
+extern "C" void _init_mod_gain_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_gain_( param, env, writer );
 }
-extern "C" bool _exec_mod_gain_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_gain_( trace, port, env, log );
+extern "C" bool _start_exec_mod_gain_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_gain_( env, writer );
 }
-
+extern "C" void _exec_mod_gain_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_gain_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_gain_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_gain_( env, writer );
+}

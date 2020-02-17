@@ -35,15 +35,10 @@ public:
   */
   static void getParamInitMethod( std::string const& name, int verMajor, int verMinor, MParamPtr& param, MInitPtr& init );
   /**
-  * Retrieve function pointer to execution method for single-trace module
+  * Retrieve function pointer to execution method
   * @param name (i) Module name whose method shall be retrieved
   */
-  static void getExecMethodSingleTrace( std::string const& name, int verMajor, int verMinor, MExecSingleTracePtr& exec );
-  /**
-  * Retrieve function pointer to execution method for multi-trace module
-  * @param name (i) Module name whose method shall be retrieved
-  */
-  static void getExecMethodMultiTrace( std::string const& name, int verMajor, int verMinor, MExecMultiTracePtr& exec );
+  static void getExecMethod( std::string const& name, int verMajor, int verMinor, MExecStartPtr& execStart, MExecPtr& exec, MCleanupPtr& cleanup );
 
   /**
   * NOTE: This method is only used when statically linking Cseis modules
@@ -57,10 +52,11 @@ public:
   static std::string const* getStandardModuleNames();
 
  private:
-  static MParamPtr getParamMethod( std::string const& name, void* handle );
-  static MInitPtr  getInitMethod( std::string const& name, void* handle );
-  static MExecSingleTracePtr getExecMethodSingleTrace( std::string const& name, void* handle );
-  static MExecMultiTracePtr getExecMethodMultiTrace( std::string const& name, void* handle );
+  static MParamPtr     getParamMethod( std::string const& name, void* handle );
+  static MInitPtr      getInitMethod( std::string const& name, void* handle );
+  static MExecPtr      getExecMethod( std::string const& name, void* handle );
+  static MExecStartPtr getExecStartMethod( std::string const& name, void* handle );
+  static MCleanupPtr   getCleanupMethod( std::string const& name, void* handle );
 
   static int getMethodIndex( std::string const& name );
   static int const METHOD_NOT_FOUND = -33;

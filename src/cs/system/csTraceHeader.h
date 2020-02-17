@@ -11,6 +11,7 @@
 #include <cstdio>
 #include "csException.h"
 #include "geolib_defines.h"
+#include "csPoint3D.h"
 
 namespace cseis_system {
 
@@ -71,12 +72,14 @@ public:
   // }
 //------------------------------------------------------
   char const* getTraceHeaderValueBlock() const;
+  char* getTraceHeaderValueBlockHandle();
   void setTraceHeaderValueBlock( char const* hdrValueBlock, int byteSize );
   void writeTraceHeaderValueBlock( char const* hdrValueBlock_in, int const* byteMap_in, int const* hdrMap_out, int numHeaders_in );
   void readTraceHeaderValueBlock( char* hdrValueBlock_out, int const* byteMap_out, int const* hdrMap_out, int numHeaders_out ) const;
 //------------------------------------------------------
   void clear();
   void clearMemory();
+  csTraceHeaderDef const* getHeaderDefPtr() const { return myHeaderDefPtr; }
   /**
    * Dump all trace header names and values
    */
@@ -86,7 +89,6 @@ private:
   csTraceHeaderData* myTraceHeaderData;
   /// Constant pointer to trace header definition (managed somewhere else)
   csTraceHeaderDef const* myHeaderDefPtr;
-
 
 public:
   //---------------------------------------------------------------------
@@ -214,6 +216,21 @@ inline   void setDoubleValue( int index, double value ) {
  }
  void setStringValue( int index, std::string value ) {
    myTraceHeaderData->setStringValue( index, value );
+ }
+ void setVectorValue( int index, cseis_geolib::csPoint3D value ) {
+   myTraceHeaderData->setVectorValue( index, value );
+ }
+ void setVectorValue( int index, double value, cseis_geolib::type_t type ) {
+   myTraceHeaderData->setVectorValue( index, value, type );
+ }
+ void setVectorValueX( int index, double value ) {
+   myTraceHeaderData->setVectorValueX( index, value );
+ }
+ void setVectorValueY( int index, double value ) {
+   myTraceHeaderData->setVectorValueY( index, value );
+ }
+ void setVectorValueZ( int index, double value ) {
+   myTraceHeaderData->setVectorValueZ( index, value );
  }
 //------------------------------------------------------
  inline   double doubleValue( int index ) const {
@@ -361,6 +378,39 @@ inline std::string const stringValue( int index ) const {
   }
 #endif
   return myTraceHeaderData->stringValue( index );
+}
+//------------------------------------------------------
+ inline cseis_geolib::csPoint3D const vectorValue( int index ) const {
+#ifdef CS_DEBUG
+  if( index < numHeaders() && index >= 0 ) {
+    cseis_geolib::type_t type = myHeaderDefPtr->headerType(index);
+    if( type != cseis_geolib::TYPE_VECTOR ) {
+      if( index > numHeaders()-2 || 
+          (myHeaderDefPtr->headerType(index) != cseis_geolib::TYPE_DOUBLE || myHeaderDefPtr->headerType(index+1) != cseis_geolib::TYPE_DOUBLE || myHeaderDefPtr->headerType(index+2) != cseis_geolib::TYPE_DOUBLE ) ) {
+        throw( cseis_geolib::csException("csTraceHeader::vectorValue(): Program bug. Header is not of vector type.") );
+      }
+    }
+  }
+  else {
+    throw( cseis_geolib::csException("csTraceHeader::vectorValue(): Program bug. Passed wrong header index.") );
+  }
+#endif
+  return myTraceHeaderData->vectorValue( index );
+}
+//------------------------------------------------------
+ inline double const vectorValue( int index, cseis_geolib::type_t type ) const {
+#ifdef CS_DEBUG
+  if( index < numHeaders() && index >= 0 ) {
+    cseis_geolib::type_t type = myHeaderDefPtr->headerType(index);
+    if( type != cseis_geolib::TYPE_VECTOR ) {
+      throw( cseis_geolib::csException("csTraceHeader::vectorValue(): Program bug. Header is not of vector type.") );
+    }
+  }
+  else {
+    throw( cseis_geolib::csException("csTraceHeader::vectorValue(): Program bug. Passed wrong header index.") );
+  }
+#endif
+  return myTraceHeaderData->vectorValue( index, type );
 }
 
 };

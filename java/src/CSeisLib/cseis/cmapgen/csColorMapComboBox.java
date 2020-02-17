@@ -12,7 +12,8 @@ import javax.swing.*;
  * JComboBox used to list color maps.
  * @author 2013 Felipe Punto
  */
-public class csColorMapComboBox extends JComboBox {
+@SuppressWarnings("serial")
+public class csColorMapComboBox extends JComboBox<Object> {
 
   public csColorMapComboBox( csColorMapListModel listModel ) {
     setModel( new csColorMapComboModel(listModel) );
@@ -24,7 +25,7 @@ public class csColorMapComboBox extends JComboBox {
     });
   }
 //----------------------------------------------------------
-  public class csColorMapComboModel implements ComboBoxModel, ListDataListener {
+  public class csColorMapComboModel implements ComboBoxModel<Object>, ListDataListener {
     private Object mySelectedItem = null;
     private int mySelectedIndex   = -1;
     private csColorMapListModel myListModel;

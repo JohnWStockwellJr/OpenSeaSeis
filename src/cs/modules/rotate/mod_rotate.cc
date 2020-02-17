@@ -84,20 +84,23 @@ namespace mod_rotate {
   static const int SENSOR_INDEX_Z2 = 2;
   static const int SENSOR_INDEX_Z5 = 5;
 
+  static const int MODE_APPLY  = 11;
+  static const int MODE_REMOVE = 12;
+
   static const float NO_TILT = 999;
 
-  void checkHeaderFloat( std::string headerName, csTraceHeaderDef* hdef, csLogWriter* log ) {
+  void checkHeaderFloat( std::string headerName, csTraceHeaderDef* hdef, csLogWriter* writer ) {
     if( !hdef->headerExists(headerName) ){
-      log->error("Trace header '%s' not found.", headerName.c_str());
+      writer->error("Trace header '%s' not found.", headerName.c_str());
     }
     int type = hdef->headerType( headerName );
     if( type != TYPE_FLOAT &&  type != TYPE_DOUBLE ) {
-      log->error("Trace header '%s' has the wrong type. Should be FLOAT or DOUBLE", headerName.c_str());
+      writer->error("Trace header '%s' has the wrong type. Should be FLOAT or DOUBLE", headerName.c_str());
     }
   }
-  void checkHeader( std::string headerName, csTraceHeaderDef* hdef, csLogWriter* log ) {
+  void checkHeader( std::string headerName, csTraceHeaderDef* hdef, csLogWriter* writer ) {
     if( !hdef->headerExists(headerName) ){
-      log->error("Trace header '%s' not found.", headerName.c_str());
+      writer->error("Trace header '%s' not found.", headerName.c_str());
     }
   }
 
@@ -105,19 +108,19 @@ namespace mod_rotate {
 using mod_rotate::VariableStruct;
 
 void rotate_xyz_icv( float* xTrace,
-		     float* yTrace,
-		     float* zTrace,
-		     float* weight_i,
-		     float* weight_c,
-		     float* weight_v,
-		     int nSamples,
-		     int mode );
+                     float* yTrace,
+                     float* zTrace,
+                     float* weight_i,
+                     float* weight_c,
+                     float* weight_v,
+                     int nSamples,
+                     bool apply );
 
 void rotate_xy_azim( float* xTrace,
-		     float* yTrace,
-		     float azim,
-		     int nSamples,
-		     int mode );
+                     float* yTrace,
+                     float azim,
+                     int nSamples,
+                     bool apply );
 
 void rotate_xy( float* xTrace,
                 float* yTrace,
@@ -125,12 +128,12 @@ void rotate_xy( float* xTrace,
                 int nSamples );
 
 void rotate_xyz_roll_tilt( float* xTrace,
-			   float* yTrace,
-			   float* zTrace,
-			   float roll,
-			   float tilt,
-			   int nSamples,
-			   int mode );
+                           float* yTrace,
+                           float* zTrace,
+                           float roll,
+                           float tilt,
+                           int nSamples,
+                           bool apply );
 
 void rotate_xyz_tiltxy( float* xTrace,
                          float* yTrace,
@@ -138,7 +141,7 @@ void rotate_xyz_tiltxy( float* xTrace,
                          float roll,
                          float tilt,
                          int nSamples,
-                         int mode );
+                         bool apply );
 
 //*************************************************************************************************
 // Init phase
@@ -146,7 +149,7 @@ void rotate_xyz_tiltxy( float* xTrace,
 //
 //
 //*************************************************************************************************
-void init_mod_rotate_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_rotate_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -154,12 +157,11 @@ void init_mod_rotate_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
 
   // Defaults
   vars->nTraces = 0;
-  vars->mode    = APPLY;
-  vars->modeEffective = APPLY;
+  vars->mode    = mod_rotate::MODE_APPLY;
+  vars->modeEffective = mod_rotate::MODE_APPLY;
   vars->hdrId_azim   = -1;
   vars->hdrId_incl_i = -1;
   vars->hdrId_incl_c = -1;
@@ -192,13 +194,13 @@ void init_mod_rotate_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
   if( param->exists("mode") ) {
     param->getString( "mode", &text );
     if( !text.compare("apply") ) {
-      vars->mode = APPLY;
+      vars->mode = mod_rotate::MODE_APPLY;
     }
     else if( !text.compare("remove") ) {
-      vars->mode = REMOVE;
+      vars->mode = mod_rotate::MODE_REMOVE;
     }
     else {
-      log->error("Unknown option: %s", text.c_str());
+      writer->error("Unknown option: %s", text.c_str());
     }
   }
 
@@ -211,7 +213,7 @@ void init_mod_rotate_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       vars->orient_xyz = mod_rotate::ORIENT_LEFTHAND;
     }
     else {
-      log->error("Unknown option: %s", text.c_str());
+      writer->error("Unknown option: %s", text.c_str());
     }
     param->getString( "orient", &text, 1 );
     if( !text.compare("down") ) {
@@ -221,7 +223,7 @@ void init_mod_rotate_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       vars->orient_z = mod_rotate::ORIENT_Z_UP;
     }
     else {
-      log->error("Unknown option: %s", text.c_str());
+      writer->error("Unknown option: %s", text.c_str());
     }
   }
 
@@ -245,7 +247,7 @@ void init_mod_rotate_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
     if( param->exists("hdr_azim") ) {
       param->getString("hdr_azim",&hdrName_azim);
     }
-//    vars->mode = APPLY;  // Fixed to APPLY
+//    vars->mode = mod_rotate::MODE_APPLY;  // Fixed to mod_rotate::MODE_APPLY
   }
   else if( !text.compare("from_to") ) {
     vars->rot_method = mod_rotate::METHOD_FROM_TO;
@@ -254,12 +256,12 @@ void init_mod_rotate_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
 
     if( (vars->orient_xyz == mod_rotate::ORIENT_RIGHTHAND && vars->orient_z == mod_rotate::ORIENT_Z_UP) ||
         (vars->orient_xyz == mod_rotate::ORIENT_LEFTHAND  && vars->orient_z == mod_rotate::ORIENT_Z_DOWN) ) {
-      vars->modeEffective = APPLY;
-      log->line("Info: Effective mode for 'from-to' rotation has been automatically set to 'REMOVE'");
+      vars->modeEffective = mod_rotate::MODE_APPLY;
+      writer->line("Info: Effective mode for 'from-to' rotation has been automatically set to 'REMOVE'");
     }
     else {
-      vars->modeEffective = REMOVE;  // --> -1
-      log->line("Info: Effective mode for 'from-to' rotation has been automatically set to 'APPLY'");
+      vars->modeEffective = mod_rotate::MODE_REMOVE;  // --> -1
+      writer->line("Info: Effective mode for 'from-to' rotation has been automatically set to 'APPLY'");
     }
   }
   else if( !text.compare("tilt_roll") ) {
@@ -283,7 +285,7 @@ void init_mod_rotate_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       vars->log_tiltxy_warnings = true;
     }
     else {
-      log->error("Unknown option: %s", text.c_str());
+      writer->error("Unknown option: %s", text.c_str());
     }
     if( param->exists("hdr_tiltx") ) {
       param->getString("hdr_tiltx",&hdrName_tiltx);
@@ -314,54 +316,54 @@ void init_mod_rotate_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
     vars->rot_method = mod_rotate::METHOD_TRILOBIT;
   }
   else {
-    log->error("Unknown method: %s", text.c_str());
+    writer->error("Unknown method: %s", text.c_str());
   }
 
   switch( vars->rot_method ) {
     case mod_rotate::METHOD_2D_AZIM:
-      mod_rotate::checkHeader( hdrName_azim, hdef, log );
+      mod_rotate::checkHeader( hdrName_azim, hdef, writer );
       vars->hdrId_azim = hdef->headerIndex( hdrName_azim );
       break;
     case mod_rotate::METHOD_FROM_TO:
-      mod_rotate::checkHeader( hdrName_from, hdef, log );
+      mod_rotate::checkHeader( hdrName_from, hdef, writer );
       vars->hdrId_an_from = hdef->headerIndex( hdrName_from );
-      mod_rotate::checkHeader( hdrName_to, hdef, log );
+      mod_rotate::checkHeader( hdrName_to, hdef, writer );
       vars->hdrId_an_to   = hdef->headerIndex( hdrName_to );
       break;
     case mod_rotate::METHOD_2D_RADIAL:
-      mod_rotate::checkHeader( hdrName_azim, hdef, log );
+      mod_rotate::checkHeader( hdrName_azim, hdef, writer );
       vars->hdrId_azim = hdef->headerIndex( hdrName_azim );
-      mod_rotate::checkHeader( "sou_x", hdef, log );
-      mod_rotate::checkHeader( "sou_y", hdef, log );
-      mod_rotate::checkHeader( "rec_x", hdef, log );
-      mod_rotate::checkHeader( "rec_y", hdef, log );
+      mod_rotate::checkHeader( "sou_x", hdef, writer );
+      mod_rotate::checkHeader( "sou_y", hdef, writer );
+      mod_rotate::checkHeader( "rec_x", hdef, writer );
+      mod_rotate::checkHeader( "rec_y", hdef, writer );
       vars->hdrId_soux = hdef->headerIndex("sou_x");
       vars->hdrId_souy = hdef->headerIndex("sou_y");
       vars->hdrId_recx = hdef->headerIndex("rec_x");
       vars->hdrId_recy = hdef->headerIndex("rec_y");
       break;
     case mod_rotate::METHOD_ARMSS_TILT_ROLL:
-      mod_rotate::checkHeader( hdrName_roll, hdef, log );
-      mod_rotate::checkHeader( hdrName_tilt, hdef, log );
+      mod_rotate::checkHeader( hdrName_roll, hdef, writer );
+      mod_rotate::checkHeader( hdrName_tilt, hdef, writer );
       vars->hdrId_roll = hdef->headerIndex( hdrName_roll );
       vars->hdrId_tilt = hdef->headerIndex( hdrName_tilt );
       break;
     case mod_rotate::METHOD_TILT_ROLL:
-      mod_rotate::checkHeader( hdrName_roll, hdef, log );
-      mod_rotate::checkHeader( hdrName_tilt, hdef, log );
+      mod_rotate::checkHeader( hdrName_roll, hdef, writer );
+      mod_rotate::checkHeader( hdrName_tilt, hdef, writer );
       vars->hdrId_roll = hdef->headerIndex( hdrName_roll );
       vars->hdrId_tilt = hdef->headerIndex( hdrName_tilt );
       break;
     case mod_rotate::METHOD_TILT_XY:
-      mod_rotate::checkHeader( hdrName_tiltx, hdef, log );
-      mod_rotate::checkHeader( hdrName_tilty, hdef, log );
+      mod_rotate::checkHeader( hdrName_tiltx, hdef, writer );
+      mod_rotate::checkHeader( hdrName_tilty, hdef, writer );
       vars->hdrId_tiltx = hdef->headerIndex( hdrName_tiltx );
       vars->hdrId_tilty = hdef->headerIndex( hdrName_tilty );
       break;
     case mod_rotate::METHOD_ICV:
-      mod_rotate::checkHeaderFloat("incl_i",hdef,log);
-      mod_rotate::checkHeaderFloat("incl_c",hdef,log);
-      mod_rotate::checkHeaderFloat("incl_v",hdef,log);
+      mod_rotate::checkHeaderFloat("incl_i",hdef,writer);
+      mod_rotate::checkHeaderFloat("incl_c",hdef,writer);
+      mod_rotate::checkHeaderFloat("incl_v",hdef,writer);
       vars->hdrId_incl_i = hdef->headerIndex( "incl_i" );
       vars->hdrId_incl_c = hdef->headerIndex( "incl_c" );
       vars->hdrId_incl_v = hdef->headerIndex( "incl_v" );
@@ -370,7 +372,7 @@ void init_mod_rotate_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       break;
   }
 
-  mod_rotate::checkHeader("sensor",hdef,log);
+  mod_rotate::checkHeader("sensor",hdef,writer);
   vars->hdrId_sensor = hdef->headerIndex( "sensor" );
 
 //  vars->nTraces = gr->maxdtr;
@@ -395,7 +397,7 @@ void init_mod_rotate_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       edef->setTraceSelectionMode( TRCMODE_ENSEMBLE );
     }
     else {
-      log->error("Unknown option: '%s'", text.c_str());
+      writer->error("Unknown option: '%s'", text.c_str());
     }
 //  }
 //  else {  // Default setting
@@ -404,7 +406,7 @@ void init_mod_rotate_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
 //  }
 
   int rotMode;
-  if( vars->mode == APPLY ) {
+  if( vars->mode == mod_rotate::MODE_APPLY ) {
     rotMode = csRotation::ROT_MODE_APPLY;
   }
   else {
@@ -428,20 +430,12 @@ void exec_mod_rotate_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup()){
-    if( vars->rotation != NULL ) {
-      delete vars->rotation;
-      vars->rotation = NULL;
-    }
-    delete vars; vars = NULL;
-    return;
-  }
 
 //---------------------------------------------
   int nTraces = traceGather->numTraces();
@@ -449,17 +443,17 @@ void exec_mod_rotate_(
   int numRotTraces = 3;
   if( vars->input == mod_rotate::INPUT_XYZP ) {
     if( traceGather->numTraces() != 4 ) {
-      log->error(edef->moduleName().c_str(), 0, "Incorrect number of traces in input gather. Expected: 4 (XYZP), found: %d", nTraces );
+      writer->error(edef->moduleName().c_str(), 0, "Incorrect number of traces in input gather. Expected: 4 (XYZP), found: %d", nTraces );
     }
   }
   else if( vars->input == mod_rotate::INPUT_XYZ ) {
     if( traceGather->numTraces() != 3 ) {
-      log->error( edef->moduleName().c_str(), 0, "Incorrect number of traces in input gather. Expected: 3 (XYZ), found: %d", nTraces );
+      writer->error( edef->moduleName().c_str(), 0, "Incorrect number of traces in input gather. Expected: 3 (XYZ), found: %d", nTraces );
     }
   }
   else if( vars->input == mod_rotate::INPUT_XY ) {
     if( traceGather->numTraces() != 2 ) {
-      log->error( edef->moduleName().c_str( ), 0, "Incorrect number of traces in input gather. Expected: 2 (XY), found: %d", nTraces );
+      writer->error( edef->moduleName().c_str( ), 0, "Incorrect number of traces in input gather. Expected: 2 (XY), found: %d", nTraces );
     }
     numRotTraces = 2;
   }
@@ -473,13 +467,13 @@ void exec_mod_rotate_(
         trace_index[sensor-3] = itrc;
       }
       else {
-        log->line("\nTrace header dump of current trace:");
-        traceGather->trace(itrc)->getTraceHeader()->dump( log->getFile() );
+        writer->line("\nTrace header dump of current trace:");
+        traceGather->trace(itrc)->getTraceHeader()->dump( writer->getFile() );
         if( sensor == mod_rotate::SENSOR_INDEX[mod_rotate::ID_Z] ) {
-          log->error( edef->moduleName().c_str(), 0, "Input gather contains more than one trace for sensor 2/5 (= Z).");
+          writer->error( edef->moduleName().c_str(), 0, "Input gather contains more than one trace for sensor 2/5 (= Z).");
         }
         else {
-          log->error( edef->moduleName().c_str(), 0, "Input gather contains more than one trace for sensor %d.", sensor);
+          writer->error( edef->moduleName().c_str(), 0, "Input gather contains more than one trace for sensor %d.", sensor);
         }
         return;
       }
@@ -493,13 +487,13 @@ void exec_mod_rotate_(
   csTraceHeader** trcHdr = new csTraceHeader*[numRotTraces];
   for( int idSensor = 0; idSensor < numRotTraces; idSensor++ ) {
     if( trace_index[idSensor] == no_value ) {
-      log->line("\nTrace header dump of current trace:");
-      traceGather->trace(0)->getTraceHeader()->dump( log->getFile() );
+      writer->line("\nTrace header dump of current trace:");
+      traceGather->trace(0)->getTraceHeader()->dump( writer->getFile() );
       if( idSensor == mod_rotate::ID_Z ) {
-        log->error( edef->moduleName().c_str(), 0, "Input gather is missing a sensor 2/5 trace (=Z).");
+        writer->error( edef->moduleName().c_str(), 0, "Input gather is missing a sensor 2/5 trace (=Z).");
       }
       else {
-        log->error( edef->moduleName().c_str(), 0, "Input gather is missing a sensor %d trace.", mod_rotate::SENSOR_INDEX[idSensor]);
+        writer->error( edef->moduleName().c_str(), 0, "Input gather is missing a sensor %d trace.", mod_rotate::SENSOR_INDEX[idSensor]);
       }
     }
     else {
@@ -512,7 +506,7 @@ void exec_mod_rotate_(
     rotate_xy_azim(
                    traceGather->trace(trace_index[mod_rotate::ID_X])->getTraceSamples(),
                    traceGather->trace(trace_index[mod_rotate::ID_Y])->getTraceSamples(),
-                   azim, shdr->numSamples, vars->mode);
+                   azim, shdr->numSamples, vars->mode == mod_rotate::MODE_APPLY );
   }
   else if( vars->rot_method == mod_rotate::METHOD_2D_RADIAL ) {
     float geophone_azim = DEG2RAD( trcHdr[mod_rotate::ID_X]->floatValue(vars->hdrId_azim) );
@@ -522,7 +516,7 @@ void exec_mod_rotate_(
     double rec_y = trcHdr[trace_index[mod_rotate::ID_X]]->doubleValue(vars->hdrId_recy);
     float sr_azim = fmod( (float)atan2( rec_x-sou_x, rec_y-sou_y ) + 2*M_PI, 2*M_PI );  // Positive, clockwise from North
     float rotation_angle = sr_azim - geophone_azim;
-    if( vars->mode == APPLY ) {
+    if( vars->mode == mod_rotate::MODE_APPLY ) {
       rotation_angle *= -1.0;
     }
 //    fprintf(stderr,"Rotation angle: %f   sr_azim: %f    %f %f\n", rotation_angle*180/M_PI, sr_azim*180/M_PI, sou_x, sou_y);
@@ -531,7 +525,7 @@ void exec_mod_rotate_(
     rotate_xy_azim(
       traceGather->trace(trace_index[mod_rotate::ID_X])->getTraceSamples(),
       traceGather->trace(trace_index[mod_rotate::ID_Y])->getTraceSamples(),
-      rotation_angle, shdr->numSamples, APPLY);
+      rotation_angle, shdr->numSamples, true);
 //    trcHdr[trace_index[ID_X]]->setFloatValue( vars->hdrId_azim, RAD2DEG(sr_azim) );
 //    trcHdr[trace_index[ID_Y]]->setFloatValue( vars->hdrId_azim, RAD2DEG(sr_azim) + 90.0 );
   }
@@ -539,10 +533,10 @@ void exec_mod_rotate_(
     float angle_from_rad = DEG2RAD( trcHdr[0]->floatValue(vars->hdrId_an_from) );
     float angle_to_rad   = DEG2RAD( trcHdr[0]->floatValue(vars->hdrId_an_to) );
     float rotation_angle = angle_to_rad - angle_from_rad;
-    if( vars->modeEffective == REMOVE ) {
+    if( vars->modeEffective == mod_rotate::MODE_REMOVE ) {
       rotation_angle *= -1.0;
     }
-    //    if( vars->mode == REMOVE ) {
+    //    if( vars->mode == mod_rotate::MODE_REMOVE ) {
     //  rotation_angle *= -1.0;
     // }
     rotate_xy(
@@ -558,30 +552,30 @@ void exec_mod_rotate_(
     if( vars->rot_method == mod_rotate::METHOD_TILT_ROLL ) {
       float roll = DEG2RAD( trcHdr[0]->floatValue(vars->hdrId_roll) );
       float tilt = DEG2RAD( trcHdr[0]->floatValue(vars->hdrId_tilt) );
-      rotate_xyz_roll_tilt( xTrace, yTrace, zTrace, roll, tilt, shdr->numSamples, vars->mode);
+      rotate_xyz_roll_tilt( xTrace, yTrace, zTrace, roll, tilt, shdr->numSamples, vars->mode == mod_rotate::MODE_APPLY);
     }
     else if( vars->rot_method == mod_rotate::METHOD_TILT_XY ) {
       float tiltx = trcHdr[trace_index[mod_rotate::ID_X]]->floatValue(vars->hdrId_tiltx);
       float tilty = trcHdr[trace_index[mod_rotate::ID_Y]]->floatValue(vars->hdrId_tilty);
       if( fabs(tiltx) > vars->max_valid_tilt ) {
         if( vars->log_tiltxy_warnings ) {
-          log->line("Warning: Tilt X exceeds valid maximum: |%f| > %f", tiltx, vars->max_valid_tilt);
+          writer->line("Warning: Tilt X exceeds valid maximum: |%f| > %f", tiltx, vars->max_valid_tilt);
         }
         if( vars->tiltx_prev == mod_rotate::NO_TILT ) {
-          log->error("Tilt X exceeds valid maximum: |%f| > %f.\nNo valid tilt X found on previous trace. Repair tilt values first before rotating data", tiltx, vars->max_valid_tilt);
+          writer->error("Tilt X exceeds valid maximum: |%f| > %f.\nNo valid tilt X found on previous trace. Repair tilt values first before rotating data", tiltx, vars->max_valid_tilt);
         }
         tiltx = vars->tiltx_prev;
       }
       if( fabs(tilty) > vars->max_valid_tilt ) {
         if( vars->log_tiltxy_warnings ) {
-          log->line("Warning: Tilt Y exceeds valid maximum: |%f| > %f", tilty, vars->max_valid_tilt);
+          writer->line("Warning: Tilt Y exceeds valid maximum: |%f| > %f", tilty, vars->max_valid_tilt);
         }
         if( vars->tilty_prev == mod_rotate::NO_TILT ) {
-          log->error("Tilt Y exceeds valid maximum: |%f| > %f.\nNo valid tilt Y found on previous trace. Repair tilt values first before rotating data", tilty, vars->max_valid_tilt);
+          writer->error("Tilt Y exceeds valid maximum: |%f| > %f.\nNo valid tilt Y found on previous trace. Repair tilt values first before rotating data", tilty, vars->max_valid_tilt);
         }
         tilty = vars->tilty_prev;
       }
-      rotate_xyz_tiltxy( xTrace, yTrace, zTrace, DEG2RAD(tiltx), DEG2RAD(tilty), shdr->numSamples, vars->mode);
+      rotate_xyz_tiltxy( xTrace, yTrace, zTrace, DEG2RAD(tiltx), DEG2RAD(tilty), shdr->numSamples, vars->mode == mod_rotate::MODE_APPLY);
       vars->tiltx_prev = tiltx;
       vars->tilty_prev = tilty;
     }
@@ -685,13 +679,45 @@ void params_mod_rotate_( csParamDef* pdef ) {
   pdef->addOption( "remove", "Remove rotation. For field data, specify 'remove' to rotate from as-laid to final coordinate system.", "For 2D rotation, apply ANTI-clockwise rotation to coordinate system (X/East and Y/North)." );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_rotate_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_rotate::VariableStruct* vars = reinterpret_cast<mod_rotate::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_rotate_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_rotate::VariableStruct* vars = reinterpret_cast<mod_rotate::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->rotation != NULL ) {
+    delete vars->rotation;
+    vars->rotation = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_rotate_( csParamDef* pdef ) {
   params_mod_rotate_( pdef );
 }
-extern "C" void _init_mod_rotate_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_rotate_( param, env, log );
+extern "C" void _init_mod_rotate_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_rotate_( param, env, writer );
 }
-extern "C" void _exec_mod_rotate_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_rotate_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_rotate_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_rotate_( env, writer );
 }
-
+extern "C" void _exec_mod_rotate_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_rotate_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_rotate_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_rotate_( env, writer );
+}

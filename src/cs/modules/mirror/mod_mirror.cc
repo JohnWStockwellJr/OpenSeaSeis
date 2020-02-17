@@ -4,7 +4,7 @@
 #include "cseis_includes.h"
 #include "geolib_methods.h"
 #include <cmath>
-#include "csLine3D.h"
+#include "csPoint3D.h"
 #include "csProfile.h"
 #include "csTableAll.h"
 
@@ -41,7 +41,7 @@ namespace mod_mirror {
 }
 using namespace mod_mirror;
 
-double tryLamda( double lamda, csPoint const& p_src, csProfile const* profile, bool doPrint = false );
+double tryLamda( double lamda, csPoint3D const& p_src, csProfile const* profile, bool doPrint = false );
 
 
 //*************************************************************************************************
@@ -49,7 +49,7 @@ double tryLamda( double lamda, csPoint const& p_src, csProfile const* profile, b
 //
 //
 //*************************************************************************************************
-void init_mod_mirror_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_mirror_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
 //  csSuperHeader*    shdr = env->superHeader;
@@ -57,7 +57,8 @@ void init_mod_mirror_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
   vars->table        = NULL;
   vars->hdrId_bin_x  = -1;
@@ -87,10 +88,10 @@ void init_mod_mirror_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       vars->table->readTableContents( true );
     }
     catch( csException& exc ) {
-      log->error("Error when initializing input table '%s':\n %s\n", text.c_str(), exc.getMessage() );
+      writer->error("Error when initializing input table '%s':\n %s\n", text.c_str(), exc.getMessage() );
     }
     if( vars->table->numKeys() != 2 ) {
-      log->error("Number of table keys in input table = %d. Required number of keys = 2. Specify table key by placing the character '%c' in front of the key name. Example: %cx %cy depth  (x and y are table keys)", csTableAll::KEY_CHAR, csTableAll::KEY_CHAR, csTableAll::KEY_CHAR );
+      writer->error("Number of table keys in input table = %d. Required number of keys = 2. Specify table key by placing the character '%c' in front of the key name. Example: %cx %cy depth  (x and y are table keys)", csTableAll::KEY_CHAR, csTableAll::KEY_CHAR, csTableAll::KEY_CHAR );
     }
     if( edef->isDebug() ) {
       vars->table->dump();
@@ -119,7 +120,7 @@ void init_mod_mirror_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       param->getFloat( "depth", &vars->depth );
     }
     else {
-      log->error("Unknown option: '%s'", text.c_str());
+      writer->error("Unknown option: '%s'", text.c_str());
     }
   }
   */
@@ -139,19 +140,19 @@ void init_mod_mirror_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
     hdef->addHeader( TYPE_DOUBLE, "bin_x", "Bin X coordinate [m]");
   }
   else if( hdef->headerType( "bin_x" ) != TYPE_DOUBLE ) {
-    log->error("Trace header 'bin_x' exists but has the wrong number type. Should be DOUBLE.");
+    writer->error("Trace header 'bin_x' exists but has the wrong number type. Should be DOUBLE.");
   }
   if( !hdef->headerExists( "bin_y" ) ) {
     hdef->addHeader( TYPE_DOUBLE, "bin_y", "Bin Y coordinate [m]");
   }
   else if( hdef->headerType( "bin_y" ) != TYPE_DOUBLE ) {
-    log->error("Trace header 'bin_y' exists but has the wrong number type. Should be DOUBLE.");
+    writer->error("Trace header 'bin_y' exists but has the wrong number type. Should be DOUBLE.");
   }
   if( !hdef->headerExists( "bin_z" ) ) {
     hdef->addHeader( TYPE_DOUBLE, "bin_z", "Bin Z coordinate [m]");
   }
   else if( hdef->headerType( "bin_z" ) != TYPE_DOUBLE ) {
-    log->error("Trace header 'bin_z' exists but has the wrong number type. Should be DOUBLE.");
+    writer->error("Trace header 'bin_z' exists but has the wrong number type. Should be DOUBLE.");
   }
   vars->hdrId_bin_x = hdef->headerIndex("bin_x");
   vars->hdrId_bin_y = hdef->headerIndex("bin_y");
@@ -165,27 +166,22 @@ void init_mod_mirror_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
 //
 //
 //*************************************************************************************************
-bool exec_mod_mirror_(
-  csTrace* trace,
+void exec_mod_mirror_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
 //  csSuperHeader const* shdr = env->superHeader;
 //  csTraceHeaderDef const* hdef = env->headerDef;
 
-  if( edef->isCleanup()){
-    if( vars->table != NULL ) {
-      delete vars->table;
-      vars->table = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
 
-  csPoint p_src;
-  csPoint p_rcv;
+
+  csPoint3D p_src;
+  csPoint3D p_rcv;
   csTraceHeader* trcHdr = trace->getTraceHeader();
   p_src.x = trcHdr->doubleValue( vars->hdrId_sou_x );
   p_src.y = trcHdr->doubleValue( vars->hdrId_sou_y );
@@ -193,7 +189,6 @@ bool exec_mod_mirror_(
   p_rcv.x = trcHdr->doubleValue( vars->hdrId_rec_x );
   p_rcv.y = trcHdr->doubleValue( vars->hdrId_rec_y );
   p_rcv.z = trcHdr->doubleValue( vars->hdrId_rec_z );
-  csLine3D line(p_src,p_rcv);
   csProfile profile(p_src,p_rcv, csProfile::EXTRAPOLATION_CONSTANT);
 
   //--------------------------------------------------
@@ -206,7 +201,7 @@ bool exec_mod_mirror_(
     profile.initDepths( numDepths );
     for( int i = 0; i < numDepths; i++ ) {
       double lamda = (double)i / (double)(numDepths-1);
-      csPoint p = profile.pointAt( lamda );
+      csPoint3D p = profile.pointAt( lamda );
       keys[0] = p.x;
       keys[1] = p.y;
       double depth = vars->table->getValue( keys );
@@ -243,7 +238,7 @@ bool exec_mod_mirror_(
     counter += 1;
   }
 
-  csPoint p = profile.pointAt( lamdaMid );
+  csPoint3D p = profile.pointAt( lamdaMid );
   trcHdr->setDoubleValue( vars->hdrId_bin_x, p.x );
   trcHdr->setDoubleValue( vars->hdrId_bin_y, p.y );
   trcHdr->setDoubleValue( vars->hdrId_bin_z, p.z );
@@ -262,7 +257,7 @@ bool exec_mod_mirror_(
   //  fprintf(stderr,"%f %f\n", lamda, profile.depthAt(lamda) );
   // }
 
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -296,19 +291,53 @@ void params_mod_mirror_( csParamDef* pdef ) {
                   "Iteration ends when ray is found that hits the target point within the specified distance");
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_mirror_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_mirror::VariableStruct* vars = reinterpret_cast<mod_mirror::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_mirror_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_mirror::VariableStruct* vars = reinterpret_cast<mod_mirror::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->table != NULL ) {
+    delete vars->table;
+    vars->table = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_mirror_( csParamDef* pdef ) {
   params_mod_mirror_( pdef );
 }
-extern "C" void _init_mod_mirror_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_mirror_( param, env, log );
+extern "C" void _init_mod_mirror_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_mirror_( param, env, writer );
 }
-extern "C" bool _exec_mod_mirror_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_mirror_( trace, port, env, log );
+extern "C" bool _start_exec_mod_mirror_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_mirror_( env, writer );
 }
+extern "C" void _exec_mod_mirror_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_mirror_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_mirror_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_mirror_( env, writer );
+}
+
 //--------------------------------------------------------------------------------
 //
 
-double tryLamda( double lamda, csPoint const& p_src, csProfile const* profile, bool doPrint ) {
+double tryLamda( double lamda, csPoint3D const& p_src, csProfile const* profile, bool doPrint ) {
   double depth     = profile->depthAt( lamda );
   double offset    = profile->offsetAt( lamda );
   double an_depart = atan2( offset, (depth-p_src.z) );
@@ -334,4 +363,3 @@ double tryLamda( double lamda, csPoint const& p_src, csProfile const* profile, b
   
   return depth_trial;
 }
-

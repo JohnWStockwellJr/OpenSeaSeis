@@ -26,11 +26,14 @@ public:
     case TYPE_ARRAY_INT:
        return (int)sizeof(int);   
     case TYPE_FLOAT:
+    case TYPE_FLOAT_IBM:
     case TYPE_ARRAY_FLOAT:
        return (int)sizeof(float);  
     case TYPE_DOUBLE:
     case TYPE_ARRAY_DOUBLE:
        return (int)sizeof(double);
+    case TYPE_VECTOR:
+       return 3*(int)sizeof(double);
     case  TYPE_INT64:
       return (int)sizeof(csInt64_t);  
     case TYPE_CHAR:
@@ -120,6 +123,8 @@ public:
         return( "int64" );
       case TYPE_FLOAT:
         return( "float" );
+      case TYPE_FLOAT_IBM:
+        return( "float_ibm" );
       case TYPE_DOUBLE:
         return( "double" );
       case TYPE_CHAR:
@@ -135,20 +140,24 @@ public:
       case TYPE_USHORT:
         return( "ushort" );
       default:
-	throw( csException("csGeolibUtils::typeText: Undefined type id: %d", (int)type) );
+        throw( csException("csGeolibUtils::typeText: Undefined type id: %d", (int)type) );
     }
   }
 
- static type_t const TYPE_UNKNOWN = 255;
- static type_t const TYPE_EMPTY   = 0;
- static type_t const TYPE_INT     = 1;  // 32bit
- static type_t const TYPE_FLOAT   = 2;  // 32bit
- static type_t const TYPE_DOUBLE  = 3;  // 64bit
- static type_t const TYPE_CHAR    = 4;  // 8bit
- static type_t const TYPE_STRING  = 5;  // = ARRAY_CHAR
- static type_t const TYPE_INT64   = 6;  // 64bit integer
- static type_t const TYPE_SHORT   = 11;  // 16bit signed short
- static type_t const TYPE_USHORT  = 12;  // 16bit unsigned short
+  static type_t text2Type( std::string text );
+
+  /*  static type_t const TYPE_UNKNOWN = 255;
+  static type_t const TYPE_EMPTY   = 0;
+  static type_t const TYPE_INT     = 1;  // 32bit
+  static type_t const TYPE_FLOAT   = 2;  // 32bit
+  static type_t const TYPE_DOUBLE  = 3;  // 64bit
+  static type_t const TYPE_CHAR    = 4;  // 8bit
+  static type_t const TYPE_STRING  = 5;  // = ARRAY_CHAR
+  static type_t const TYPE_INT64   = 6;  // 64bit integer
+  static type_t const TYPE_SHORT   = 11;  // 16bit signed short
+  static type_t const TYPE_USHORT  = 12;  // 16bit unsigned short
+  static type_t const TYPE_FLOAT_IBM = 13;  // 32bit IBM float
+  */
 
   static csInt64_t date2UNIXmsec( int year, int day, int hour, int min, int sec, int msec );
   static csInt64_t date2UNIXmsec( int year, int month, int day_of_month, int hour, int min, int sec, int msec );

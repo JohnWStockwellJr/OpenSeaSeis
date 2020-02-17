@@ -47,6 +47,7 @@ public class csSeisView extends JPanel {
   public static final int DEFAULT_MAJOR_MS [] =
   { 10, 10, 50, 50, 100 };
   
+  protected String myTEMPName = "DEFAULT";
   protected csISeismicTraceBuffer myTraceBuffer;
   protected double mySampleInt;
   protected int myNumTraces;    // Number of trace in seismic buffer
@@ -77,8 +78,9 @@ public class csSeisView extends JPanel {
   private boolean myIsCrosshairPainted = false;
   private Point myCrosshairPosition = new Point(-1,-1);
 
-  private ArrayList<csISeisOverlay> mySeisOverlays;
+  protected ArrayList<csISeisOverlay> mySeisOverlays;
   private ArrayList<csISeisViewListener> mySeisViewListeners;
+  private csIVisibleRectListener myRectListener;
 
   /// Constant scalar to apply to each trace. This is usually 1.
   /// When using 'trace' scaling, the trace scalar becomes the inverse of the mean or max of each individual trace.
@@ -134,25 +136,33 @@ public class csSeisView extends JPanel {
    * @param sampleInt    Sample interval [ms]
    */
   public csSeisView( JFrame parentFrame, csTraceBuffer buffer, double sampleInt ) {
-    this( parentFrame );
+    this( parentFrame, null );
     updateTraceBuffer( buffer, sampleInt, true );
   }
   public csSeisView( JFrame parentFrame ) {
     this( parentFrame, null );
   }
+  public csSeisView( JFrame parentFrame, csIVisibleRectListener rectListener ) {
+    this( parentFrame, null, new csCustomColorMapModel(csColorMap.COLOR_MAP_TYPE_32BIT), csColorMap.COLOR_MAP_TYPE_32BIT, rectListener );
+  }
+//  public csSeisView( JFrame parentFrame, csSeisDispSettings dispSettings ) {
+//    this( parentFrame, dispSettings, new csCustomColorMapModel(csColorMap.COLOR_MAP_TYPE_32BIT) );
+//  }
+//  public csSeisView( JFrame parentFrame, csSeisDispSettings dispSettings, csCustomColorMapModel cmapModel ) {
+//    this( parentFrame, dispSettings, cmapModel, csColorMap.COLOR_MAP_TYPE_32BIT );
+//  }
   /**
    * Constructor.
    * 
    * @param parentFrame  Parent JFrame, used for internal dialog windows..
    * @param dispSettings Display settings. Pass 'null' to use default display settings.
+   * @param cmapModel    Custom color map model
+   * @param colorMapType Color map type
    */
-  public csSeisView( JFrame parentFrame, csSeisDispSettings dispSettings ) {
-    this( parentFrame, dispSettings, new csCustomColorMapModel(csColorMap.COLOR_MAP_TYPE_32BIT) );
-  }
-  public csSeisView( JFrame parentFrame, csSeisDispSettings dispSettings, csCustomColorMapModel cmapModel ) {
-    this( parentFrame, dispSettings, cmapModel, csColorMap.COLOR_MAP_TYPE_32BIT );
-  }
   public csSeisView( JFrame parentFrame, csSeisDispSettings dispSettings, csCustomColorMapModel cmapModel, int colorMapType ) {
+    this( parentFrame, dispSettings, cmapModel, colorMapType, null );
+  }
+  public csSeisView( JFrame parentFrame, csSeisDispSettings dispSettings, csCustomColorMapModel cmapModel, int colorMapType, csIVisibleRectListener rectListener ) {
     super( new BorderLayout() );
     myParentFrame = parentFrame;
     myCustomColorMapModel = cmapModel;
@@ -197,6 +207,15 @@ public class csSeisView extends JPanel {
     manager.addKeyEventDispatcher(new SeisViewKeyDispatcher(myEventHandler));
     if( myDialogSettings != null ) addSeisViewListener( myDialogSettings );
     addSeisViewListener( myRenderer );
+    myRectListener = rectListener;
+    if( myRectListener == null ) {
+      myRectListener = new csIVisibleRectListener() {
+        @Override
+        public Rectangle getVisibleRect() {
+          return csSeisView.this.getVisibleRect();
+        }
+      };
+    }
   }
 //-----------------------------------------------------
   public int getMouseMode() {
@@ -287,6 +306,8 @@ public class csSeisView extends JPanel {
 
     myIsFullRepaint  = true;
     myIsScrolling    = false;
+
+    fireEventChangedTraceBuffer( buffer );
   }
   /**
    * Set color bit type
@@ -315,7 +336,7 @@ public class csSeisView extends JPanel {
   }
   private void resetViewPositions() {
     Dimension size = getPreferredSize();
-    Rectangle rect = getVisibleRect();
+    Rectangle rect = myRectListener.getVisibleRect();
     int maxViewPosVert = size.height - rect.height;
     int maxViewPosHorz = size.width  - rect.width;
     if( myViewPositionVert > maxViewPosVert ) myViewPositionVert = maxViewPosVert;
@@ -426,10 +447,10 @@ public class csSeisView extends JPanel {
         ds.minValue != mySettings.minValue ||
         ds.maxValue != mySettings.maxValue ||
         ds.fullTraceScalar != mySettings.fullTraceScalar;
-    boolean resetColor =
-        ds.wiggleColorPos != mySettings.wiggleColorPos ||
-        ds.wiggleColorNeg != mySettings.wiggleColorNeg ||
-        ds.highlightColor != mySettings.highlightColor;
+//    boolean resetColor =
+//        ds.wiggleColorPos != mySettings.wiggleColorPos ||
+//        ds.wiggleColorNeg != mySettings.wiggleColorNeg ||
+//        ds.highlightColor != mySettings.highlightColor;
     boolean resetTimeLines =
         ds.isTimeLinesAuto != mySettings.isTimeLinesAuto ||
         ds.showTimeLines != mySettings.showTimeLines ||
@@ -566,13 +587,13 @@ public class csSeisView extends JPanel {
     }
   }
   public void zoom( float zoomVert, float zoomHorz ) {
-    Rectangle rect = getVisibleRect();
+    Rectangle rect = myRectListener.getVisibleRect();
     float sampleIndexCentre = yView2Model( rect.height/2 );
     float traceIndexCentre = xView2Trace( rect.width/2 );
     zoom( zoomVert, zoomHorz, traceIndexCentre, sampleIndexCentre );
   }
   public void zoom( float zoomVert, float zoomHorz, float traceIndexCentre, float sampleIndexCentre ) {
-    Rectangle rect = getVisibleRect();
+    Rectangle rect = myRectListener.getVisibleRect();
     if( zoomVert != mySettings.zoomVert ) {
       mySettings.zoomVert = zoomVert;
 
@@ -661,17 +682,19 @@ public class csSeisView extends JPanel {
     setMinimumSize( new Dimension(xViewMax,yViewMax) );
     setSize( new Dimension(xViewMax,yViewMax) );   // This will lead to a call to repaint()
     
-    Rectangle rect = getVisibleRect();
-    myImageWidth  = rect.width;
-    myImageHeight = rect.height;
+    Rectangle rectVisible = myRectListener.getVisibleRect();
+    myImageWidth  = rectVisible.width;
+    myImageHeight = rectVisible.height;
     if( xViewMax < myImageWidth ) {
       myImageWidth = xViewMax;
     }
 
     if( myImageHeight == 0 || myImageWidth == 0 ) {
+        //      System.out.println("!!!!!!!!!!!!!!!!!!!!!Image width NULL" + myImageWidth + " " +  myImageHeight);
       return false;
     }
 
+    //    System.out.println("resetScreen: " + myTEMPName + " Creating volatile image " + myImageWidth + " " +  myImageHeight);
     myVolatileBitmap = createImage( myImageWidth, myImageHeight );
     if( myColorBitType == csColorMap.COLOR_MAP_TYPE_32BIT ) {
       myBitmap = new BufferedImage( myImageWidth, myImageHeight, BufferedImage.TYPE_INT_RGB );
@@ -778,7 +801,7 @@ public class csSeisView extends JPanel {
     if( myIsScrolling && myShowCrosshair && myIsCrosshairPainted ) {
       removeCrosshair();
     }
-    boolean isRepainted = repaintStep1( snapShot_isScrolling );
+    repaintStep1( snapShot_isScrolling );
 
     Graphics2D g2 = (Graphics2D)g;
     if( mySettings.plotDirection == csSeisDispSettings.PLOT_DIR_VERTICAL ) {
@@ -836,9 +859,8 @@ public class csSeisView extends JPanel {
    * @return true if repaint action was successful, false if not
    */
   protected boolean repaintStep1( boolean isScrolling ) {
-    Rectangle rectVisible = getVisibleRect();
-//    System.out.println("Paint step 1 " + myImageHeight + " =? " + rectVisible.height + ", " + myImageWidth + " =? " + rectVisible.width );
-
+    Rectangle rectVisible = myRectListener.getVisibleRect();
+    //    if( myTEMPName == "NAME_BACKGROUND" )     System.out.println("-------------Paint step 1 " + myImageHeight + " =? " + rectVisible.height + ", " + myImageWidth + " =? " + rectVisible.width );
 //    long time1 = System.currentTimeMillis();   // Comment out to compute time paint operation
     
     if( myBitmap == null || myImageWidth != rectVisible.width || myImageHeight != rectVisible.height ) {
@@ -1031,6 +1053,11 @@ public class csSeisView extends JPanel {
       }
     }
   }
+  public void fireEventChangedTraceBuffer( csISeismicTraceBuffer traceBuffer ) {
+    for( int i = 0; i < mySeisViewListeners.size(); i++ ) {
+      mySeisViewListeners.get(i).traceBufferChanged(traceBuffer);
+    }
+  }
   public void fireEventChangedSettings() {
     for( int i = 0; i < mySeisViewListeners.size(); i++ ) {
       mySeisViewListeners.get(i).changedSettings( mySettings );
@@ -1049,6 +1076,11 @@ public class csSeisView extends JPanel {
   public void fireEventSizeChanged() {
     for( int i = 0; i < mySeisViewListeners.size(); i++ ) {
       mySeisViewListeners.get(i).sizeChanged( getPreferredSize() );
+    }
+  }
+  public void fireEventMouseExited() {
+    for( int i = 0; i < mySeisViewListeners.size(); i++ ) {
+      mySeisViewListeners.get(i).mouseExited();
     }
   }
   //************************************************************************************
@@ -1072,13 +1104,14 @@ public class csSeisView extends JPanel {
   public void mouseExited() {
     if( myShowCrosshair ) {
       removeCrosshair();
+      fireEventMouseExited();
     }
     myIsCrosshairPainted = false;
   }
   public void setCrosshairPosition( csSampleInfo info ) {
     paintCrosshair( info );
   }
-  private void removeCrosshair() {
+  public void removeCrosshair() {
     if( myCrosshairPosition.x >= 0 || myCrosshairPosition.y >= 0 ) {
       paintCrosshair2( myCrosshairPosition.x, myCrosshairPosition.y );
       myIsCrosshairPainted = false;
@@ -1163,7 +1196,7 @@ public class csSeisView extends JPanel {
   }
   private void highlightTrace( int traceIndex, boolean doHighlightTrace ) {
     if( myBitmap == null ) return;
-    Rectangle rectVisible = getVisibleRect();
+    Rectangle rectVisible = myRectListener.getVisibleRect();
 
     if( traceIndex >= 0 && traceIndex < myNumTraces ) {
       myStepTrace = 1;
@@ -1175,7 +1208,7 @@ public class csSeisView extends JPanel {
       if( mySettings.isVIDisplay ) {
         xMin = (int)( xModel2View( traceIndex-myStepTrace*0.5f ) + 0.5f ) + 1;
         xMax = (int)( xModel2View( traceIndex+myStepTrace*0.5f ) + 0.5f );
-        if( xMax >= getVisibleRect().width )  xMax = getVisibleRect().width-1;
+        if( xMax >= myRectListener.getVisibleRect().width )  xMax = myRectListener.getVisibleRect().width-1;
         if( xMin < 0 ) xMin = 0;
         else if( xMax < xMin ) {
           xMin = xMax;
@@ -1232,7 +1265,7 @@ public class csSeisView extends JPanel {
   }
   public void removeHighlightTrace() {
     if( myBitmap == null ) return;
-    Rectangle rectVisible = getVisibleRect();
+    Rectangle rectVisible = myRectListener.getVisibleRect();
 
     // Paint over previous highlighted trace
     int traceLeft  = myHighlightTrace;
@@ -1244,7 +1277,7 @@ public class csSeisView extends JPanel {
     if( mySettings.isVIDisplay ) {
       int xMin = (int)( xModel2View( myHighlightTrace-myStepTrace*0.5f ) + 0.5f ) + 1;
       int xMax = (int)( xModel2View( myHighlightTrace+myStepTrace*0.5f ) + 0.5f );
-      if( xMax >= getVisibleRect().width ) xMax = getVisibleRect().width-1;
+      if( xMax >= myRectListener.getVisibleRect().width ) xMax = myRectListener.getVisibleRect().width-1;
       if( xMin < 0 ) {
         xMin = 0;
       }

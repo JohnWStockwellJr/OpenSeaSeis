@@ -32,6 +32,7 @@ namespace mod_statics {
     cseis_geolib::csInterpolation* interpol;
     bool  applyFraction;
     bool isSampleDomain;
+    bool updateTimeHdr;
   };
 }
 using mod_statics::VariableStruct;
@@ -42,7 +43,7 @@ using mod_statics::VariableStruct;
 //
 //
 //*************************************************************************************************
-void init_mod_statics_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_statics_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -50,7 +51,8 @@ void init_mod_statics_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
   vars->doHeaderStatic = false;
   vars->hdrId     = -1;
@@ -64,6 +66,7 @@ void init_mod_statics_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
   vars->hdrID_stat_res     = -1;
   vars->applyFraction = true;
   vars->isSampleDomain = false;
+  vars->updateTimeHdr = false;
 
 //---------------------------------------------
 
@@ -77,7 +80,21 @@ void init_mod_statics_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
       vars->isSampleDomain = false;
     }
     else {
-      log->line("Domain option not recognized: '%s'.", text.c_str());
+      writer->line("Domain option not recognized: '%s'.", text.c_str());
+      env->addError();
+    }
+  }
+
+  if( param->exists("update_time_hdr") ) {
+    param->getString( "update_time_hdr", &text );
+    if( !text.compare( "yes" ) ) {
+      vars->updateTimeHdr = true;
+    }
+    else if( !text.compare( "time" ) ) {
+      vars->updateTimeHdr = false;
+    }
+    else {
+      writer->line("Option not recognized: '%s'.", text.c_str());
       env->addError();
     }
   }
@@ -87,13 +104,13 @@ void init_mod_statics_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
   if( param->exists("ncoef") ) {
     param->getInt("ncoef", &numCoefficients );
     if( numCoefficients < 2 ) {
-      log->error("Number of interpolation coefficients too small: %d. Minimum is 2", numCoefficients);
+      writer->error("Number of interpolation coefficients too small: %d. Minimum is 2", numCoefficients);
     }
     if( numCoefficients > 32 ) {
-      log->warning("Number of interpolation coefficients is very large: %d.", numCoefficients);
+      writer->warning("Number of interpolation coefficients is very large: %d.", numCoefficients);
     }
     if( numCoefficients > 128 ) {
-      log->warning("Number of interpolation coefficients too large: %d.", numCoefficients);
+      writer->warning("Number of interpolation coefficients too large: %d.", numCoefficients);
     }
   }
 
@@ -106,10 +123,10 @@ void init_mod_statics_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
       vars->hdrId   = hdef->headerIndex( headerName.c_str() );
     }
     else {
-      log->warning("Unknown trace header name: '%s'", headerName.c_str());
+      writer->warning("Unknown trace header name: '%s'", headerName.c_str());
       env->addError();
     }
-    log->line("Header: '%s', index: %d", headerName.c_str(), vars->hdrId );
+    writer->line("User specified header: '%s', type#: %d", headerName.c_str(), vars->hdrType );
   }
 
   if( param->exists("mode") ) {
@@ -121,7 +138,7 @@ void init_mod_statics_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
       vars->isApplyMode = false;
     }
     else {
-      log->error("Unknown mode option: '%s'", text.c_str());
+      writer->error("Unknown mode option: '%s'", text.c_str());
     }
   }
 
@@ -135,7 +152,7 @@ void init_mod_statics_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
       vars->applyFraction = false;
     }
     else {
-      log->error("Unknown option: '%s'", text.c_str());
+      writer->error("Unknown option: '%s'", text.c_str());
     }
   }
 
@@ -145,7 +162,7 @@ void init_mod_statics_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
   }
   else {
     if( !vars->doHeaderStatic ) {
-      log->line("Error: No statics option selected. Empty module.");
+      writer->line("Error: No statics option selected. Empty module.");
       env->addError();
     }
     vars->bulkShift_ms = 0.0;
@@ -164,8 +181,10 @@ void init_mod_statics_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
   vars->hdrID_stat_res = hdef->headerIndex( HDR_STAT_RES.name );
   
   vars->buffer = new float[shdr->numSamples];
-  vars->hdrID_time_samp1_s  = hdef->headerIndex( HDR_TIME_SAMP1.name );
-  vars->hdrID_time_samp1_us = hdef->headerIndex( HDR_TIME_SAMP1_US.name );
+  if( vars->updateTimeHdr ) {
+    vars->hdrID_time_samp1_s  = hdef->headerIndex( HDR_TIME_SAMP1.name );
+    vars->hdrID_time_samp1_us = hdef->headerIndex( HDR_TIME_SAMP1_US.name );
+  }
 }
 
 //*************************************************************************************************
@@ -174,28 +193,19 @@ void init_mod_statics_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
 //
 //
 //*************************************************************************************************
-bool exec_mod_statics_(
-  csTrace* trace,
+void exec_mod_statics_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup()){
-    if( vars->buffer ) {
-      delete [] vars->buffer;
-      vars->buffer = NULL;
-    }
-    if( vars->interpol != NULL ) {
-      delete vars->interpol;
-      vars->interpol = NULL;
-    }
+  csTrace* trace = traceGather->trace(0);
 
-    delete vars; vars = NULL;
-    return true;
-  }
 
   float shift_ms = vars->bulkShift_ms;  // Shift in [ms]
   if( vars->doHeaderStatic ) {
@@ -207,11 +217,11 @@ bool exec_mod_statics_(
     else {
       shift_ms -= stat_hdr;
     }
-    if( edef->isDebug() ) log->line("Static total shift = %f ms (...incl header shift: %f ms)", shift_ms, stat_hdr);
+    if( edef->isDebug() ) writer->line("Static total shift = %f ms (...incl header shift: %f ms)", shift_ms, stat_hdr);
   }
   float* samples = trace->getTraceSamples();
 
-  if( edef->isDebug() ) { log->line("Apply static %f ms", shift_ms); }
+  if( edef->isDebug() ) { writer->line("Apply static %f ms", shift_ms); }
 
   csTraceHeader* trcHdr = trace->getTraceHeader();
   bool isFullSample =  ( (float)( (int)round( fabs(shift_ms) / shdr->sampleInt ) ) * shdr->sampleInt == fabs(shift_ms) );
@@ -246,21 +256,23 @@ bool exec_mod_statics_(
     }
   }
 
-  int time_samp1_s  = trcHdr->intValue( vars->hdrID_time_samp1_s );
-  int time_samp1_us = trcHdr->intValue( vars->hdrID_time_samp1_us );
-  time_samp1_us -= (int)round(shift_ms*1000.0);
-  if( time_samp1_us < 0 ) {
-    time_samp1_us += 1000000;
-    time_samp1_s  -= 1;
+  if( vars->updateTimeHdr ) {
+    int time_samp1_s  = trcHdr->intValue( vars->hdrID_time_samp1_s );
+    int time_samp1_us = trcHdr->intValue( vars->hdrID_time_samp1_us );
+    time_samp1_us -= (int)round(shift_ms*1000.0);
+    if( time_samp1_us < 0 ) {
+      time_samp1_us += 1000000;
+      time_samp1_s  -= 1;
+    }
+    else if( time_samp1_us >= 1000000 ) {
+      time_samp1_us -= 1000000;
+      time_samp1_s  += 1;
+    }
+    trcHdr->setIntValue( vars->hdrID_time_samp1_s, time_samp1_s );
+    trcHdr->setIntValue( vars->hdrID_time_samp1_us, time_samp1_us );
   }
-  else if( time_samp1_us >= 1000000 ) {
-    time_samp1_us -= 1000000;
-    time_samp1_s  += 1;
-  }
-  trcHdr->setIntValue( vars->hdrID_time_samp1_s, time_samp1_s );
-  trcHdr->setIntValue( vars->hdrID_time_samp1_us, time_samp1_us );
 
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -294,15 +306,56 @@ void params_mod_statics_( csParamDef* pdef ) {
   pdef->addValue( "time", VALTYPE_OPTION );
   pdef->addOption( "time", "Statics are specified in unit of trace (e.g. [ms] or [hz])" );
   pdef->addOption( "sample", "Statics are specified in number of samples (may be fractions)" );
+
+  pdef->addParam( "update_time_hdr", "Update time headers according to static time shift?", NUM_VALUES_FIXED );
+  pdef->addValue( "no", VALTYPE_OPTION );
+  pdef->addOption( "yes", "Change internal time headers (time_samp1 and time_samp1_us) according to static shift in order to reflect changed time of first sample" );
+  pdef->addOption( "no", "Do not update time headers" );
+}
+
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_statics_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_statics::VariableStruct* vars = reinterpret_cast<mod_statics::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_statics_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_statics::VariableStruct* vars = reinterpret_cast<mod_statics::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->buffer ) {
+    delete [] vars->buffer;
+    vars->buffer = NULL;
+  }
+  if( vars->interpol != NULL ) {
+    delete vars->interpol;
+    vars->interpol = NULL;
+  }
+  delete vars; vars = NULL;
 }
 
 extern "C" void _params_mod_statics_( csParamDef* pdef ) {
   params_mod_statics_( pdef );
 }
-extern "C" void _init_mod_statics_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_statics_( param, env, log );
+extern "C" void _init_mod_statics_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_statics_( param, env, writer );
 }
-extern "C" bool _exec_mod_statics_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_statics_( trace, port, env, log );
+extern "C" bool _start_exec_mod_statics_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_statics_( env, writer );
 }
-
+extern "C" void _exec_mod_statics_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_statics_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_statics_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_statics_( env, writer );
+}

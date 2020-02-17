@@ -12,7 +12,9 @@
 #include "csSegdHeader_GEORES.h"
 #include "csSegdHeader_SEAL.h"
 #include "csSegdHeader_DIGISTREAMER.h"
+#include "csSegdHeader_FAIRFIELD.h"
 
+#include "csFileUtils.h"
 #include "csTimer.h"
 #include "csException.h"
 #include "geolib_endian.h"
@@ -195,6 +197,8 @@ void csSegdReader::setDefaultConfiguration() {
   myConfig.numSamplesAddOne  = false;
   myConfig.thisIsRev0        = false;
   myConfig.readAuxTraces     = false;
+  myConfig.overrideTraceHdrExtensions = false;
+  myConfig.numTraceHdrExtensions = 0;
 }
 //---------------------------------------------------------
 void csSegdReader::setConfiguration( csSegdReader::configuration& config ) {
@@ -253,6 +257,7 @@ bool csSegdReader::readNewRecordHeaders() {
     if( !myConfig.thisIsRev0 ) {
       readBuffer( myBuffer_gen2, csBaseHeader::BLOCK_SIZE );
       // Extract headers for general header 2
+      myGeneralHdr2->set( myConfig.numBytes_genhdr2_extHdrBlocks );
       myGeneralHdr2->extractHeaders( myBuffer_gen2 );
       myBytePos.generalHdr2 = csBaseHeader::BLOCK_SIZE;
       myBytePos.generalHdrN = myBytePos.generalHdr2 + csBaseHeader::BLOCK_SIZE;
@@ -283,6 +288,7 @@ bool csSegdReader::readNewRecordHeaders() {
       myComFileHdr.recordLength_ms   = myGeneralHdr1->recordLen <= 999 ? myGeneralHdr1->recordLenMS : myGeneralHdr2->extendedRecordLen;
       myComFileHdr.revisionNum[0]    = myGeneralHdr2->revisionNum[0];
       myComFileHdr.revisionNum[1]    = myGeneralHdr2->revisionNum[1];
+      if( myComFileHdr.sampleInt_us == 0 ) throw( csException("Trace sample interval is 0") );
       myComFileHdr.numSamples        = (1000*myComFileHdr.recordLength_ms) / myComFileHdr.sampleInt_us;
       // +1 or not, this is inconsistent in different example SEGD files!
       if( myConfig.numSamplesAddOne ) {
@@ -307,8 +313,8 @@ bool csSegdReader::readNewRecordHeaders() {
 
     myIsSupported =
       isFormatCodeSupported(myGeneralHdr1->formatCode ) &&
-      //      isManufacturerSupported(myGeneralHdr1->manufactCode) &&
       isRevisionSupported(myComFileHdr.revisionNum[0],myComFileHdr.revisionNum[1]);
+    //      isManufacturerSupported(myGeneralHdr1->manufactCode) &&
     if( !isFormatCodeSupported(myGeneralHdr1->formatCode ) ) {
       throw( csException("SEG-D format code %d is not supported.", myGeneralHdr1->formatCode) );
     }
@@ -375,9 +381,8 @@ bool csSegdReader::readNewRecordHeaders() {
       mySampleSkew = new csSampleSkew[myNumScanTypes*myNumSampleSkewBlocks];
     }
 
-    int totalNumTraces = 0;
+    int totalNumTraces   = 0;
     int numSeismicTraces = 0;
-    int myNumNonZeroChanSets = 0;
     int numBytes = csBaseHeader::BLOCK_SIZE * (myNumScanTypes * (myNumChanSetsPerScanType + myNumSampleSkewBlocks));
     buffer_scantypes->setNumBytes( numBytes );
     readBuffer( buffer_scantypes->buffer(), numBytes );
@@ -388,15 +393,7 @@ bool csSegdReader::readNewRecordHeaders() {
         myChanSetHdr[index].extractHeaders( &(buffer_scantypes->buffer()[index*csBaseHeader::BLOCK_SIZE]) );
         totalNumTraces += myChanSetHdr[index].numChannels;
         if( myChanSetHdr[index].chanTypeID == 1 ) numSeismicTraces += myChanSetHdr[index].numChannels;
-        if( myChanSetHdr[index].numChannels > 0 ) {
-          myNumNonZeroChanSets++;
-        }
         myMPDescaleOperator[index] = myChanSetHdr[index].mpFactor;
-        // if( myNumTraceHdrExtensions >= 0 && myChanSetHdr[index].numTraceHeaderExtensions_rev2 != myNumTraceHdrExtensions ) {
-        //    throw( csException("Unequal number of trace header extension for different channel sets (%d != %d). This is not supported.",
-        //                       myChanSetHdr[index].numTraceHeaderExtensions_rev2, myNumTraceHdrExtensions ) );
-        // }
-        //        myNumTraceHdrExtensions   = myChanSetHdr[index].numTraceHeaderExtensions_rev2;
         myNumTraceHdrExtensions   = std::max( myNumTraceHdrExtensions, myChanSetHdr[index].numTraceHeaderExtensions_rev2 );
         myChanSetSampleInt_us[index] = (int)( myComFileHdr.sampleInt_us / pow(2,myChanSetHdr[index].subScanPerBaseScanBinExp) );
         myChanSetNumSamples[index] = (myChanSetHdr[index].chanSetEndTime - myChanSetHdr[index].chanSetStartTime) * 1000 / myChanSetSampleInt_us[index];
@@ -404,7 +401,7 @@ bool csSegdReader::readNewRecordHeaders() {
           myChanSetNumSamples[index] += 1;
         }
         if( myConfig.isDebug ) {
-          fprintf(stderr,"Chan set #%d: Sample interval: %dus, number of samples: %d, number of traces: %d   (comFileHdr.numSamples: %d), num trace header extensions: %d\n",
+          fprintf(stdout,"Chan set #%d: Sample interval: %dus, number of samples: %d, number of traces: %d   (comFileHdr.numSamples: %d), num trace header extensions: %d\n",
                   index, myChanSetSampleInt_us[index], myChanSetNumSamples[index], myChanSetHdr[index].numChannels, myComFileHdr.numSamples, myNumTraceHdrExtensions );
         }
       }
@@ -412,6 +409,55 @@ bool csSegdReader::readNewRecordHeaders() {
         mySampleSkew[iscan*myNumSampleSkewBlocks + iskew].extractHeaders( buffer_scantypes->buffer() );
       }
     }
+
+    // Read extended header, extract if supported
+    buffer_extendedHdr->setNumBytes( myNumExtendedHdrBlocks*csBaseHeader::BLOCK_SIZE );
+    if( myConfig.isDebug ) {
+      fprintf(stdout,"Reading in %d bytes extended header blocks (#%d)\n", myNumExtendedHdrBlocks*csBaseHeader::BLOCK_SIZE, myNumExtendedHdrBlocks );
+    }
+
+    readBuffer( buffer_extendedHdr->buffer(), myNumExtendedHdrBlocks*csBaseHeader::BLOCK_SIZE );
+    myBytePos.externalHdr = myBytePos.extendedHdr + myNumExtendedHdrBlocks*csBaseHeader::BLOCK_SIZE;
+    myRecordingSystemID = manufacturerRecordingSystem( myGeneralHdr1->manufactCode );
+    if( myExtendedHdr ) {
+      delete myExtendedHdr;
+      myExtendedHdr = NULL;
+    }
+    switch( myRecordingSystemID ) {
+      case RECORDING_SYSTEM_GEORES:
+        myExtendedHdr = new csExtendedHeader_GEORES();
+        break;
+      case RECORDING_SYSTEM_SEAL:
+        myExtendedHdr = new csExtendedHeader_SEAL();
+        break;
+      case RECORDING_SYSTEM_FAIRFIELD:
+        myExtendedHdr = new csExtendedHeader_FAIRFIELD();
+        break;
+      case RECORDING_SYSTEM_DIGISTREAMER:
+        myExtendedHdr = new csExtendedHeader_DIGI();
+        break;
+      default:
+        myExtendedHdr = new csExtendedHeader();
+        break;
+    }
+    myExtendedHdr->extractHeaders( buffer_extendedHdr->buffer(), myNumExtendedHdrBlocks*csBaseHeader::BLOCK_SIZE );
+
+    if( myExtendedHdr->numTraces() > 0 ) {
+      totalNumTraces   = 0;
+      numSeismicTraces = 0;
+      if( myConfig.isDebug ) {
+        fprintf(stdout,"WARNING:  Changed numChannels in each chanset set to %d (from extended header)\n", myExtendedHdr->numTraces() );
+      }
+      for( int iscan = 0; iscan < myNumScanTypes; iscan++ ) {
+        for( int ichanset = 0; ichanset < myNumChanSetsPerScanType; ichanset++ ) {
+          int index = iscan*myNumChanSetsPerScanType + ichanset;
+          myChanSetHdr[index].numChannels = myExtendedHdr->numTraces();
+          totalNumTraces += myChanSetHdr[index].numChannels;
+          if( myChanSetHdr[index].chanTypeID == 1 ) numSeismicTraces += myChanSetHdr[index].numChannels;
+        }
+      }
+    }
+
     myComFileHdr.totalNumChan   = totalNumTraces;
     myComFileHdr.numSeismicChan = numSeismicTraces;
     myComFileHdr.numAuxChan     = totalNumTraces - numSeismicTraces;
@@ -430,30 +476,7 @@ bool csSegdReader::readNewRecordHeaders() {
       }
     }
 
-    // Read extended header, extract if supported
-    buffer_extendedHdr->setNumBytes( myNumExtendedHdrBlocks*csBaseHeader::BLOCK_SIZE );
-    readBuffer( buffer_extendedHdr->buffer(), myNumExtendedHdrBlocks*csBaseHeader::BLOCK_SIZE );
-    myBytePos.externalHdr = myBytePos.extendedHdr + myNumExtendedHdrBlocks*csBaseHeader::BLOCK_SIZE;
-    myRecordingSystemID = manufacturerRecordingSystem( myGeneralHdr1->manufactCode );
-    if( myExtendedHdr ) {
-      delete myExtendedHdr;
-      myExtendedHdr = NULL;
-    }
-    switch( myRecordingSystemID ) {
-      case RECORDING_SYSTEM_GEORES:
-        myExtendedHdr = new csExtendedHeader_GEORES();
-        break;
-      case RECORDING_SYSTEM_SEAL:
-        myExtendedHdr = new csExtendedHeader_SEAL();
-        break;
-      case RECORDING_SYSTEM_DIGISTREAMER:
-        myExtendedHdr = new csExtendedHeader_DIGI();
-        break;
-      default:
-        myExtendedHdr = new csExtendedHeader();
-        break;
-    }
-    myExtendedHdr->extractHeaders( buffer_extendedHdr->buffer(), myNumExtendedHdrBlocks*csBaseHeader::BLOCK_SIZE );
+
 
   // Read in external header, do not extract headers yet
     numBytes = myNumExternalHdrBlocks*csBaseHeader::BLOCK_SIZE;
@@ -465,6 +488,10 @@ bool csSegdReader::readNewRecordHeaders() {
     if( myExternalHdr ) {
       delete myExternalHdr;
       myExternalHdr = NULL;
+    }
+
+    if( myConfig.isDebug ) {
+      fprintf(stdout,"Reading in %d bytes external header blocks (#%d)\n", numBytes, myNumExternalHdrBlocks);
     }
 
     if( myNumExternalHdrBlocks > 0 ) {
@@ -480,10 +507,11 @@ bool csSegdReader::readNewRecordHeaders() {
     readBuffer( myBuffer_traceHdr->buffer(), csTraceHeader::BLOCK_SIZE );
     myTraceHdr->extractHeaders( myBuffer_traceHdr->buffer() );
 
-    if( myComFileHdr.revisionNum[0] >= 2 ) {
+    if( myComFileHdr.revisionNum[0] >= 2 || (myComFileHdr.revisionNum[0] == 1 && myComFileHdr.revisionNum[1] >= 5) ) {
       if( myTraceHdr->numTraceHeaderExtensions != myNumTraceHdrExtensions ) {
-        throw csException("Unequal number of trace header extensions specified in chan set header and trace header: %d != %d",
-                          myNumTraceHdrExtensions, myTraceHdr->numTraceHeaderExtensions );
+        if( !myConfig.overrideTraceHdrExtensions ) throw csException("Unequal number of trace header extensions specified in chan set header and trace header: %d != %d",
+                                                                     myNumTraceHdrExtensions, myTraceHdr->numTraceHeaderExtensions );
+        myTraceHdr->numTraceHeaderExtensions = myConfig.numTraceHdrExtensions;
       }
     }
     myNumTraceHdrExtensions = myTraceHdr->numTraceHeaderExtensions;
@@ -501,6 +529,9 @@ bool csSegdReader::readNewRecordHeaders() {
         case RECORDING_SYSTEM_SEAL:
           myTraceHdrExtension = new csTraceHeaderExtension_SEAL( myNumTraceHdrExtensions );
           break;
+        case RECORDING_SYSTEM_FAIRFIELD:
+          myTraceHdrExtension = new csTraceHeaderExtension_FAIRFIELD( myNumTraceHdrExtensions );
+          break;
         case RECORDING_SYSTEM_DIGISTREAMER:
           myTraceHdrExtension = new csTraceHeaderExtension_DIGI( myNumTraceHdrExtensions );
           break;
@@ -513,7 +544,7 @@ bool csSegdReader::readNewRecordHeaders() {
       myBytePos.firstTraceExt = myBytePos.firstTrace + csTraceHeader::BLOCK_SIZE;
       myTraceHdrExtension->extractHeaders( myBuffer_traceHdrExtension->buffer() );
       if( myTraceHdrExtension->getNumSamples() != myComFileHdr.numSamples ) {
-        if( myConfig.isDebug) fprintf(stderr,"WARNING: Unequal number of samples in General Header 1 and trace hdr extension: %d != %d\n",
+        if( myConfig.isDebug) fprintf(stdout,"WARNING: Unequal number of samples in General Header 1 and trace hdr extension: %d != %d\n",
           myComFileHdr.numSamples, myTraceHdrExtension->getNumSamples() );
       }
       if( myTraceHdrExtension->getNumSamples() != 0 ) myComFileHdr.numSamples = myTraceHdrExtension->getNumSamples();
@@ -547,7 +578,6 @@ bool csSegdReader::readNewRecordHeaders() {
     else {
       myInitializeNumBytesRead = myBytePos.firstTraceData;
     }
-  // !CHANGE! Check number of samples compared to general header etc...!
 
   // Compute full SEGD record byte size
     int newRecordByteSize = csBaseHeader::BLOCK_SIZE * (
@@ -568,11 +598,12 @@ bool csSegdReader::readNewRecordHeaders() {
     }
 
     if( myConfig.isDebug ) {
-      fprintf(stderr,"myRecordSize: %d (%d %d %d)\n", newRecordByteSize, myComFileHdr.totalNumChan, myComFileHdr.numSamples, myComFileHdr.sampleBitSize);
+      fprintf(stdout,"myRecordSize: %d (%d %d %d traceDataByteSize(1): %d)\n", newRecordByteSize, myComFileHdr.totalNumChan, myComFileHdr.numSamples, myComFileHdr.sampleBitSize, traceDataByteSize(0));
       int t2 = t1 + myComFileHdr.totalNumChan*traceDataByteSize() + myComFileHdr.totalNumChan*(csTraceHeader::BLOCK_SIZE);
       int t3 = myComFileHdr.totalNumChan*traceDataByteSize();
       int t4 = (myComFileHdr.totalNumChan*myNumTraceHdrExtensions + myNumGeneralTrailerBlocks) * csBaseHeader::BLOCK_SIZE;
-      fprintf(stderr,"  %d %d %d  %d   size: %d\n", t1, t2, t3, t4, traceDataByteSize() );
+      fprintf(stdout,"  %d %d %d  %d   size: %d\n", t1, t2, t3, t4, traceDataByteSize() );
+      //      csInt64_t fileSize = cseis_geolib::csFileUtils::retrieveFileSize( myFilename );
     }
   // Check & dump parameters
     if( myIsSupported ) {
@@ -630,6 +661,9 @@ bool csSegdReader::readNewRecordHeaders() {
 //---------------------------------------------------------
 
 //
+bool csSegdReader::readCharHdr( char* charHdr, int numBytes ) {
+  return( readBuffer( (byte*)charHdr, numBytes ) );
+}
 bool csSegdReader::readBuffer( byte* buffer, int numBytes ) {
   int sizeRead = (int)fread( buffer, 1, numBytes, myFile );
   return( sizeRead != 0 );
@@ -637,8 +671,7 @@ bool csSegdReader::readBuffer( byte* buffer, int numBytes ) {
 //---------------------------------------------------------
 //
 bool csSegdReader::readNextRecord( commonRecordHeaderStruct& comRecHdr ) {
-  if( myConfig.isDebug ) fprintf(stderr,"Read next record. Current trace #%d / %d   (%d)\n",
-                                 mySequentialTraceCounter, myComFileHdr.totalNumChan, myHasJustBeenInitialized );
+  if( myConfig.isDebug ) fprintf(stdout,"Read next record. Current trace #%d / %d   (%d)\n", mySequentialTraceCounter, myComFileHdr.totalNumChan, myHasJustBeenInitialized );
 
   int startByte = 0;
   if( !myHasJustBeenInitialized ) {
@@ -656,6 +689,13 @@ bool csSegdReader::readNextRecord( commonRecordHeaderStruct& comRecHdr ) {
     startByte = myInitializeNumBytesRead;
   }
   int numBytes = myRecordByteSize - startByte;
+  if( myConfig.isDebug ) {
+    fprintf(stdout,"Reading %d bytes (=full record of %d bytes + initial %d bytes)\n", numBytes, myRecordByteSize, startByte );
+    csInt64_t fileSize = cseis_geolib::csFileUtils::retrieveFileSize( myFileName );
+    csInt64_t remainBytes = fileSize - myBytePos.firstTrace; // startByte; // myInitializeNumBytesRead
+    int numTraces = (int)( remainBytes / (csInt64_t)traceDataByteSize(0) );
+    fprintf(stdout,"File size: %lld  , remaining bytes: %lld, num traces:  %d  %d  %d\n", fileSize, remainBytes, numTraces, numTraces/4, numTraces/(4*35) );
+  }
   if( readBuffer( &myBuffer_oneRecord[startByte], numBytes ) ) {
     extractCommonRecordHeaders( comRecHdr );
     mySegdHdrValues->setRecordHeaderValues( comRecHdr );
@@ -675,7 +715,7 @@ bool csSegdReader::readNextRecord( commonRecordHeaderStruct& comRecHdr ) {
 }
 //---------------------------------------------------------
 bool csSegdReader::getNextTrace( float* trace, commonTraceHeaderStruct& comTrcHdr ) {
-  if( myConfig.isDebug ) fprintf(stderr,"Read next trace: #%d / %d\n", mySequentialTraceCounter, myComFileHdr.totalNumChan );
+  if( myConfig.isDebug ) fprintf(stdout,"Read next trace: #%d / %d\n", mySequentialTraceCounter, myComFileHdr.totalNumChan );
 
   if( myChanSetIndexToRead >= 0 ) {
     // Restrict to reading only specified channel set, if requested
@@ -699,7 +739,6 @@ bool csSegdReader::getNextTrace( float* trace, commonTraceHeaderStruct& comTrcHd
   if( myChanSetIndexToRead >= 0 && mySequentialChanSetIndexCounter != myChanSetIndexToRead ) return false;
   int bytePosData = myBytePos.currentTraceData;
 
-  // TEMP:
   int bytePosHdr  = bytePosData - csTraceHeader::BLOCK_SIZE; // - 32;
   if( myTraceHdrExtension ) bytePosHdr -= csBaseHeader::BLOCK_SIZE * myTraceHdrExtension->numBlocks();
 
@@ -713,7 +752,7 @@ bool csSegdReader::getNextTrace( float* trace, commonTraceHeaderStruct& comTrcHd
   bool retValue = true;
 
   if( myConfig.isDebug ) { 
-    fprintf(stderr,"Reading #%2d in from byte %d / %d   %d %d,  chanset : %d  first: %d, fullTraceSize: %d, numchan: %d\n", mySequentialTraceCounter,
+    fprintf(stdout,"Reading #%2d in from byte %d / %d   %d %d,  chanset : %d  first: %d, fullTraceSize: %d, numchan: %d\n", mySequentialTraceCounter,
             bytePosData, myRecordByteSize, dataByteSize,
             bytePosData+dataByteSize,
             mySequentialChanSetIndexCounter,
@@ -920,26 +959,9 @@ void csSegdReader::dumpFileHeaders( int dumpFlag, std::ofstream* outStream ) {
     *outStream << endl << "   Trace header extension from first trace   " << endl;
     myTraceHdrExtension->dump( *outStream );
   }
-  // START TEMP
-  /*
-  *outStream << "-------- General header 1 " << myBytePos.generalHdr1 << endl;
-  dumpRawHex( *outStream, &myBuffer_oneRecord[myBytePos.generalHdr1], 40 );
-  *outStream << "-------- General header 2 " << myBytePos.generalHdr2 << endl;
-  dumpRawHex( *outStream, &myBuffer_oneRecord[myBytePos.generalHdr2], 40 );
-  *outStream << "-------- General header N " << myBytePos.generalHdrN << endl;
-  dumpRawHex( *outStream, &myBuffer_oneRecord[myBytePos.generalHdrN], 40 );
-  *outStream << "-------- Chan set header  " << myBytePos.chanSetHdr << endl;
-  dumpRawHex( *outStream, &myBuffer_oneRecord[myBytePos.chanSetHdr], 40 );
-  *outStream << "-------- Extended header  " << myBytePos.extendedHdr << endl;
-  dumpRawHex( *outStream, &myBuffer_oneRecord[myBytePos.extendedHdr], 40 );
-  *outStream << "-------- External header  " << myBytePos.externalHdr << endl;
-  dumpRawHex( *outStream, &myBuffer_oneRecord[myBytePos.externalHdr], 40 );
-  *outStream << "-------- First trace header  " << myBytePos.firstTrace << ", size: " << csTraceHeader::BLOCK_SIZE << endl;
-  dumpRawHex( *outStream, &myBuffer_oneRecord[myBytePos.firstTrace], 20 );
-  */
   if( myNumTraceHdrExtensions > 0 ) {
     *outStream << "-------- Trace header extension " << (myBytePos.firstTraceExt) << " Size: " << csBaseHeader::BLOCK_SIZE*myNumTraceHdrExtensions << endl;
-    dumpRawHex( *outStream, &myBuffer_oneRecord[myBytePos.firstTraceExt], csBaseHeader::BLOCK_SIZE*myNumTraceHdrExtensions );
+    // TEMP COMMENTED OUT    dumpRawHex( *outStream, &myBuffer_oneRecord[myBytePos.firstTraceExt], csBaseHeader::BLOCK_SIZE*myNumTraceHdrExtensions );
   }
   //  *outStream << "-------- First trace data  " << myBytePos.firstTraceData << endl;
   // dumpRawHex( *outStream, &myBuffer_oneRecord[myBytePos.firstTraceData], 40 );

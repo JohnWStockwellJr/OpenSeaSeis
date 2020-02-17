@@ -22,7 +22,7 @@ bleach: clean
 ### SEGY ###
 
 $(LIBDIR)/$(LIB_SEGY): $(OBJ_SEGY)
-	$(CPP) -fPIC -shared -Wl,-$(SONAME),$(LIB_SEGY) -o $(LIBDIR)/$(LIB_SEGY) $(OBJ_SEGY) -L$(LIBDIR) -lgeolib -lc
+	$(CPP) -fPIC -shared -Wl,-$(SONAME),$(LIBDIR)/$(LIB_SEGY) -o $(LIBDIR)/$(LIB_SEGY) $(OBJ_SEGY) -L$(LIBDIR) -lgeolib -lc
 
 $(OBJDIR)/csSegyTraceHeader.o: $(SEGYDIR)/csSegyTraceHeader.cc $(SEGYDIR)/csSegyTraceHeader.h
 	$(CPP) -c $(SEGYDIR)/csSegyTraceHeader.cc -o $(OBJDIR)/csSegyTraceHeader.o $(CXXFLAGS_SEGY)
@@ -30,7 +30,7 @@ $(OBJDIR)/csSegyTraceHeader.o: $(SEGYDIR)/csSegyTraceHeader.cc $(SEGYDIR)/csSegy
 $(OBJDIR)/csSegyHdrMap.o: $(SEGYDIR)/csSegyHdrMap.cc $(SEGYDIR)/csSegyHdrMap.h
 	$(CPP) -c $(SEGYDIR)/csSegyHdrMap.cc -o $(OBJDIR)/csSegyHdrMap.o $(CXXFLAGS_SEGY)
 
-$(OBJDIR)/csSegyReader.o: $(SEGYDIR)/csSegyReader.cc $(SEGYDIR)/csSegyReader.h $(SEGYDIR)/csSegyHeader.h
+$(OBJDIR)/csSegyReader.o: $(SEGYDIR)/csSegyReader.cc $(SEGYDIR)/csSegyReader.h $(SEGYDIR)/csSegyDefines.h
 	$(CPP) -c $(SEGYDIR)/csSegyReader.cc -o $(OBJDIR)/csSegyReader.o $(CXXFLAGS_SEGY)
 
 $(OBJDIR)/csSegyBinHeader.o: $(SEGYDIR)/csSegyBinHeader.cc $(SEGYDIR)/csSegyBinHeader.h

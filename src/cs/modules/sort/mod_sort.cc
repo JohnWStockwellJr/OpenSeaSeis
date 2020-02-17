@@ -37,7 +37,7 @@ using namespace mod_sort;
 //
 //
 //*************************************************************************************************
-void init_mod_sort_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_sort_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -45,7 +45,6 @@ void init_mod_sort_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
   edef->setTraceSelectionMode( TRCMODE_ENSEMBLE );
 
   vars->numHeaders = 0;
@@ -60,14 +59,14 @@ void init_mod_sort_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
 
   int nLines = param->getNumLines( "header" );
 //  if( nLines > 1 ) {
-//    log->error( "More than one line encountered for user parameter HEADER. Only one line is supported at the moment." );
+//    writer->error( "More than one line encountered for user parameter HEADER. Only one line is supported at the moment." );
 //  }
   vars->numHeaders = nLines;
 
   csVector<string> valueList;
   param->getAll( "header", &valueList, 0 );
   if( valueList.size() < 1 ) {
-    log->line("Wrong number of arguments for user parameter 'header'. Expected: 2, found: %d.", valueList.size());
+    writer->line("Wrong number of arguments for user parameter 'header'. Expected: 2, found: %d.", valueList.size());
     env->addError();
   }
   else {
@@ -96,12 +95,12 @@ void init_mod_sort_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
         vars->indexHdr[ihdr]  = hdef->headerIndex( name.c_str() );
         vars->hdrTypes[ihdr] = hdef->headerType( name.c_str() );
         if( vars->hdrTypes[ihdr] == TYPE_STRING ) {
-          log->line("String headers are not supported: %s", name.c_str());
+          writer->line("String headers are not supported: %s", name.c_str());
           env->addError();
         }
       }
       else {
-        log->line("Unknown trace header: %s", name.c_str());
+        writer->line("Unknown trace header: %s", name.c_str());
         env->addError();
       }
     }
@@ -117,7 +116,7 @@ void init_mod_sort_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
       sortMethod = csSortManager::TREE_SORT;
     }
     else {
-      log->error("Unknown option: '%s'", text.c_str() );
+      writer->error("Unknown option: '%s'", text.c_str() );
     }
   }
 
@@ -137,40 +136,16 @@ void exec_mod_sort_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
 //  csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup()){
-    if( vars->indexHdr ) {
-      delete [] vars->indexHdr;
-      vars->indexHdr = NULL;
-    }
-    if( vars->hdrTypes ) {
-      delete [] vars->hdrTypes;
-      vars->hdrTypes = NULL;
-    }
-    if( vars->hdrNames ) {
-      delete [] vars->hdrNames;
-      vars->hdrNames = NULL;
-    }
-    if( vars->sortDir ) {
-      delete [] vars->sortDir;
-      vars->sortDir = NULL;
-    }
-    if( vars->sortManager != NULL ) {
-      delete vars->sortManager;
-      vars->sortManager = NULL;
-    }
-    delete vars; vars = NULL;
-    return;
-  }
 
 //-------------------------------------------
   int nTraces = traceGather->numTraces();
-  if( edef->isDebug() ) log->line("Number of input traces: %d", nTraces );
+  if( edef->isDebug() ) writer->line("Number of input traces: %d", nTraces );
   vars->traceCounter += nTraces;
 
   vars->sortManager->resetValues( nTraces );
@@ -238,13 +213,61 @@ void params_mod_sort_( csParamDef* pdef ) {
 }
 
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_sort_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_sort::VariableStruct* vars = reinterpret_cast<mod_sort::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_sort_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_sort::VariableStruct* vars = reinterpret_cast<mod_sort::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->indexHdr ) {
+    delete [] vars->indexHdr;
+    vars->indexHdr = NULL;
+  }
+  if( vars->hdrTypes ) {
+    delete [] vars->hdrTypes;
+    vars->hdrTypes = NULL;
+  }
+  if( vars->hdrNames ) {
+    delete [] vars->hdrNames;
+    vars->hdrNames = NULL;
+  }
+  if( vars->sortDir ) {
+    delete [] vars->sortDir;
+    vars->sortDir = NULL;
+  }
+  if( vars->sortManager != NULL ) {
+    delete vars->sortManager;
+    vars->sortManager = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_sort_( csParamDef* pdef ) {
   params_mod_sort_( pdef );
 }
-extern "C" void _init_mod_sort_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_sort_( param, env, log );
+extern "C" void _init_mod_sort_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_sort_( param, env, writer );
 }
-extern "C" void _exec_mod_sort_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_sort_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_sort_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_sort_( env, writer );
 }
-
+extern "C" void _exec_mod_sort_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_sort_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_sort_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_sort_( env, writer );
+}

@@ -23,6 +23,7 @@ namespace mod_input {
   struct VariableStruct {
     cseis_system::csSeismicReader** readers;
     char* hdrValueBlock;
+    char* hdrValueBlock_dummy;
     int hdrValueBlockSize;
     int numFiles;
     int nTracesToRead;
@@ -34,6 +35,7 @@ namespace mod_input {
     long traceCounter;
     int hdrId_fileno;
     int forcedNumSamples;
+    float sampleInt_override;
 
     // Merging of traces from different input files with same header value
     type_t hdrType_merge;     // ...
@@ -45,7 +47,8 @@ namespace mod_input {
 
     cseis_system::csTraceHeaderDef** trcHdrDef;
     cseis_system::csTraceHeader**    trcHdr;
-    bool* hdrIsEqual;
+
+    bool* hdrIsEqual; // flag that indicates if the trace header block of file N equals the trace header block from file 1
     int** hdrId;
     type_t** hdrType;
 
@@ -56,6 +59,7 @@ namespace mod_input {
   static int const MERGE_ALL    = 1;
   static int const MERGE_TRACE  = 2;
   static int const MERGE_HEADER = 3;
+  static int const MERGE_HDR_COPY = 4;
 
   static int const MERGE_INCREASING = 11;
   static int const MERGE_DECREASING = 22;
@@ -70,7 +74,7 @@ using mod_input::VariableStruct;
 //
 //
 //*************************************************************************************************
-void init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -84,6 +88,7 @@ void init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   vars->mergeOption   = mod_input::MERGE_ALL;
   vars->readers       = NULL;
   vars->hdrValueBlock = NULL;
+  vars->hdrValueBlock_dummy = NULL;
   vars->numFiles      = 0;
   vars->filenames     = NULL;
   vars->atEOF         = false;
@@ -106,6 +111,7 @@ void init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   vars->numTracesBuffer   = 0;
   vars->traceCounter      = 0;
   vars->hdrId_fileno      = -1;
+  vars->sampleInt_override = -1;
 
   vars->isHdrSelection = false;
   vars->sortOrder = cseis_geolib::csIOSelection::SORT_NONE;
@@ -114,7 +120,7 @@ void init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
 //------------------------------------------------------------
   vars->numFiles = param->getNumLines( "filename" );
   if( vars->numFiles <= 0 ) {
-    log->error("No input file specified. No parameter 'filename' found.");
+    writer->error("No input file specified. No parameter 'filename' found.");
   }
   vars->filenames = new std::string[vars->numFiles];
   for( int i = 0; i < vars->numFiles; i++ ) {
@@ -122,15 +128,19 @@ void init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
     param->getStringAtLine( "filename", &filename, i );
     int length = (int)filename.length();
     if( length < 6 || (filename.substr( length-6, 6 ).compare(".oseis") && filename.substr( length-6, 6 ).compare(".cseis")) ) {
-      log->warning("Input file name does not have standard Cseis extension '.cseis' (or '.oseis'): '%s'\n", filename.c_str());
+      writer->warning("Input file name does not have standard Cseis extension '.cseis' (or '.oseis'): '%s'\n", filename.c_str());
     }
     vars->filenames[i] = filename;
+  }
+
+  if( param->exists( "override_sampleint" ) ) {
+    param->getFloat( "override_sampleint", &vars->sampleInt_override );
   }
 
   if( param->exists( "ntraces_buffer" ) ) {
     param->getInt( "ntraces_buffer", &vars->numTracesBuffer );
     if( vars->numTracesBuffer <= 0 || vars->numTracesBuffer > 999999 ) {
-      log->warning("Number of buffered traces out of range (=%d). Changed to 0.", vars->numTracesBuffer);
+      writer->warning("Number of buffered traces out of range (=%d). Changed to 0.", vars->numTracesBuffer);
       vars->numTracesBuffer = 0;
     }
   }
@@ -165,13 +175,16 @@ void init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
     else if( !text.compare("trace") ) {
       vars->mergeOption = mod_input::MERGE_TRACE;
     }
+    else if( !text.compare("hdr_copy_file1") ) {
+      vars->mergeOption = mod_input::MERGE_HDR_COPY;
+    }
     else if( !text.compare("header") ) {
       vars->mergeOption = mod_input::MERGE_HEADER;
       param->getString( "header_merge", &mergeHeaderName );
       enableRandomAccess = true;
     }
     else {
-      log->error("Option for user parameter 'order' not recognised: %s", text.c_str());
+      writer->error("Option for user parameter 'merge' not recognised: %s", text.c_str());
     }
   }
 
@@ -192,7 +205,7 @@ void init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
     std::string text;
     param->getAll( "header", &valueList );
     if( valueList.size() > 1 ) {
-      log->error("Currently, trace selection is only supported for one trace header. Number of supplied header names: %d", valueList.size());
+      writer->error("Currently, trace selection is only supported for one trace header. Number of supplied header names: %d", valueList.size());
     }
     selectionHdrName = valueList.at(0);
     valueList.clear();
@@ -210,7 +223,7 @@ void init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
         vars->sortOrder = cseis_geolib::csIOSelection::SORT_DECREASING;
       }
       else {
-        log->error("Unknow option: %s", text.c_str());
+        writer->error("Unknow option: %s", text.c_str());
       }
       if( param->getNumValues( "sort" ) > 1 ) {
         param->getString( "sort", &text, 1 );
@@ -221,12 +234,12 @@ void init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
           vars->sortMethod = cseis_geolib::csSortManager::TREE_SORT;
         }
         else {
-          log->error("Unknown option: %s", text.c_str());
+          writer->error("Unknown option: %s", text.c_str());
         }
       }
     }
     if( vars->sortOrder == cseis_geolib::csIOSelection::SORT_NONE ) {
-      log->warning("With the current Seaseis disk data format, selecting traces on input using user parameters 'header' & 'select' is typically slower than reading in all traces and performing the selection afterwards, e.g. by using module 'SELECT'. It is recommended to use input selection only when traces shall be sorted on input");
+      writer->warning("With the current Seaseis disk data format, selecting traces on input using user parameters 'header' & 'select' is typically slower than reading in all traces and performing the selection afterwards, e.g. by using module 'SELECT'. It is recommended to use input selection only when traces shall be sorted on input");
     }
   }
 
@@ -273,18 +286,18 @@ void init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
     // (3) Open first input file
     // First file determines trace headers. All following files have to either match or are matched to trace headers in first file
     vars->readers[0] = new csSeismicReader( vars->filenames[0], enableRandomAccess, vars->numTracesBuffer );
-    bool success = vars->readers[0]->readFileHeader( shdr, hdef, &vars->hdrValueBlockSize, log->getFile() );
+    bool success = vars->readers[0]->readFileHeader( shdr, hdef, &vars->hdrValueBlockSize, writer->getFile() );
     if( vars->forcedNumSamples > 0 ) shdr->numSamples = vars->forcedNumSamples;
     if( !success ) {
-      log->error("Unknown error occurred when reading file header from SeaSeis file '%s'.\n", vars->filenames[0].c_str() );
+      writer->error("Unknown error occurred when reading file header from SeaSeis file '%s'.\n", vars->filenames[0].c_str() );
     }
     if( vars->mergeOption == mod_input::MERGE_HEADER ) {
       if( !hdef->headerExists( mergeHeaderName ) ) {
-        log->error("Required merge header '%s' is not set in input file '%s'", mergeHeaderName.c_str(), vars->filenames[0].c_str());
+        writer->error("Required merge header '%s' is not set in input file '%s'", mergeHeaderName.c_str(), vars->filenames[0].c_str());
       }
       vars->hdrType_merge = hdef->headerType( mergeHeaderName );
     }
-//    log->line("");
+//    writer->line("");
     // NOTE: vars->trcHdrDef[0] is not set because this is the same as hdef defined in this module
     int maxHdrValueBlockSize = vars->hdrValueBlockSize;
 
@@ -301,21 +314,22 @@ void init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
 
       if( newBlockSize > maxHdrValueBlockSize ) maxHdrValueBlockSize = newBlockSize;
       if( !success ) {
-        log->error("Unknown error occurred when reading file header from SeaSeis file '%s'.\n", vars->filenames[ifile].c_str() );
+        writer->error("Unknown error occurred when reading file header from SeaSeis file '%s'.\n", vars->filenames[ifile].c_str() );
       }
       else if( newShdr.numSamples != shdr->numSamples || newShdr.sampleInt != shdr->sampleInt ) {
-        if( newShdr.sampleInt != shdr->sampleInt && vars->forcedNumSamples < 0 ) {
-          log->error("SeaSeis file '%s' has different properties (num samples = %d, sampleInt = %.3f) than previous file(s) (num samples = %d, sampleInt = %.3f.\nYou can force the number of samples by setting the user parameter 'nsamples', but different sample intervals are not supported right now.\n",
-                     vars->filenames[ifile].c_str(), newShdr.numSamples, newShdr.sampleInt, shdr->numSamples, shdr->sampleInt );
+
+        if( vars->sampleInt_override <= 0 && newShdr.sampleInt != shdr->sampleInt && vars->forcedNumSamples < 0 ) {
+          writer->error("SeaSeis file '%s' has different properties (num samples = %d, sampleInt = %.5f) than previous file(s) (num samples = %d, sampleInt = %.5f.\nYou can force the number of samples by setting the user parameter 'nsamples', but different sample intervals are not supported.\nUse user parameter 'override_sampleint' to override samnple interval of input data sets.\n",
+                        vars->filenames[ifile].c_str(), newShdr.numSamples, newShdr.sampleInt, shdr->numSamples, shdr->sampleInt );
         }
       }
 
       if( newBlockSize != vars->hdrValueBlockSize || !vars->trcHdrDef[ifile]->equals(hdef) ) {
         if( newBlockSize != vars->hdrValueBlockSize ) {
-          log->warning("SeaSeis file '%s' has a different header block size (%d != %d) than first file. This is supported but will slow down the merge process.\n",  vars->filenames[ifile].c_str(), newBlockSize, vars->hdrValueBlockSize );
+          writer->warning("SeaSeis file '%s' has a different header block size (%d != %d) than first file. This is supported but will slow down the merge process.\n",  vars->filenames[ifile].c_str(), newBlockSize, vars->hdrValueBlockSize );
         }
         else {
-          log->warning("SeaSeis file '%s' has a different header definition than first file. This is supported but will slow down the merge process.\n",  vars->filenames[ifile].c_str() );
+          writer->warning("SeaSeis file '%s' has a different header definition than first file. This is supported but will slow down the merge process.\n",  vars->filenames[ifile].c_str() );
         }
         vars->hdrIsEqual[ifile] = false;
         vars->trcHdr[ifile]     = new csTraceHeader();
@@ -333,13 +347,13 @@ void init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
         }
         if( edef->isDebug() ) {
           for( int ihdr = 0; ihdr < numHeaders; ihdr++ ) {
-            log->line("Input trace header #%2d (%d): %d  '%s'",ihdr, ifile, vars->hdrId[ifile][ihdr], hdef->headerName(ihdr).c_str());
+            writer->line("Input trace header #%2d (%d): %d  '%s'",ihdr, ifile, vars->hdrId[ifile][ihdr], hdef->headerName(ihdr).c_str());
           }
         }
       }  // end: else if...
       else if( vars->mergeOption == mod_input::MERGE_HEADER &&
                (!vars->trcHdrDef[ifile]->headerExists( mergeHeaderName ) || (vars->trcHdrDef[ifile]->headerType( mergeHeaderName ) != vars->hdrType_merge ) ) ) {
-        log->error("Required merge header '%s' is not set in input file '%s', or has different type", mergeHeaderName.c_str(), vars->filenames[ifile].c_str());
+        writer->error("Required merge header '%s' is not set in input file '%s', or has different type", mergeHeaderName.c_str(), vars->filenames[ifile].c_str());
       }
     }
     // Determine maximum numSamples
@@ -351,9 +365,10 @@ void init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
     //    if( numSamples > maxNumSamples ) maxNumSamples = numSamples;
     //  }
     vars->hdrValueBlock = new char[maxHdrValueBlockSize];
+    if( vars->mergeOption == mod_input::MERGE_HDR_COPY ) vars->hdrValueBlock_dummy = new char[maxHdrValueBlockSize];
   }
   catch( csException& exc ) {
-    log->error("Error occurred when opening SeaSeis file. System message:\n%s", exc.getMessage() );
+    writer->error("Error occurred when opening SeaSeis file. System message:\n%s", exc.getMessage() );
   }
 
   if( !hdef->headerExists( HDR_FILENO.name ) ) {
@@ -361,15 +376,15 @@ void init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   }
   vars->hdrId_fileno = hdef->headerIndex( HDR_FILENO.name );
 
-  log->line("");
+  writer->line("");
   for( int i = 0; i < vars->numFiles; i++ ) {
-    log->line("  File name #%-2d:      %s", i+1, vars->filenames[i].c_str() );
+    writer->line("  File name #%-2d:      %s", i+1, vars->filenames[i].c_str() );
   }
-  log->line("  Header block size:             %d", vars->hdrValueBlockSize );
-  log->line("  Max number of buffered traces: %d", vars->readers[0]->numTracesCapacity() );
-  shdr->dump( log->getFile() );
-  log->line("");
-  log->flush();
+  writer->line("  Header block size:             %d", vars->hdrValueBlockSize );
+  writer->line("  Max number of buffered traces: %d", vars->readers[0]->numTracesCapacity() );
+  shdr->dump( writer->getFile() );
+  writer->line("");
+  writer->flush();
 
   //--------------------------------------------------------------------------------
   // ...important to do the following after all headers have been set for hdef and all other input files
@@ -377,13 +392,13 @@ void init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   if( vars->isHdrSelection ) {
     hdef->resetByteLocation();  // This will otherwise be done by base system AFTER init phase
     if( !hdef->headerExists( selectionHdrName ) ) {
-      log->error("Selection trace header '%s' is not defined in input file '%s'", selectionHdrName.c_str(), vars->filenames[0].c_str());
+      writer->error("Selection trace header '%s' is not defined in input file '%s'", selectionHdrName.c_str(), vars->filenames[0].c_str());
     }
     type_t selectionHdrType = hdef->headerType( selectionHdrName );
     for( int ifile = 0; ifile < vars->numFiles; ifile++ ) {
       if( ifile > 0 ) {
         if( !vars->trcHdrDef[ifile]->headerExists( selectionHdrName ) || vars->trcHdrDef[ifile]->headerType( selectionHdrName ) != selectionHdrType ) {
-          log->error("Selection trace header '%s' is not defined in input file '%s', or has different type",
+          writer->error("Selection trace header '%s' is not defined in input file '%s', or has different type",
                      selectionHdrName.c_str(), vars->filenames[ifile].c_str());
         }
       }
@@ -391,7 +406,7 @@ void init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       //      bool success = vars->readers[ifile]->setSelection( selectionText, selectionHdrName, selectionHdrType, vars->sortOrder );
       bool success = vars->readers[ifile]->setSelection( selectionText, selectionHdrName, vars->sortOrder, vars->sortMethod );
       if( !success ) {
-        log->error("Error occurred when intializing header selection for SeaSeis file '%s'.\n --> No input traces found that match specified selection '%s' for header '%s'.\n",
+        writer->error("Error occurred when intializing header selection for SeaSeis file '%s'.\n --> No input traces found that match specified selection '%s' for header '%s'.\n",
                    vars->filenames[ifile].c_str(), selectionText.c_str(), selectionHdrName.c_str() );
       }
     }
@@ -404,11 +419,11 @@ void init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       vars->readers[ifile]->setHeaderToPeek( mergeHeaderName );
       bool success = vars->readers[ifile]->peekHeaderValue( &vars->mergeHdrValues[ifile] );
       if( !success ) {
-        log->error("Peek into of first header value of header '%s' for file '%s' failed.\nUnknown error cause...",
+        writer->error("Peek into of first header value of header '%s' for file '%s' failed.\nUnknown error cause...",
                    mergeHeaderName.c_str(), vars->filenames[ifile].c_str() );
       }
       else if( edef->isDebug() ) {
-        log->line("Header value of first trace, file #%-2d:  %s", ifile+1, vars->mergeHdrValues[ifile].toString().c_str() );
+        writer->line("Header value of first trace, file #%-2d:  %s", ifile+1, vars->mergeHdrValues[ifile].toString().c_str() );
       }
     }
     csFlexHeader minValue = vars->mergeHdrValues[0];
@@ -422,16 +437,17 @@ void init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
     vars->currentMergeHdrValue = minValue;
     vars->currentFile = vars->fileIndexList->at(vars->currentFilePointerIndex);
     if( edef->isDebug() ) {
-      log->line("---------------------------------\nHeader value of first trace, file #%-2d:  %s\n",
+      writer->line("---------------------------------\nHeader value of first trace, file #%-2d:  %s\n",
                 vars->currentFile+1, vars->mergeHdrValues[vars->currentFile].toString().c_str() );
     }
   }
 
 
   if( edef->isDebug() ) {
-    hdef->dump();
+    hdef->dump( stdout );
   }
   vars->traceCounter = 0;
+  if( vars->sampleInt_override > 0 ) shdr->sampleInt = vars->sampleInt_override;
 }
 
 //*************************************************************************************************
@@ -440,97 +456,47 @@ void init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
 //
 //
 //*************************************************************************************************
-bool exec_mod_input_(
-  csTrace* trace,
+void exec_mod_input_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const*  shdr = env->superHeader;
   csTraceHeaderDef const*  hdef = env->headerDef;
 
-  if( edef->isCleanup() ) {
-    if( vars->filenames != NULL ) {
-      delete [] vars->filenames;
-      vars->filenames = NULL;
-    }
-    if( vars->readers != NULL ) {
-      for( int i = 0; i < vars->numFiles; i++ ) {
-        delete vars->readers[i];
-      }
-      delete [] vars->readers;
-      vars->readers = NULL;
-    }
-    if( vars->mergeHdrValues != NULL ) {
-      delete [] vars->mergeHdrValues;
-      vars->mergeHdrValues = NULL;
-    }
-    if( vars->hdrValueBlock != NULL ) {
-      delete [] vars->hdrValueBlock;
-      vars->hdrValueBlock = NULL;
-    }
-    if( vars->trcHdrDef != NULL ) {
-      for( int i = 0; i < vars->numFiles; i++ ) {
-        if( vars->trcHdrDef[i] != NULL ) {
-          delete vars->trcHdrDef[i];
-        }
-      }
-      delete [] vars->trcHdrDef;
-      vars->trcHdrDef = NULL;
-    }
-    if( vars->trcHdr != NULL ) {
-      for( int i = 0; i < vars->numFiles; i++ ) {
-        if( vars->trcHdr[i] != NULL ) {
-          delete vars->trcHdr[i];
-        }
-      }
-      delete [] vars->trcHdr;
-      vars->trcHdr = NULL;
-    }
-    if( vars->hdrId != NULL && vars->hdrType != NULL ) {
-      for( int i = 0; i < vars->numFiles; i++ ) {
-        if( vars->hdrId[i] != NULL ) {
-          delete [] vars->hdrId[i];
-        }
-        if( vars->hdrType[i] != NULL ) {
-          delete [] vars->hdrType[i];
-        }
-      }
-      delete [] vars->hdrId;
-      delete [] vars->hdrType;
-      vars->hdrId   = NULL;
-      vars->hdrType = NULL;
-    }
-    if( vars->hdrIsEqual != NULL ) {
-      delete [] vars->hdrIsEqual;
-      vars->hdrIsEqual = NULL;
-    }
-    if( vars->fileIndexList != NULL ) {
-      delete vars->fileIndexList;
-      vars->fileIndexList = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
-  if( vars->atEOF ) return false;
+  csTrace* trace = traceGather->trace(0);
 
+  if( vars->atEOF ) {
+    traceGather->freeAllTraces();
+    return;
+  }
+  
   csTraceHeader* trcHdr = trace->getTraceHeader();
   float* samples = trace->getTraceSamples();
 
   if( vars->nTracesToRead > 0 && vars->nTracesToRead == vars->traceCounter ) {
     vars->atEOF = true;
-    return false;
+    traceGather->freeAllTraces();
+    return;
   }
 
   //------------------------------------------------------------------------------------
   int currentFileNumberToSet = vars->currentFile;
 
-  if( vars->mergeOption == mod_input::MERGE_TRACE && vars->currentFile == vars->numFiles ) vars->currentFile = 0;
+  if( (vars->mergeOption == mod_input::MERGE_TRACE || vars->mergeOption == mod_input::MERGE_HDR_COPY) && vars->currentFile == vars->numFiles ) vars->currentFile = 0;
 
   try {
-    bool success = true;
-    if( success ) success = vars->readers[vars->currentFile]->readTrace( samples, vars->hdrValueBlock, shdr->numSamples );
+    char* hdrValueBlockPtr = vars->hdrValueBlock;
+    if( vars->mergeOption == mod_input::MERGE_HDR_COPY && vars->currentFile > 0 ) {
+      hdrValueBlockPtr = vars->hdrValueBlock_dummy; // For all but first input file, read trace header into dummy block that is going to be discarded.
+    }
+    //    bool success = vars->readers[vars->currentFile]->readTrace( samples, vars->hdrValueBlock, shdr->numSamples );
+    bool success = vars->readers[vars->currentFile]->readTrace( samples, hdrValueBlockPtr, shdr->numSamples );
+    
     if( !success ) {
       if( vars->mergeOption == mod_input::MERGE_ALL ) {
         delete vars->readers[vars->currentFile];
@@ -547,12 +513,16 @@ bool exec_mod_input_(
         }
         if( vars->currentFile == vars->numFiles ) {
           vars->atEOF = true;
-          return false;
+          traceGather->freeAllTraces();
+          return;
         }
-        if( !success ) return false;
+        if( !success ) {
+          traceGather->freeAllTraces();
+          return;
+        }
         currentFileNumberToSet = vars->currentFile;
       }
-      else if( vars->mergeOption == mod_input::MERGE_TRACE ) {
+      else if( vars->mergeOption == mod_input::MERGE_TRACE || vars->mergeOption == mod_input::MERGE_HDR_COPY ) {
         for( int i = 0; i < vars->numFiles; i++ ) {
           delete vars->readers[i];
           vars->readers[i] = NULL;
@@ -560,18 +530,20 @@ bool exec_mod_input_(
         delete [] vars->readers;
         vars->readers = NULL;
         vars->atEOF = true;
-        return false;
+        traceGather->freeAllTraces();
+        return;
       }
       else if( vars->mergeOption == mod_input::MERGE_HEADER ) {
         if( edef->isDebug() ) {
-          log->line("Unsuccessful reading from file %d (pointer %d)", vars->currentFile+1, vars->currentFilePointerIndex);
+          writer->line("Unsuccessful reading from file %d (pointer %d)", vars->currentFile+1, vars->currentFilePointerIndex);
         }
         delete vars->readers[vars->currentFile];
         vars->readers[vars->currentFile] = NULL;
         vars->fileIndexList->remove( vars->currentFilePointerIndex );  // Remove current file from file list
         if( vars->fileIndexList->size() == 0 ) {  // This was the last trace, from the last file. Exit now.
           vars->atEOF = true;
-          return false;
+          traceGather->freeAllTraces();
+          return;
         }
         csFlexHeader minValue = vars->mergeHdrValues[vars->fileIndexList->at(0)];
         vars->currentFilePointerIndex = 0;
@@ -585,18 +557,19 @@ bool exec_mod_input_(
         vars->currentMergeHdrValue = minValue;
         vars->currentFile = vars->fileIndexList->at(vars->currentFilePointerIndex);
         success = vars->readers[vars->currentFile]->readTrace( samples, vars->hdrValueBlock, shdr->numSamples );
-        if( !success ) log->error("Unexpected end of file encountered for file '%s'... File corrupted..?", vars->filenames[vars->currentFile].c_str());
+        if( !success ) writer->error("Unexpected end of file encountered for file '%s'... File corrupted..?", vars->filenames[vars->currentFile].c_str());
         if( edef->isDebug() ) {
-          log->line("Header value of first trace, file #%-2d:  %s\n", vars->currentFile+1, vars->mergeHdrValues[vars->currentFile].toString().c_str() );
+          writer->line("Header value of first trace, file #%-2d:  %s\n", vars->currentFile+1, vars->mergeHdrValues[vars->currentFile].toString().c_str() );
         }
         currentFileNumberToSet = vars->currentFile;
       }
-    }
+    } // END: Read operation was unsuccessful
+    // Read operation was a 'success':
     else if( vars->mergeOption == mod_input::MERGE_HEADER ) {
       success = vars->readers[vars->currentFile]->peekHeaderValue( &vars->mergeHdrValues[vars->currentFile] );
       if( !success ) {
         if( edef->isDebug() ) {
-          log->line("EOF, file #%-2d, size of index list: %d\n", vars->currentFile+1, vars->fileIndexList->size() );
+          writer->line("EOF, file #%-2d, size of index list: %d\n", vars->currentFile+1, vars->fileIndexList->size() );
         }
         // Nothing. Let next read statement fail, and deal with result then
       }
@@ -613,30 +586,30 @@ bool exec_mod_input_(
         vars->currentMergeHdrValue = minValue;
         vars->currentFile = vars->fileIndexList->at(vars->currentFilePointerIndex);
         if( edef->isDebug() ) {
-          log->line("Header value of first trace, file #%-2d:  %s\n", vars->currentFile+1, vars->mergeHdrValues[vars->currentFile].toString().c_str() );
+          writer->line("Header value of first trace, file #%-2d:  %s\n", vars->currentFile+1, vars->mergeHdrValues[vars->currentFile].toString().c_str() );
         }
       }
-    }
+    } // END: read operation was a success, and option MERGE_HEADER
   }
   catch( csException& exc ) {
-    log->error("Error occurred when reading SeaSeis file. System message:\n%s", exc.getMessage() );
+    writer->error("Error occurred when reading SeaSeis file. System message:\n%s", exc.getMessage() );
   }
   
   // Set header value block
-  if( vars->hdrIsEqual[currentFileNumberToSet] ) {
-    //    log->line("Num headers/bytes %d %d, current file: %d", trcHdr->numHeaders(), hdef->getTotalNumBytes(), currentFileNumberToSet );
+  if( vars->hdrIsEqual[currentFileNumberToSet] || vars->mergeOption == mod_input::MERGE_HDR_COPY ) {
+    //    writer->line("Num headers/bytes %d %d, current file: %d", trcHdr->numHeaders(), hdef->getTotalNumBytes(), currentFileNumberToSet );
     trcHdr->setTraceHeaderValueBlock( vars->hdrValueBlock, vars->hdrValueBlockSize );
   }
   // Header def of input file was different than that of first file --> Set each trace header value manually
   else {
-    // log->line("Num headers: %d, bytes %d %d, current file: %d", vars->trcHdr[currentFileNumberToSet]->numHeaders(), hdef->getTotalNumBytes(), vars->trcHdrDef[currentFileNumberToSet]->getTotalNumBytes(), currentFileNumberToSet );
+    // writer->line("Num headers: %d, bytes %d %d, current file: %d", vars->trcHdr[currentFileNumberToSet]->numHeaders(), hdef->getTotalNumBytes(), vars->trcHdrDef[currentFileNumberToSet]->getTotalNumBytes(), currentFileNumberToSet );
     int numHeaders     = hdef->numHeaders();
     int* hdrIdPtr      = vars->hdrId[currentFileNumberToSet];
     type_t* hdrTypePtr = vars->hdrType[currentFileNumberToSet];
     csTraceHeader* trcHdrInPtr = vars->trcHdr[currentFileNumberToSet];
     trcHdrInPtr->setTraceHeaderValueBlock( vars->hdrValueBlock, vars->trcHdrDef[currentFileNumberToSet]->getTotalNumBytes() );
     for( int ihdr = 0; ihdr < numHeaders; ihdr++ ) {
-      // log->line("Input trace header #%2d: %d  '%s'",ihdr,vars->hdrId[currentFileNumberToSet][ihdr], hdef->headerName(ihdr).c_str());
+      // writer->line("Input trace header #%2d: %d  '%s'",ihdr,vars->hdrId[currentFileNumberToSet][ihdr], hdef->headerName(ihdr).c_str());
       if( hdrIdPtr[ihdr] != mod_input::NOT_AVAILABLE ) {
         switch( hdrTypePtr[ihdr] ) {
           case TYPE_INT:
@@ -661,13 +634,13 @@ bool exec_mod_input_(
 
   trcHdr->setIntValue( vars->hdrId_fileno, currentFileNumberToSet+1 );
 
-  if( vars->mergeOption == mod_input::MERGE_TRACE ) {
+  if( vars->mergeOption == mod_input::MERGE_TRACE || vars->mergeOption == mod_input::MERGE_HDR_COPY ) {
     vars->currentFile += 1;
     if( vars->currentFile == vars->numFiles ) vars->currentFile = 0;
   }
 
   vars->traceCounter += 1;
-  return true;
+  return;
 }
 //********************************************************************************
 // Parameter definition
@@ -689,14 +662,18 @@ void params_mod_input_( csParamDef* pdef ) {
   pdef->addOption( "all", "Read in all traces of file 1, then all traces of file 2 etc" );
   pdef->addOption( "trace", "Read in one trace per input file, then repeat until first file has been fully read in. Stop then." );
   pdef->addOption( "header", "Merge traces from input files by header value. Assumes data has been previously sorted.", "Requires header name to be specified" );
+  pdef->addOption( "hdr_copy_file1", "Same as option 'trace', except that the trace header of each trace is copied as-is from the first input file to all other input files." );
 
   pdef->addParam( "header_merge", "Trace header name for merged input (parameter 'order', option 'header').", NUM_VALUES_FIXED);
   pdef->addValue( "", VALTYPE_STRING, "Trace header name" );
 
-  pdef->addParam( "nsamples", "Number of samples to read in", NUM_VALUES_VARIABLE,
+  pdef->addParam( "nsamples", "Number of samples to read in", NUM_VALUES_FIXED,
                   "If number of samples in input data set is smaller, traces will be filled with zeros.");
   pdef->addValue( "", VALTYPE_NUMBER, "Number of samples to read in" );
 
+  pdef->addParam( "override_sampleint", "Override sample interval", NUM_VALUES_FIXED );
+  pdef->addValue( "0", VALTYPE_NUMBER, "Sample interval ([ms] [Hz]...). Specify '0' to NOT override sample interval" );
+  
   pdef->addParam( "header", "Name of trace header used for trace selection", NUM_VALUES_FIXED, "Use in combination with user parameter 'select'. NOTE: With the current Seaseis disk data format, selecting traces on input is typically slower than reading in all traces and making the trace selection later on, e.g. by using module 'SELECT'" );
   pdef->addValue( "", VALTYPE_STRING, "Trace header name" );
   pdef->addParam( "select", "Selection of header values", NUM_VALUES_FIXED, "Only traces which fit the trace value selection will be read in. Use in combination with user parameter 'header'" );
@@ -716,12 +693,104 @@ void params_mod_input_( csParamDef* pdef ) {
   pdef->addValue( "0", VALTYPE_NUMBER, "Number of traces to buffer when reading" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_input_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_input::VariableStruct* vars = reinterpret_cast<mod_input::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_input_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_input::VariableStruct* vars = reinterpret_cast<mod_input::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->filenames != NULL ) {
+    delete [] vars->filenames;
+    vars->filenames = NULL;
+  }
+  if( vars->readers != NULL ) {
+    for( int i = 0; i < vars->numFiles; i++ ) {
+      delete vars->readers[i];
+    }
+    delete [] vars->readers;
+    vars->readers = NULL;
+  }
+  if( vars->mergeHdrValues != NULL ) {
+    delete [] vars->mergeHdrValues;
+    vars->mergeHdrValues = NULL;
+  }
+  if( vars->hdrValueBlock != NULL ) {
+    delete [] vars->hdrValueBlock;
+    vars->hdrValueBlock = NULL;
+  }
+  if( vars->hdrValueBlock_dummy != NULL ) {
+    delete [] vars->hdrValueBlock_dummy;
+    vars->hdrValueBlock_dummy = NULL;
+  }
+  if( vars->trcHdrDef != NULL ) {
+    for( int i = 0; i < vars->numFiles; i++ ) {
+      if( vars->trcHdrDef[i] != NULL ) {
+        delete vars->trcHdrDef[i];
+      }
+    }
+    delete [] vars->trcHdrDef;
+    vars->trcHdrDef = NULL;
+  }
+  if( vars->trcHdr != NULL ) {
+    for( int i = 0; i < vars->numFiles; i++ ) {
+      if( vars->trcHdr[i] != NULL ) {
+        delete vars->trcHdr[i];
+      }
+    }
+    delete [] vars->trcHdr;
+    vars->trcHdr = NULL;
+  }
+  if( vars->hdrId != NULL && vars->hdrType != NULL ) {
+    for( int i = 0; i < vars->numFiles; i++ ) {
+      if( vars->hdrId[i] != NULL ) {
+        delete [] vars->hdrId[i];
+      }
+      if( vars->hdrType[i] != NULL ) {
+        delete [] vars->hdrType[i];
+      }
+    }
+    delete [] vars->hdrId;
+    delete [] vars->hdrType;
+    vars->hdrId   = NULL;
+    vars->hdrType = NULL;
+  }
+  if( vars->hdrIsEqual != NULL ) {
+    delete [] vars->hdrIsEqual;
+    vars->hdrIsEqual = NULL;
+  }
+  if( vars->fileIndexList != NULL ) {
+    delete vars->fileIndexList;
+    vars->fileIndexList = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_input_( csParamDef* pdef ) {
   params_mod_input_( pdef );
 }
-extern "C" void _init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_input_( param, env, log );
+extern "C" void _init_mod_input_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_input_( param, env, writer );
 }
-extern "C" bool _exec_mod_input_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_input_( trace, port, env, log );
+extern "C" bool _start_exec_mod_input_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_input_( env, writer );
+}
+extern "C" void _exec_mod_input_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_input_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_input_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_input_( env, writer );
 }

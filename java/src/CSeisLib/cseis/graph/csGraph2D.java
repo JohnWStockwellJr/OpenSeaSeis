@@ -18,6 +18,7 @@ import java.util.*;
  * @author Bjorn Olofsson
  * 2015 - Added support for arbitrary number of graphs
  */
+@SuppressWarnings("serial")
 public class csGraph2D extends JPanel implements MouseListener, MouseMotionListener, csCurveAttrChangeListener {
   private java.text.DecimalFormat myAnnotationFormat;
   private java.text.DecimalFormat myExponentFormat;
@@ -1178,17 +1179,17 @@ public class csGraph2D extends JPanel implements MouseListener, MouseMotionListe
   public int getViewPositionHorz() {
     return myViewPositionHorz;
   }
-  private void resetViewPositions() {
-    Dimension size = getPreferredSize();
-    Rectangle rect = getVisibleRect();
-    int maxViewPosVert = size.height - rect.height;
-    int maxViewPosHorz = size.width  - rect.width;
-    if( myViewPositionVert > maxViewPosVert ) myViewPositionVert = maxViewPosVert;
-    if( myViewPositionHorz > maxViewPosHorz ) myViewPositionHorz = maxViewPosHorz;
-
-    myPrevViewPositionVert = myViewPositionVert;
-    myPrevViewPositionHorz = myViewPositionHorz;
-  }
+//  private void resetViewPositions() {
+//    Dimension size = getPreferredSize();
+//    Rectangle rect = getVisibleRect();
+//    int maxViewPosVert = size.height - rect.height;
+//    int maxViewPosHorz = size.width  - rect.width;
+//    if( myViewPositionVert > maxViewPosVert ) myViewPositionVert = maxViewPosVert;
+//    if( myViewPositionHorz > maxViewPosHorz ) myViewPositionHorz = maxViewPosHorz;
+//
+//    myPrevViewPositionVert = myViewPositionVert;
+//    myPrevViewPositionHorz = myViewPositionHorz;
+//  }
   public synchronized void resetViewPositionVert( int scrollValue ) {
     if( scrollValue != myViewPositionVert && !myIsScrolling ) {
       myNextViewPositionVert = -1;

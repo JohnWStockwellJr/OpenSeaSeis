@@ -43,13 +43,13 @@ namespace mod_orient_convert {
   static const int ID_Z = 2;
   static const int ID_P = 3;
 
-  void checkHeader( std::string headerName, csTraceHeaderDef* hdef, csLogWriter* log ) {
+  void checkHeader( std::string headerName, csTraceHeaderDef* hdef, csLogWriter* writer ) {
     if( !hdef->headerExists(headerName) ){
-      log->error("Trace header '%s' not found.", headerName.c_str());
+      writer->error("Trace header '%s' not found.", headerName.c_str());
     }
     int type = hdef->headerType( headerName );
     if( type != TYPE_FLOAT &&  type != TYPE_DOUBLE ) {
-      log->error("Trace header '%s' has the wrong type. Should be FLOAT or DOUBLE", headerName.c_str());
+      writer->error("Trace header '%s' has the wrong type. Should be FLOAT or DOUBLE", headerName.c_str());
     }
   }
 }
@@ -62,7 +62,7 @@ using namespace mod_orient_convert;
 //
 //
 //*************************************************************************************************
-void init_mod_orient_convert_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_orient_convert_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -70,7 +70,6 @@ void init_mod_orient_convert_( csParamManager* param, csInitPhaseEnv* env, csLog
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
   edef->setTraceSelectionMode( TRCMODE_FIXED, 3 );
 
   // Set defaults
@@ -104,13 +103,13 @@ void init_mod_orient_convert_( csParamManager* param, csInitPhaseEnv* env, csLog
     edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
   }
   else {
-    log->error("Method option not recognized: %s.", text.c_str());
+    writer->error("Method option not recognized: %s.", text.c_str());
   }
 
   //-----------------------------------
   if( param->exists("input") ) {
     if( vars->method == ARMSS ) {
-      log->warning("'input' parameter ignored for ARMSS accelerometer conversion. Single trace input.");
+      writer->warning("'input' parameter ignored for ARMSS accelerometer conversion. Single trace input.");
     }
     else {
       param->getString("input",&text);
@@ -127,23 +126,23 @@ void init_mod_orient_convert_( csParamManager* param, csInitPhaseEnv* env, csLog
         edef->setTraceSelectionMode( TRCMODE_ENSEMBLE );
       }
       else {
-        log->error("Unknown option: '%s'", text.c_str());
+        writer->error("Unknown option: '%s'", text.c_str());
       }
     }
   }
 
 //----------------------------------------------------
   if( vars->method == ICV_2_TILTROLL ) {
-    checkHeader( "incl_i", hdef, log );
-    checkHeader( "incl_c", hdef, log );
-    checkHeader( "incl_v", hdef, log );
+    checkHeader( "incl_i", hdef, writer );
+    checkHeader( "incl_c", hdef, writer );
+    checkHeader( "incl_v", hdef, writer );
 
     vars->hdrId_incl_i = hdef->headerIndex( "incl_i" );
     vars->hdrId_incl_c = hdef->headerIndex( "incl_c" );
     vars->hdrId_incl_v = hdef->headerIndex( "incl_v" );
 
     if( hdef->headerExists ("an_roll") ) {
-      checkHeader( "an_roll", hdef, log );
+      checkHeader( "an_roll", hdef, writer );
       vars->hdrId_roll = hdef->headerIndex("an_roll" );
     }
     else {
@@ -157,8 +156,8 @@ void init_mod_orient_convert_( csParamManager* param, csInitPhaseEnv* env, csLog
     }
   }
   else if( vars->method == TILTROLL_2_ICV ) {
-    checkHeader( "an_roll", hdef, log );
-    checkHeader( "an_tilt", hdef, log );
+    checkHeader( "an_roll", hdef, writer );
+    checkHeader( "an_tilt", hdef, writer );
     vars->hdrId_roll = hdef->headerIndex( "an_roll" );
     vars->hdrId_tilt = hdef->headerIndex( "an_tilt" );
 
@@ -177,9 +176,9 @@ void init_mod_orient_convert_( csParamManager* param, csInitPhaseEnv* env, csLog
 
   }
   else {
-    checkHeader( "ain1", hdef, log );
-    checkHeader( "ain2", hdef, log );
-    checkHeader( "ain3", hdef, log );
+    checkHeader( "ain1", hdef, writer );
+    checkHeader( "ain2", hdef, writer );
+    checkHeader( "ain3", hdef, writer );
 
     vars->hdrId_ain1 = hdef->headerIndex( "ain1" );
     vars->hdrId_ain2 = hdef->headerIndex( "ain2" );
@@ -197,7 +196,7 @@ void init_mod_orient_convert_( csParamManager* param, csInitPhaseEnv* env, csLog
 
 //-------------------------------------------------------------
   if( !hdef->headerExists("sensor") ){
-    log->error("Trace header 'sensor' was not found in the trace headers.");
+    writer->error("Trace header 'sensor' was not found in the trace headers.");
   }
   vars->hdrId_sensor = hdef->headerIndex( "sensor" );
 }
@@ -213,15 +212,11 @@ void exec_mod_orient_convert_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
 
-  if( edef->isCleanup()){
-    delete vars; vars = NULL;
-    return;
-  }
 
 //---------------------------------------------
   double roll, tilt;
@@ -229,17 +224,17 @@ void exec_mod_orient_convert_(
 
   if( vars->input == INPUT_XYZP ) {
     if( traceGather->numTraces() != 4 ) {
-      log->error("Incorrect number of traces in input gather. Expected: 4 (XYZP), found: %d", nTraces );
+      writer->error("Incorrect number of traces in input gather. Expected: 4 (XYZP), found: %d", nTraces );
     }
   }
   else if( vars->input == INPUT_XYZ ) {
     if( traceGather->numTraces() != 3 ) {
-      log->error("Incorrect number of traces in input gather. Expected: 3 (XYZ), found: %d", nTraces );
+      writer->error("Incorrect number of traces in input gather. Expected: 3 (XYZ), found: %d", nTraces );
     }
   }
   else if( vars->input == INPUT_SINGLE_TRACE ) {
     if( traceGather->numTraces() != 1 ) {
-      log->error("Incorrect number of traces in input gather. Expected: 1, found: %d", nTraces );
+      writer->error("Incorrect number of traces in input gather. Expected: 1, found: %d", nTraces );
     }
     csTrace* trace = traceGather->trace(0);
     csTraceHeader* trcHeader = trace->getTraceHeader();
@@ -247,7 +242,7 @@ void exec_mod_orient_convert_(
     double ain2 = trcHeader->doubleValue(vars->hdrId_ain2);
     double ain3 = trcHeader->doubleValue(vars->hdrId_ain3);
 
-    if( edef->isDebug() ) log->line( "ain1 ain2 ain3: %10.4f %10.4f %10.f\n", ain1, ain2, ain3 );
+    if( edef->isDebug() ) writer->line( "ain1 ain2 ain3: %10.4f %10.4f %10.f\n", ain1, ain2, ain3 );
 
     // Rotate from system fixed coordinate system to XYZ coordinate system
     // --> Rotate clock-wise by 42deg, and flip some polarities
@@ -263,7 +258,7 @@ void exec_mod_orient_convert_(
     roll = -roll;  // Follow same convention as Sercel
     tilt = -tilt;  // Follow same convention as Sercel
 
-    if( edef->isDebug() ) log->line("roll tilt: %10.4f %10.4f   %5d  %5d\n", roll, tilt, NINT(roll*100), NINT(tilt*100) );
+    if( edef->isDebug() ) writer->line("roll tilt: %10.4f %10.4f   %5d  %5d\n", roll, tilt, NINT(roll*100), NINT(tilt*100) );
     trcHeader->setFloatValue( vars->hdrId_roll, (float)roll );
     trcHeader->setFloatValue( vars->hdrId_tilt, (float)tilt );
 
@@ -279,7 +274,7 @@ void exec_mod_orient_convert_(
         trace_index[sensor-3] = itrc;
       }
       else {
-        log->error("Input gather contains more than one trace for sensor %d.", sensor);
+        writer->error("Input gather contains more than one trace for sensor %d.", sensor);
         return;
       }
     }
@@ -294,7 +289,7 @@ void exec_mod_orient_convert_(
 
   for( int idSensor = 0; idSensor < 3; idSensor++ ) {
     if( trace_index[idSensor] == no_value ) {
-      log->error("Input gather is missing a sensor %d trace.", SENSOR_INDEX[idSensor]);
+      writer->error("Input gather is missing a sensor %d trace.", SENSOR_INDEX[idSensor]);
     }
     else {
       trcHdr[idSensor] = traceGather->trace(trace_index[idSensor])->getTraceHeader();
@@ -359,14 +354,41 @@ void params_mod_orient_convert_( csParamDef* pdef ) {
   pdef->addOption( "armss", "Convert ARMSS accelerometer values into (ARMSS) roll and tilt angles.", "Required input headers: ain1, ain2, ain3" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_orient_convert_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_orient_convert::VariableStruct* vars = reinterpret_cast<mod_orient_convert::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_orient_convert_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_orient_convert::VariableStruct* vars = reinterpret_cast<mod_orient_convert::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_orient_convert_( csParamDef* pdef ) {
   params_mod_orient_convert_( pdef );
 }
-extern "C" void _init_mod_orient_convert_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_orient_convert_( param, env, log );
+extern "C" void _init_mod_orient_convert_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_orient_convert_( param, env, writer );
 }
-extern "C" void _exec_mod_orient_convert_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_orient_convert_( traceGather, port, numTrcToKeep, env, log );
-
+extern "C" bool _start_exec_mod_orient_convert_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_orient_convert_( env, writer );
 }
-
+extern "C" void _exec_mod_orient_convert_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_orient_convert_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_orient_convert_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_orient_convert_( env, writer );
+}

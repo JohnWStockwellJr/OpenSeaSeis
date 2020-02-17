@@ -28,10 +28,15 @@ namespace cseis_geolib {
  static type_t const TYPE_INT64   = 6;  // 64bit integer
  static type_t const TYPE_SHORT   = 11;  // 16bit signed short
  static type_t const TYPE_USHORT  = 12;  // 16bit unsigned short
+ static type_t const TYPE_FLOAT_IBM  = 13;  // 32bit IBM float
 
  static type_t const TYPE_ARRAY_INT    = 20;
  static type_t const TYPE_ARRAY_FLOAT  = 21;
  static type_t const TYPE_ARRAY_DOUBLE = 22;
+ static type_t const TYPE_VECTOR   = 23;
+ static type_t const TYPE_VECTOR_X = 24;
+ static type_t const TYPE_VECTOR_Y = 25;
+ static type_t const TYPE_VECTOR_Z = 26;
  static type_t const TYPE_OPTION       = 30;
  static type_t const TYPE_FLOAT_DOUBLE = 40;
 

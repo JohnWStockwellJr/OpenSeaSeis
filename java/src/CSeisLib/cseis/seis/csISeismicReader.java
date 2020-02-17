@@ -4,7 +4,7 @@
 
 package cseis.seis;
 
-import cseis.jni.csISelectionNotifier;
+import cseis.jni.csITraceHeaderScanNotifier;
 import cseis.jni.csSelectedHeaderBundle;
 
 /**
@@ -107,7 +107,7 @@ public interface csISeismicReader {
           String headerName,
           int sortOrder,
           int sortMethod,
-          csISelectionNotifier notifier );
+          csITraceHeaderScanNotifier notifier );
   /**
    * @return Number of selected traces (requires initial call to setSelection())
    */

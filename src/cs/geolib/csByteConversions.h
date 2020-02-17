@@ -5,6 +5,7 @@
 #define CS_BYTE_CONVERSIONS_H
 
 #include "geolib_defines.h"
+#include "methods_number_conversions.h"
 #include <cmath>
 #include <cstring>
 
@@ -53,6 +54,30 @@ inline float byte2Float_SWAP( byte_t const* ptr ) {
   return f;
 }
 
+inline float byte_FloatIBM2Float_SWAP( byte_t const* ptr ) {
+  unsigned char c[4];
+  c[0] = ptr[3];
+  c[1] = ptr[2];
+  c[2] = ptr[1];
+  c[3] = ptr[0];
+  ibm2ieee( (unsigned char*)c, 1 );
+  float f;
+  memcpy( &f, c, 4 );
+  return f;
+}
+
+inline float byte_FloatIBM2Float( byte_t const* ptr ) {
+  unsigned char c[4];
+  c[0] = ptr[0];
+  c[1] = ptr[1];
+  c[2] = ptr[2];
+  c[3] = ptr[3];
+  ibm2ieee( (unsigned char*)c, 1 );
+  float f;
+  memcpy( &f, c, 4 );
+  return f;
+}
+
 /*
 inline double byte2Double_SWAP( byte_t const* ptr ) {
   char c[8];
@@ -90,10 +115,25 @@ inline void int2Byte_SWAP( int value, byte_t* outPtr ) {
   outPtr[0] = (value & 0xff000000) >> 24;
 }
 inline void float2Byte_SWAP( float value, byte_t* outPtr ) {
-  // ???
+  int valueInt;
+  memcpy( &valueInt, &value, 4 );
+  outPtr[3] = valueInt & 0xff;
+  outPtr[2] = (valueInt & 0xff00) >> 8;
+  outPtr[1] = (valueInt & 0xff0000) >> 16;
+  outPtr[0] = (valueInt & 0xff000000) >> 24;
 }
 inline void float2Byte( float value, byte_t* outPtr ) {
-  // ???
+  memcpy( outPtr, &value, 4 );
+}
+inline void double2Byte_SWAP( double value, byte_t* outPtr ) {
+  unsigned char ptr[8];
+  memcpy( ptr, &value, 8 );
+  for( int i = 0; i < 8; i++ ) {
+    memcpy( &outPtr[7-i], &ptr[i], 1 );
+  }
+}
+inline void double2Byte( double value, byte_t* outPtr ) {
+  memcpy( outPtr, &value, 8 );
 }
 
 } // end namespace

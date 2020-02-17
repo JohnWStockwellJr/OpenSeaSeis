@@ -4,7 +4,7 @@
 
 package cseis.seaview;
 
-import cseis.jni.csISelectionNotifier;
+import cseis.jni.csITraceHeaderScanNotifier;
 import cseis.jni.csJNIDef;
 import cseis.jni.csSeismicReaderUtils;
 import cseis.jni.csSelectedHeaderBundle;
@@ -27,10 +27,10 @@ public class csTraceHeaderScan implements csIStoppable {
   private int mySortOrder;
   private boolean myIsComplete;
   private boolean myIsRunning;
-  private csISelectionNotifier myNotifier;
+  private csITraceHeaderScanNotifier myNotifier;
   
   public csTraceHeaderScan( String filename, csHeaderDef headerDef, csITraceHeaderScanListener listener,
-          csISelectionNotifier notifier ) {
+          csITraceHeaderScanNotifier notifier ) {
     myListener = listener;
     myNotifier = notifier;
     mySortOrder = csJNIDef.SORT_NONE;
@@ -39,18 +39,7 @@ public class csTraceHeaderScan implements csIStoppable {
     myReader = null;
     myIsComplete = false;
     myIsRunning = false;
-    myThread = new Thread( new Runnable() {
-      @Override
-      public void run() {
-        myIsRunning = true;
-        if( myReader == null ) return;
-        myReader.setSelection( "*", myHeaderDef.name, mySortOrder, csJNIDef.SIMPLE_SORT, myNotifier );
-        myIsComplete = true;
-        myIsRunning = false;
-        myThread = null;
-        myListener.scanCompleted( myHeaderDef );
-      }
-    });
+    myThread = null;
   }
   public boolean isRunning() {
     return myIsRunning;
@@ -66,6 +55,18 @@ public class csTraceHeaderScan implements csIStoppable {
       myThread = null;
       return false;
     }
+    myThread = new Thread( new Runnable() {
+      @Override
+      public void run() {
+        myIsRunning = true;
+        if( myReader == null ) return;
+        boolean success = myReader.setSelection( "*", myHeaderDef.name, mySortOrder, csJNIDef.SIMPLE_SORT, myNotifier );
+        myIsComplete = true;
+        myIsRunning = false;
+        myThread = null;
+        if( success ) myListener.scanCompleted( myHeaderDef );
+      }
+    });
     myThread.start();
     return true;
   }
@@ -87,8 +88,8 @@ public class csTraceHeaderScan implements csIStoppable {
     if( myThread != null && myThread.isAlive() ) {
       myThread.interrupt();
       myThread = null;
-      myIsRunning = false;
     }
+    myIsRunning = false;
   }
 }
 

@@ -45,7 +45,7 @@ public class csNativeSeismicReader implements csISeismicReader {
           String headerName,
           int sortOrder,
           int sortMethod,
-          csISelectionNotifier notifier );
+          csITraceHeaderScanNotifier notifier );
   private native int native_getNumSelectedTraces( long ptr );
   private native void native_getSelectedValue( long ptr, int selectedTraceIndex, csSelectedHeaderBundle header );
   private native void native_getSelectedValues( long ptr, csSelectedHeaderBundle hdrBundle );
@@ -165,9 +165,10 @@ public class csNativeSeismicReader implements csISeismicReader {
   //
   @Override
   public boolean setSelection( String hdrValueSelectionText, String headerName, int sortOrder, int sortMethod,
-          csISelectionNotifier notifier ) {
+          csITraceHeaderScanNotifier notifier ) {
     if( notifier == null ) return false;
-    return native_setSelection( myNativePtr, hdrValueSelectionText, headerName, sortOrder, sortMethod, notifier );
+    boolean success = native_setSelection( myNativePtr, hdrValueSelectionText, headerName, sortOrder, sortMethod, notifier );
+    return success;
   }
   @Override
   public int getNumSelectedTraces() {
@@ -177,12 +178,15 @@ public class csNativeSeismicReader implements csISeismicReader {
   public void getSelectedValues( csSelectedHeaderBundle hdrBundle ) {
     native_getSelectedValues( myNativePtr, hdrBundle );
   }
-  @Override
-  public void finalize() {
+  public void disposeNative() {
     if( myNativePtr != 0 ) {
       native_freeInstance( myNativePtr );
       myNativePtr = 0;
     }
+  }
+  @Override
+  public void finalize() {
+    disposeNative();
   }
 }
 

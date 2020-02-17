@@ -21,6 +21,7 @@ import javax.swing.JPanel;
  * Snapshots can be browsed, moved and deleted.
  * @author 2011 Bjorn Olofsson
  */
+@SuppressWarnings("serial")
 public class csSnapShotFrame extends JDialog implements csISnapShotListener, MouseListener, KeyListener {
   private csSnapShotScrollPane mySnapShotScrollPane;
   private JPanel myMainPanel;

@@ -24,6 +24,7 @@ import javax.swing.*;
  * 
  * @author 2011 Bjorn Olofsson
  */
+@SuppressWarnings("serial")
 public class csGraphSelectionDialog extends JDialog {
   private static final int TEXT_MIN_WIDTH = 40;
 
@@ -37,8 +38,10 @@ public class csGraphSelectionDialog extends JDialog {
   private int myNumItems;
   private JCheckBox[] myCheckItem;
   private csColorButton[] myColorButton;
-  private JComboBox[] myComboHdrNames;
-  private JComboBox[] myComboType;
+  private ArrayList<JComboBox<csHeaderDef>> myComboHdrNames;
+  private ArrayList<JComboBox<String>> myComboType;
+  //  private JComboBox<String>[] myComboHdrNames;
+ // private JComboBox<String>[] myComboType;
   private JTextField[] myTextSize;
   /// Unique identifier for each curve
   private int[] myCurveIDs;
@@ -58,8 +61,10 @@ public class csGraphSelectionDialog extends JDialog {
     myNumItems = 8;
     myCheckItem     = new JCheckBox[myNumItems];
     myColorButton   = new csColorButton[myNumItems];
-    myComboHdrNames = new JComboBox[myNumItems];
-    myComboType     = new JComboBox[myNumItems];
+    myComboHdrNames = new ArrayList<JComboBox<csHeaderDef>>(myNumItems);
+    myComboType     = new ArrayList<JComboBox<String>>(myNumItems);
+//    myComboHdrNames = new JComboBox[myNumItems];
+//    myComboType     = new JComboBox[myNumItems];
     myTextSize      = new JTextField[myNumItems];
     myCurveIDs      = new int[myNumItems];
 
@@ -78,13 +83,13 @@ public class csGraphSelectionDialog extends JDialog {
 
       myCheckItem[item]     = new JCheckBox();
       myCheckItem[item].setSelected(false);
-      myComboHdrNames[item] = new JComboBox();
-      myComboType[item] = new JComboBox();
-      myComboType[item].setModel( new DefaultComboBoxModel(csHeaderOverlay.TYPE_TEXT_FIELDS) );
-      myComboType[item].setSelectedIndex(0);
+      myComboHdrNames.add( new JComboBox<csHeaderDef>() );
+      myComboType.add( new JComboBox<String>() );
+      myComboType.get(item).setModel( new DefaultComboBoxModel<String>(csHeaderOverlay.TYPE_TEXT_FIELDS) );
+      myComboType.get(item).setSelectedIndex(0);
       myTextSize[item] = new JTextField("2");
       myTextSize[item].setPreferredSize( new Dimension( TEXT_MIN_WIDTH, myTextSize[item].getPreferredSize().height ) );
-      myComboHdrNames[item].setPreferredSize( new Dimension(120,20) );
+      myComboHdrNames.get(item).setPreferredSize( new Dimension(120,20) );
       myCurveIDs[item] = -1;
 
       myColorButton[item]   = new csColorButton(this,color,item);
@@ -139,7 +144,7 @@ public class csGraphSelectionDialog extends JDialog {
           if( !isSelected ) {
             removeCurve(itemCurrent);
           }
-          else if( myComboHdrNames[itemCurrent].getSelectedIndex() < 0 ) {
+          else if( myComboHdrNames.get(itemCurrent).getSelectedIndex() < 0 ) {
             return;
           }
           else {
@@ -147,14 +152,14 @@ public class csGraphSelectionDialog extends JDialog {
           }
         }
       });
-      myComboHdrNames[item].addItemListener(new ItemListener() {
+      myComboHdrNames.get(item).addItemListener(new ItemListener() {
         public void itemStateChanged(ItemEvent e) {
           if( myGraph == null ) return;
           if( myIsUpdating ) return;
-          JComboBox box = (JComboBox)e.getSource();
+          JComboBox<?> box = (JComboBox<?>)e.getSource();
           int itemCurrent = -1;
           for( int item = 0; item < myNumItems; item++ ) {
-            if( myComboHdrNames[item].equals(box) ) {
+            if( myComboHdrNames.get(item).equals(box) ) {
               itemCurrent = item;
               break;
             }
@@ -174,12 +179,12 @@ public class csGraphSelectionDialog extends JDialog {
           }
         }
       });
-      myComboType[item].addItemListener(new ItemListener() {
+      myComboType.get(item).addItemListener(new ItemListener() {
         public void itemStateChanged(ItemEvent e) {
-          JComboBox box = (JComboBox)e.getSource();
+          JComboBox<?> box = (JComboBox<?>)e.getSource();
           int itemCurrent = -1;
           for( int item = 0; item < myNumItems; item++ ) {
-            if( myComboType[item].equals(box) ) {
+            if( myComboType.get(item).equals(box) ) {
               itemCurrent = item;
               break;
             }
@@ -187,7 +192,7 @@ public class csGraphSelectionDialog extends JDialog {
           if( itemCurrent < 0 ) return;
           if( e.getStateChange() == ItemEvent.SELECTED ) {
             boolean isSelected = myCheckItem[itemCurrent].isSelected();
-            if( isSelected && myComboHdrNames[itemCurrent].getSelectedIndex() < 0 ) {
+            if( isSelected && myComboHdrNames.get(itemCurrent).getSelectedIndex() < 0 ) {
 //              myHeaderOverlay[itemCurrent].setType( myComboType[itemCurrent].getSelectedIndex() );
             }
           }
@@ -281,7 +286,7 @@ public class csGraphSelectionDialog extends JDialog {
     updateYLabel();
   }
   private void addCurve( int item ) {
-    String hdrName = myComboHdrNames[item].getSelectedItem().toString();
+    String hdrName = myComboHdrNames.get(item).getSelectedItem().toString();
     csCurveAttributes attr = new csCurveAttributes(hdrName);
     attr.filledType = csCurveAttributes.FILLED_TYPE_NONE;
     attr.pointType  = csCurveAttributes.POINT_TYPE_NONE;
@@ -299,13 +304,13 @@ public class csGraphSelectionDialog extends JDialog {
     myGraph.addCurve(curve);
     updateYLabel();
   }
-  private void updateCurve( int item ) {
-    String hdrName = myComboHdrNames[item].getSelectedItem().toString();
-    csCurveAttributes attr = new csCurveAttributes(hdrName);
-    csCurve curve   = mySeisPaneBundle.createCurve(hdrName,attr);
-    if( curve == null ) return;
-    myGraph.updateCurve(item, curve.dataX, curve.dataY, true);
-  }
+//  private void updateCurve( int item ) {
+//    String hdrName = myComboHdrNames.get(item).getSelectedItem().toString();
+//    csCurveAttributes attr = new csCurveAttributes(hdrName);
+//    csCurve curve   = mySeisPaneBundle.createCurve(hdrName,attr);
+//    if( curve == null ) return;
+//    myGraph.updateCurve(item, curve.dataX, curve.dataY, true);
+//  }
   private void updateYLabel() {
     csGraphAttributes graphAttr = myGraph.getGraphAttributes();
     graphAttr.yLabel = "";
@@ -328,7 +333,7 @@ public class csGraphSelectionDialog extends JDialog {
       panelSelect.add( myCheckItem[item], new GridBagConstraints(
           xp++, item, 1, 1, 0.0, 0.0, GridBagConstraints.WEST,
           GridBagConstraints.HORIZONTAL, new Insets( 0, 5, 0, 5 ), 0, 0 ) );
-      panelSelect.add( myComboHdrNames[item], new GridBagConstraints(
+      panelSelect.add( myComboHdrNames.get(item), new GridBagConstraints(
           xp++, item, 1, 1, 0.5, 0.0, GridBagConstraints.WEST,
           GridBagConstraints.HORIZONTAL, new Insets( 0, 0, 0, 0 ), 0, 0 ) );
       panelSelect.add( myColorButton[item], new GridBagConstraints(
@@ -369,17 +374,17 @@ public class csGraphSelectionDialog extends JDialog {
     java.util.Arrays.sort( newHeaders );
     removeAllCurves();
     for( int item = 0; item < myNumItems; item++ ) {
-      if( myComboHdrNames[item] != null && myComboHdrNames[item].getSelectedIndex() >= 0 ) {
-        String hdrName = myComboHdrNames[item].getSelectedItem().toString();
-        myComboHdrNames[item].setModel( new DefaultComboBoxModel(newHeaders) );
-        myComboHdrNames[item].setSelectedIndex(-1);
+      if( myComboHdrNames.get(item) != null && myComboHdrNames.get(item).getSelectedIndex() >= 0 ) {
+        String hdrName = myComboHdrNames.get(item).getSelectedItem().toString();
+        myComboHdrNames.get(item).setModel( new DefaultComboBoxModel<csHeaderDef>(newHeaders) );
+        myComboHdrNames.get(item).setSelectedIndex(-1);
         boolean found = false;
         for( int ihdr = 0; ihdr < myTraceHeaderDef.length; ihdr++ ) {
           if( myTraceHeaderDef[ihdr].name.compareTo( hdrName ) == 0 ) {
             for( int ihdr2 = 0; ihdr2 < newHeaders.length; ihdr2++ ) {
               if( newHeaders[ihdr2].name.compareTo( hdrName ) == 0 ) {
                 myCheckItem[item].setSelected(true);
-                myComboHdrNames[item].setSelectedIndex( ihdr2 );
+                myComboHdrNames.get(item).setSelectedIndex( ihdr2 );
                 addCurve(item);
                 found = true;
                 break;
@@ -393,8 +398,8 @@ public class csGraphSelectionDialog extends JDialog {
         }
       }
       else {
-        myComboHdrNames[item].setModel( new DefaultComboBoxModel(newHeaders) );
-        myComboHdrNames[item].setSelectedIndex(-1);
+        myComboHdrNames.get(item).setModel( new DefaultComboBoxModel<csHeaderDef>(newHeaders) );
+        myComboHdrNames.get(item).setSelectedIndex(-1);
       }
     } // END: for item
     myIsUpdating = false;

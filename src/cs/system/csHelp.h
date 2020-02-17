@@ -26,6 +26,7 @@ class csHelp {
   void moduleHtmlHelp( csParamDef const& pdef, FILE* stream ) const;
   void moduleHtmlHelp( csParamDef const& pdef, std::string& text ) const;
   void moduleHtmlExample( bool printHeader, csParamDef const& pdef, std::string& text ) const;
+  void moduleExample( bool printHeader, csParamDef const& pdef, std::string& text ) const;
   void moduleHtmlListing( std::string& text ) const;
   void standardHeaderHtmlListing( std::string& text ) const;
  private:

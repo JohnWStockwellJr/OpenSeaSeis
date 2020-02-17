@@ -21,8 +21,8 @@ public class csSeisViewEventHandler implements MouseMotionListener, MouseListene
   private final ArrayList<csIKeyListener> myKeyListeners;
   private final ArrayList<csIPanningListener> myPanningListeners;
   private final ArrayList<csIRubberBandListener> myRubberBandListeners;
-  private boolean myIsSHIFTPressed = false;
-  private boolean myIsCTRLPressed = false;
+//  private boolean myIsSHIFTPressed = false;
+//  private boolean myIsCTRLPressed = false;
   private Point myPressedPoint;
   private boolean myIsMouseInWindow;
   private final csRubberBandOverlay myRubberBand;
@@ -62,10 +62,10 @@ public class csSeisViewEventHandler implements MouseMotionListener, MouseListene
     }
     myPressedPoint = e.getPoint();
 
-    if( !myView.hasFocus() ) {
-      myIsSHIFTPressed = false;
-      myIsCTRLPressed  = false;
-    }
+//    if( !myView.hasFocus() ) {
+//      myIsSHIFTPressed = false;
+//      myIsCTRLPressed  = false;
+//    }
   }
 //----------------------------------------------------------------
   @Override
@@ -86,7 +86,7 @@ public class csSeisViewEventHandler implements MouseMotionListener, MouseListene
     int xpos = e.getX();
     int ypos = e.getY();
     myPressedPoint = e.getPoint();
-    csSampleInfo sInfo = myView.getSampleInfo( xpos, ypos );
+//    csSampleInfo sInfo = myView.getSampleInfo( xpos, ypos );
 
     if(SwingUtilities.isRightMouseButton(e)) {
       myView.getPopupMenu().show( myView, xpos, ypos );
@@ -117,10 +117,10 @@ public class csSeisViewEventHandler implements MouseMotionListener, MouseListene
     }
 //    else if( SwingUtilities.isMiddleMouseButton(e) && myView.getMouseMode() == csMouseModes.ZOOM_MODE ) {
 //    }
-    if( !myView.hasFocus() ) {
-      myIsSHIFTPressed = false;
-      myIsCTRLPressed = false;
-    }
+//    if( !myView.hasFocus() ) {
+//      myIsSHIFTPressed = false;
+//      myIsCTRLPressed = false;
+//    }
   }
 
 //----------------------------------------------------------------
@@ -145,6 +145,9 @@ public class csSeisViewEventHandler implements MouseMotionListener, MouseListene
     else if( myView.getMouseMode() == csMouseModes.PAINT_MODE ) {
       myView.setCursor( csMouseModes.PAINT_CURSOR );
     }
+    else if( myView.getMouseMode() == csMouseModes.VELPICK_MODE ) {
+      myView.setCursor( csMouseModes.VELPICK_CURSOR );
+    }
     else { //( myView.getMouseMode() == csMouseModes.NO_MODE ) {
       myView.setCursor( Cursor.getDefaultCursor() );
     }
@@ -156,8 +159,8 @@ public class csSeisViewEventHandler implements MouseMotionListener, MouseListene
     if( myView.hasFocus() ) {
       myView.transferFocus(); // release focus
     }
-    myIsSHIFTPressed = false;
-    myIsCTRLPressed  = false;
+//    myIsSHIFTPressed = false;
+//    myIsCTRLPressed  = false;
     myView.mouseExited();
   }
 
@@ -174,8 +177,8 @@ public class csSeisViewEventHandler implements MouseMotionListener, MouseListene
   @Override
   public void keyPressed( KeyEvent e ) {
     if( !myIsMouseInWindow ) return;
-    myIsSHIFTPressed = e.isShiftDown();
-    myIsCTRLPressed  = e.isControlDown();
+//    myIsSHIFTPressed = e.isShiftDown();
+//    myIsCTRLPressed  = e.isControlDown();
     fireKeyPressedEvent( e );
   }
 
@@ -183,8 +186,8 @@ public class csSeisViewEventHandler implements MouseMotionListener, MouseListene
   @Override
   public void keyReleased( KeyEvent e ) {
     if( !myIsMouseInWindow ) return;
-    myIsSHIFTPressed = e.isShiftDown();
-    myIsCTRLPressed  = e.isControlDown();
+//    myIsSHIFTPressed = e.isShiftDown();
+//    myIsCTRLPressed  = e.isControlDown();
     fireKeyReleasedEvent( e );
   }
 

@@ -46,14 +46,15 @@ const int OPTION_TABLE = 11;
 //
 //
 //*************************************************************************************************
-void init_mod_trc_print_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_trc_print_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   csTraceHeaderDef* hdef = env->headerDef;
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
   vars->option       = 0;
   vars->hdrId_user   = -1;
@@ -72,11 +73,11 @@ void init_mod_trc_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
   if( param->exists("filename") ) {
     param->getString("filename",&vars->filename);
     if( !csFileUtils::createDoNotOverwrite( vars->filename ) ) {
-      log->error("Unable to open output file %s. Wrong path name..?", vars->filename.c_str() );
+      writer->error("Unable to open output file %s. Wrong path name..?", vars->filename.c_str() );
     }
   }
   else {
-    vars->fout = log->getFile();
+    vars->fout = writer->getFile();
   }
 
   if( param->exists("format") ) {
@@ -100,7 +101,7 @@ void init_mod_trc_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
       vars->addBlankLine = false;
     }
     else {
-      log->line("Unknown option:: '%s'.", text.c_str());
+      writer->line("Unknown option:: '%s'.", text.c_str());
       env->addError();
     }
   }
@@ -110,13 +111,13 @@ void init_mod_trc_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
     param->getString( "time_samp1", &text );
     if( !number.convertToNumber( text ) ) {
       if( !hdef->headerExists(text) ) {
-        log->error("Specified trace header name containing time of first sample does not exist: '%s'", text.c_str());
+        writer->error("Specified trace header name containing time of first sample does not exist: '%s'", text.c_str());
       }
       vars->hdrId_timeSamp1 = hdef->headerIndex(text);
     }
     else { // User specified a constant value
       vars->timeSamp1 = number.floatValue();
-      log->line("Constant time of first sample = %.2f", vars->timeSamp1);
+      writer->line("Constant time of first sample = %.2f", vars->timeSamp1);
     }
   }
   vars->printFormat = "%d  " + vars->format_time + "  " + vars->format_value + "\n";
@@ -128,33 +129,28 @@ void init_mod_trc_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
 //
 //
 //*************************************************************************************************
-bool exec_mod_trc_print_(
-  csTrace* trace,
+void exec_mod_trc_print_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup() ) {
-    if( vars->fout != NULL ) {
-      fclose( vars->fout );
-      vars->fout = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
 
   if( vars->isFirstCall ) {
     vars->isFirstCall = false;
     if( vars->fout == NULL ) {
       vars->fout = fopen(vars->filename.c_str(),"w");
-      if( vars->fout == NULL ) log->error("Unable to open output file %s. Wrong path name..?", vars->filename.c_str() );
+      if( vars->fout == NULL ) writer->error("Unable to open output file %s. Wrong path name..?", vars->filename.c_str() );
     }
   }
 
-  //  log->line("TRC_PRINT: numSamples: %d, superheader: %d",trace->numSamples(), shdr->numSamples);
+  //  writer->line("TRC_PRINT: numSamples: %d, superheader: %d",trace->numSamples(), shdr->numSamples);
   float* samples = trace->getTraceSamples();
   vars->traceCounter += 1;
 
@@ -200,7 +196,7 @@ bool exec_mod_trc_print_(
       //      fprintf(vars->fout,"%d  %10.2f  %16.10e\n", isamp, time, samples[isamp] );
     }
   }
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -230,13 +226,45 @@ void params_mod_trc_print_( csParamDef* pdef ) {
   pdef->addValue( "0", VALTYPE_HEADER_NUMBER, "Time of first sample: Value or name of trace header containing the value");
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_trc_print_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_trc_print::VariableStruct* vars = reinterpret_cast<mod_trc_print::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_trc_print_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_trc_print::VariableStruct* vars = reinterpret_cast<mod_trc_print::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->fout != NULL ) {
+    fclose( vars->fout );
+    vars->fout = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_trc_print_( csParamDef* pdef ) {
   params_mod_trc_print_( pdef );
 }
-extern "C" void _init_mod_trc_print_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_trc_print_( param, env, log );
+extern "C" void _init_mod_trc_print_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_trc_print_( param, env, writer );
 }
-extern "C" bool _exec_mod_trc_print_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_trc_print_( trace, port, env, log );
+extern "C" bool _start_exec_mod_trc_print_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_trc_print_( env, writer );
 }
-
+extern "C" void _exec_mod_trc_print_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_trc_print_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_trc_print_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_trc_print_( env, writer );
+}

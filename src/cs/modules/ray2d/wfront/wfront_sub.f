@@ -15,7 +15,7 @@ c All rights reserved.
      &     MAX_RECEIVERS, MAX_CODESTEPS,
      &     MAXP_XGRID, MAXP_ZGRID, MAX_2POINT_ANGLES,
      &     n_allint, MAXPOINTS_INT, MAX_ARRIVALS,
-     &     time, amp_out, phase_out, comp_out, ntimecodes, ccp )
+     &     time, amp_out, phase_out, angle_out, comp_out, ntimecodes, ccp )
 
       implicit none
 
@@ -27,7 +27,7 @@ c
       integer MAX_RECEIVERS, MAX_ARRIVALS, nreclines, N_ARRPARAM
       integer MAX_TIMEFILES
 
-      parameter(MAX_RAYS = 20000, N_PARAM = 8, N_RTPARAM = 8)
+      parameter(MAX_RAYS = 40000, N_PARAM = 8, N_RTPARAM = 8)
       parameter(MAX_HALTS = 20)
       parameter(N_ARRPARAM = 6)
       parameter(MAX_TIMEFILES = 80)
@@ -180,6 +180,7 @@ c MAX_ARRIVALS: Maximum number of arrivals for each ray code
       real time(MAX_RECEIVERS,MAX_ARRIVALS,ntimecodes)
       real amp_out(MAX_RECEIVERS,MAX_ARRIVALS,ntimecodes)
       real phase_out(MAX_RECEIVERS,MAX_ARRIVALS,ntimecodes)
+      real angle_out(MAX_RECEIVERS,MAX_ARRIVALS,ntimecodes)
       real ccp(2,MAX_RECEIVERS,ntimecodes)
       integer comp_out
 
@@ -1370,7 +1371,7 @@ c               write(*,*) " Start record "
      &              anglehalt(1,acthalt),kmahhalt(1,acthalt),nexthalt(0,acthalt),ficthalt(1,acthalt),xzindex,
      &              xz_rec(1,iline),nrec(iline),int_rec(iline),lay_rec(iline),iii2,f_timeout,
      &              time(1,1,act_timecode), amp_out(1,1,act_timecode),
-     &              phase_out(1,1,act_timecode), comp_out, ccp(1,1,act_timecode),
+     &              phase_out(1,1,act_timecode), angle_out(1,1,act_timecode), comp_out, ccp(1,1,act_timecode),
      &              actlayer, npoints_int,x_int,z_int,b_int,c_int,d_int,veltype, ptos,
      &              nx_grid,nz_grid,x_grid,z_grid,v_grid,rho1,rho2,dtray,flag_smooth,
      &              arrival(1,1,1,iline),narrivals(1,iline),error,
@@ -1465,7 +1466,7 @@ c fictsect ist hier ein dummy!(?)
             call record(borehalt,tborehalt,amplborehalt,phaseborehalt,
      &           angleborehalt,kmahborehalt,nextborehalt,fictsect,xzindex,
      &           xz_rec(1,iline),nrec(iline),int_bore,lay_bore,iii2,0,
-     &           time(1,1,1), amp_out(1,1,1), phase_out(1,1,1), comp_out, ccp(1,1,1),
+     &           time(1,1,1), amp_out(1,1,1), phase_out(1,1,1), angle_out(1,1,1), comp_out, ccp(1,1,1),
      &           actlayer, npoints_int,x_int,z_int,b_int,c_int,d_int,veltype, ptos,
      &           nx_grid,nz_grid,x_grid,z_grid,v_grid,rho1,rho2,dtray,flag_smooth,
      &           arrival(1,1,1,iline),narrivals(1,iline),error,

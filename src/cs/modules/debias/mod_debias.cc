@@ -2,6 +2,7 @@
 /* All rights reserved.                       */
 
 #include "cseis_includes.h"
+#include <cstring>
 
 using namespace cseis_system;
 using namespace cseis_geolib;
@@ -22,11 +23,12 @@ namespace mod_debias {
     bool includeZeros;
     int startSample;
     int endSample;
-//    int tmpCounter;
+    float* dcBuffer;
+    bool isFirstCall;
+    bool applyBySample;
   };
   static int const MODE_ENSEMBLE = 11;
   static int const MODE_TRACE    = 12;
-  static int const MODE_ALL      = 13;
 }
 using namespace mod_debias;
 
@@ -36,7 +38,7 @@ using namespace mod_debias;
 //
 //
 //*************************************************************************************************
-void init_mod_debias_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_debias_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   csTraceHeaderDef* hdef = env->headerDef;
@@ -50,8 +52,9 @@ void init_mod_debias_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
   vars->includeZeros = true;
   vars->startSample = 0;
   vars->endSample = shdr->numSamples-1;
-
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
+  vars->dcBuffer = NULL;
+  vars->applyBySample = false;
+  vars->isFirstCall  = true;
 
   if( param->exists( "mode" ) ) {
     std::string text;
@@ -64,7 +67,22 @@ void init_mod_debias_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       vars->mode = MODE_TRACE;
     }
     else {
-      log->line("Unknown argument for user parameter 'mode': '%s'.", text.c_str());
+      writer->line("Unknown argument for user parameter 'mode': '%s'.", text.c_str());
+      env->addError();
+    }
+  }
+  if( param->exists( "direction" ) ) {
+    std::string text;
+    param->getString( "direction", &text );
+    text = toLowerCase( text );
+    if( !text.compare( "trace" ) ) {
+      vars->applyBySample = false;
+    }
+    else if( !text.compare( "sample" ) ) {
+      vars->applyBySample = true;
+    }
+    else {
+      writer->line("Unknown argument for user parameter 'direction': '%s'.", text.c_str());
       env->addError();
     }
   }
@@ -79,7 +97,7 @@ void init_mod_debias_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       vars->isReapply = false;
     }
     else {
-      log->line("Unknown argument for user parameter 'reapply': '%s'.", text.c_str());
+      writer->line("Unknown argument for user parameter 'reapply': '%s'.", text.c_str());
       env->addError();
     }
   }
@@ -94,7 +112,7 @@ void init_mod_debias_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       vars->includeZeros = false;
     }
     else {
-      log->line("Unknown argument for user parameter 'zeros': '%s'.", text.c_str());
+      writer->line("Unknown argument for user parameter 'zeros': '%s'.", text.c_str());
       env->addError();
     }
   }
@@ -108,7 +126,7 @@ void init_mod_debias_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
 
     if( vars->startSample < 0 ) vars->startSample = 0;
     if( vars->endSample >= shdr->numSamples ) vars->endSample = shdr->numSamples-1;
-    if( vars->endSample <= vars->startSample ) log->error("Inconsistent start/end times in window: %f >=? %f\n", start, end);
+    if( vars->endSample <= vars->startSample ) writer->error("Inconsistent start/end times in window: %f >=? %f\n", start, end);
   }
 
   if( vars->mode == MODE_ENSEMBLE ) {
@@ -120,13 +138,16 @@ void init_mod_debias_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
 
   if( !hdef->headerExists("dc") ) {
     if( vars->isReapply ) {
-      log->error("Trace header 'dc' not found: Required for removal of DC bias.");
+      writer->error("Trace header 'dc' not found: Required for removal of DC bias.");
     }
     hdef->addStandardHeader( "dc" );
   }
   vars->hdrId_bias = hdef->headerIndex("dc");
-  
-//  vars->tmpCounter = 0;
+
+  if( vars->applyBySample ) {
+    int numSamples = vars->endSample - vars->startSample + 1;
+    vars->dcBuffer = new float[numSamples];
+  }
 }
 
 //*************************************************************************************************
@@ -140,19 +161,48 @@ void exec_mod_debias_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
+  //  csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
-
-  if( edef->isCleanup()){
-    delete vars; vars = NULL;
-    return;
-  }
 
   int nTraces = traceGather->numTraces();
   
+  if( vars->applyBySample ) {
+    int numSamples = vars->endSample - vars->startSample + 1;
+    if( vars->mode == MODE_ENSEMBLE ) {
+      for( int isamp = 0; isamp < numSamples; isamp++ ) {
+        vars->dcBuffer[isamp] = 0.0;
+      }
+      for( int itrc = 0; itrc < nTraces; itrc++ ) {
+        float* samples = traceGather->trace(itrc)->getTraceSamples();
+        for( int isamp = 0; isamp < numSamples; isamp++ ) {
+          vars->dcBuffer[isamp] += samples[isamp+vars->startSample];
+        }
+      }
+      for( int isamp = 0; isamp < numSamples; isamp++ ) {
+        vars->dcBuffer[isamp] /= (float)nTraces;
+      }
+    }
+    else { //     if( vars->mode == MODE_TRACE ) {
+      float* samples = traceGather->trace(0)->getTraceSamples();
+      if( vars->isFirstCall ) { 
+        vars->isFirstCall = false;
+        memcpy( vars->dcBuffer, &samples[vars->startSample], numSamples*sizeof(float) );
+      }
+    }
+    for( int itrc = 0; itrc < nTraces; itrc++ ) {
+      float* samples = traceGather->trace(itrc)->getTraceSamples();
+      for( int isamp = 0; isamp < numSamples; isamp++ ) {
+        samples[isamp+vars->startSample] -= vars->dcBuffer[isamp];
+      }
+    }
+    return;
+  }
+  
+  //--------------------------------------------------------------------------------
+ 
   if( !vars->isReapply ) {
     double mean_double = 0.0;
     for( int itrc = 0; itrc < nTraces; itrc++ ) {
@@ -230,6 +280,11 @@ void params_mod_debias_( csParamDef* pdef ) {
   pdef->addOption( "trace", "Remove average DC bias separately from each individual input trace." );
   pdef->addOption( "ensemble", "Remove average DC bias from whole input ensemble." );
 
+  pdef->addParam( "direction", "Perform debias operation in time or spatially?", NUM_VALUES_FIXED );
+  pdef->addValue( "trace", VALTYPE_OPTION );
+  pdef->addOption( "trace", "'Normal' debias operation, apply to full trace/ensemble" );
+  pdef->addOption( "sample", "Apply 'horizontal' debias sample-by-sample across all traces in ensemble('ensemble' mode) or across all input traces('trace' mode)" );
+
   pdef->addParam( "reapply", "Re-apply DC bias?", NUM_VALUES_FIXED );
   pdef->addValue( "no", VALTYPE_OPTION );
   pdef->addOption( "yes", "Re-apply DC bias, e.g. add back DC bias stored in trace header 'dc'." );
@@ -245,13 +300,41 @@ void params_mod_debias_( csParamDef* pdef ) {
   pdef->addValue( "", VALTYPE_NUMBER, "End time" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_debias_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_debias::VariableStruct* vars = reinterpret_cast<mod_debias::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_debias_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_debias::VariableStruct* vars = reinterpret_cast<mod_debias::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_debias_( csParamDef* pdef ) {
   params_mod_debias_( pdef );
 }
-extern "C" void _init_mod_debias_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_debias_( param, env, log );
+extern "C" void _init_mod_debias_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_debias_( param, env, writer );
 }
-extern "C" void _exec_mod_debias_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_debias_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_debias_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_debias_( env, writer );
 }
-
+extern "C" void _exec_mod_debias_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_debias_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_debias_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_debias_( env, writer );
+}

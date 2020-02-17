@@ -7,10 +7,10 @@
   Author: Bjorn Olofsson
 -->
 <!DOCTYPE language SYSTEM "language.dtd">
-<language name="SeaSeis" version="1.00" kateversion="2.5" section="Scientific" extensions="*.flow" >
+<language name="OpenSeaSeis" version="1.00" kateversion="2.5" section="Scientific" extensions="*.flow" >
   <highlighting>
 
-    <!-- Reserved keywords in MATLAB -->
+    <!-- Reserved keywords in OpenSeaSeis -->
     <list name="KeywordList">
       <item> define </item>
     </list>

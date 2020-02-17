@@ -135,7 +135,7 @@ using namespace mod_mute ;
 //*************************************************************************************************
 // Init phase
 //*************************************************************************************************
-void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   csTraceHeaderDef* hdef = env->headerDef;
@@ -143,7 +143,8 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
   vars->inLength         = shdr->numSamples;
   vars->table            = NULL;
@@ -171,56 +172,56 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
   vars->domain      = shdr->domain;
   vars->fftDataType = shdr->fftDataType;
   if ( shdr->domain == DOMAIN_XT || shdr->domain == DOMAIN_KT || shdr->domain == DOMAIN_XD ) {
-    log->line("Input data is in TIME/DEPTH domain.");
+    writer->line("Input data is in TIME/DEPTH domain.");
   }
   else if ( shdr->domain == DOMAIN_FX ){
-    log->line("Input data is in FX domain data.");
+    writer->line("Input data is in FX domain data.");
     
     if ( shdr->fftDataType == FX_AMP_PHASE ){
-      log->line("Muting amplitudes only of FX domain AMPLITUDE & PHASE data.");
+      writer->line("Muting amplitudes only of FX domain AMPLITUDE & PHASE data.");
       vars->inLength = vars->inLength/2;
       if ( 2*vars->inLength != shdr->numSamples ) {
-        log->warning("For FX data, typically expect number of input samples to be even but that is not the case.", text.c_str());
+        writer->warning("For FX data, typically expect number of input samples to be even but that is not the case.", text.c_str());
       }
 
     } else if ( shdr->fftDataType == FX_AMP ){
-      log->line("Muting amplitudes of FX domain AMPLITUDE-ONLY data.");
+      writer->line("Muting amplitudes of FX domain AMPLITUDE-ONLY data.");
 
     } else if ( shdr->fftDataType == FX_REAL_IMAG ){
-      log->warning("Applying mute to FX domain REAL-IMAGINARY data.");
+      writer->warning("Applying mute to FX domain REAL-IMAGINARY data.");
 
     } else if ( shdr->fftDataType == FX_PSD ){
-      log->warning("Applying mute to FX domain PSD data.");
+      writer->warning("Applying mute to FX domain PSD data.");
 
     } else {
-      log->line("WARN:Unknown FX domain type. Will process as if time. Proceed at your own risk!");
+      writer->line("WARN:Unknown FX domain type. Will process as if time. Proceed at your own risk!");
     }      
 
   } else if ( shdr->domain == DOMAIN_FK ){
-    log->line("Input data is in FX domain data.");
+    writer->line("Input data is in FX domain data.");
 
     if ( shdr->fftDataType == FK_AMP_PHASE ){
-      log->line("Muting amplitudes only of FK domain AMPLITUDE & PHASE data.");
+      writer->line("Muting amplitudes only of FK domain AMPLITUDE & PHASE data.");
       vars->inLength = vars->inLength/2;
       if ( 2*vars->inLength != shdr->numSamples ) {
-        log->warning("For FX data, typically expect number of input samples to be even but that is not the case.", text.c_str());
+        writer->warning("For FX data, typically expect number of input samples to be even but that is not the case.", text.c_str());
       }
 
     } else if ( shdr->fftDataType == FK_AMP ){
-      log->line("Muting amplitudes of FK domain AMPLITUDE-ONLY data.");
+      writer->line("Muting amplitudes of FK domain AMPLITUDE-ONLY data.");
 
     } else if ( shdr->fftDataType == FK_REAL_IMAG ){
-      log->warning("Applying mute to FK domain REAL-IMAGINARY data.");
+      writer->warning("Applying mute to FK domain REAL-IMAGINARY data.");
 
     } else if ( shdr->fftDataType == FX_PSD ){
-      log->warning("Applying mute to FK domain PSD data.");
+      writer->warning("Applying mute to FK domain PSD data.");
 
     } else {
-      log->warning("Unknown FK domain type. Will process as if time. Proceed at your own risk!");
+      writer->warning("Unknown FK domain type. Will process as if time. Proceed at your own risk!");
     }      
 
   } else {
-    log->warning("Unknown domain type. Will process as if time. Proceed at your own risk!");
+    writer->warning("Unknown domain type. Will process as if time. Proceed at your own risk!");
   }
 
   // Retrieve mute table
@@ -232,12 +233,12 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
 
     // Require "table_key" info for table option
     if ( !param->exists("table_key") ){
-      log->line("ERROR:Parameter 'table_key' required with 'table' option.");
+      writer->line("ERROR:Parameter 'table_key' required with 'table' option.");
       env->addError();
     } else {
       int numKeys = param->getNumLines("table_key");
       if( numKeys == 0 ) {
-        log->line("ERROR:No table_key(s) specified.");
+        writer->line("ERROR:No table_key(s) specified.");
         env->addError(); 
       }      
       vars->hdrId_keys = new int[numKeys];
@@ -249,7 +250,7 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
         param->getIntAtLine( "table_key", &col, ikey, 1 );
         vars->table->addKey( col-1, interpolate );  // -1 to convert from 'user' column to 'C' column
         if( !hdef->headerExists( headerName ) ) {
-          log->line("ERROR:No matching trace header found for table_key = '%s'", headerName.c_str() );
+          writer->line("ERROR:No matching trace header found for table_key = '%s'", headerName.c_str() );
           env->addError();    
         } else {
           vars->hdrId_keys[ikey] = hdef->headerIndex( headerName );
@@ -260,10 +261,10 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
     // Require mute value info for table option
     int numValues = param->getNumValues("table_mute");
     if( numValues == 0 ) {
-      log->line("ERROR:No 'table_mute' specified.");
+      writer->line("ERROR:No 'table_mute' specified.");
       env->addError();    
     } else if( numValues > 2 ) {
-      log->line("ERROR:Only two 'table_mute' columns supported right now.");
+      writer->line("ERROR:Only two 'table_mute' columns supported right now.");
       env->addError();    
     } else {
       vars->nValued = numValues;
@@ -287,18 +288,18 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
         vars->table->initialize( text, sortTable );
       }
       catch( csException& exc ) {
-        log->line("ERROR:Initializing input table '%s': %s\n", text.c_str(), exc.getMessage() );
+        writer->line("ERROR:Initializing input table '%s': %s\n", text.c_str(), exc.getMessage() );
         env->addError();    
       }
 
     } else {
-      log->line("ERROR:Skipping initialization table due to previous errors\n", text.c_str());
+      writer->line("ERROR:Skipping initialization table due to previous errors\n", text.c_str());
       env->addError();          
     }
 
   } else {
     if ( param->exists("table_key") || param->exists("table_mute") ){
-      log->line("Parameters 'table_key'/'table_mute' ignored since 'table' not specified.");
+      writer->line("Parameters 'table_key'/'table_mute' ignored since 'table' not specified.");
     }
   }
 
@@ -311,7 +312,7 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
       vars->nValued++;
       param->getFloat( "time", &vars->mute_time );
       if( vars->mute_time < 0 || vars->mute_time > recordLength ) {
-        log->line("ERROR:Specified 'time' (%.0f) is outside of valid range (0-%.0f).",
+        writer->line("ERROR:Specified 'time' (%.0f) is outside of valid range (0-%.0f).",
                   vars->mute_time, vars->inLength*shdr->sampleInt );
         env->addError();    
       }
@@ -320,26 +321,26 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
         vars->nValued++;
         param->getFloat( "time2", &vars->mute_time2 );
         if( vars->mute_time2 < 0 || vars->mute_time2 > recordLength ) {
-          log->line("ERROR:Specified 'time2' (%.0f) is outside of valid range (0-%.0f).",
+          writer->line("ERROR:Specified 'time2' (%.0f) is outside of valid range (0-%.0f).",
                     vars->mute_time2, recordLength );
           env->addError();    
         }
       }
     } else if ( param->exists("time2") ){
-      log->line("ERROR:Cannot specify 'time2' without 'time'.");
+      writer->line("ERROR:Cannot specify 'time2' without 'time'.");
       env->addError();
     } else {
-      log->line("ERROR:Must specify only one of either 'table' or 'time' parameter.");
+      writer->line("ERROR:Must specify only one of either 'table' or 'time' parameter.");
       env->addError();
     }
 
   } else if ( param->exists("time") ||  param->exists("time2") ){
-    log->line("Parameters 'time'/'time2' ignored since 'table' already specified.");
+    writer->line("Parameters 'time'/'time2' ignored since 'table' already specified.");
   }
 
   // For now only 1 or 2 mute values per trace
   if ( vars->nValued < 0 || vars->nValued > 2 ){
-    log->line("ERROR:Currently can only specify one or two mute values per trace.");
+    writer->line("ERROR:Currently can only specify one or two mute values per trace.");
     env->addError();
   }
 
@@ -357,7 +358,7 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
       vars->mode = APPLY_OUTSIDE;
     } else {
       vars->mode = 0;
-      log->line("ERROR:Unknown 'mode' option: '%s'", text.c_str());
+      writer->line("ERROR:Unknown 'mode' option: '%s'", text.c_str());
       env->addError();    
     }
 
@@ -373,7 +374,7 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
   // Evaluate parameters so far. 
   if ( vars->mode == APPLY_FRONT || vars->mode == APPLY_END ) {
     if ( vars->nValued != 1 ){
-      log->line("ERROR:Cannot specify 'mode = %s' if more than one mute value per trace.", text.c_str() );
+      writer->line("ERROR:Cannot specify 'mode = %s' if more than one mute value per trace.", text.c_str() );
       env->addError();          
     }
     int sampleIndex = (int)( vars->mute_time / shdr->sampleInt );
@@ -387,7 +388,7 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
 
   } else if ( vars->mode == APPLY_INSIDE || vars->mode == APPLY_OUTSIDE ) {
     if ( vars->nValued == 1 ){
-      log->line("ERROR:Cannot specify 'mode = %s' if only one mute value per trace.", text.c_str() );
+      writer->line("ERROR:Cannot specify 'mode = %s' if only one mute value per trace.", text.c_str() );
       env->addError();          
     }
     vars->mute_start_samp = (int)( vars->mute_time / shdr->sampleInt );
@@ -406,7 +407,7 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
     } else if( text.compare("linear") == 0 ) {
       vars->taperType = TAPER_LINEAR;
     } else {
-      log->line("ERROR:Unknown 'taper_type': %s", text.c_str());
+      writer->line("ERROR:Unknown 'taper_type': %s", text.c_str());
       env->addError();    
     }
     vars->taperType_str = toUpperCase( text );
@@ -422,14 +423,14 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
     } else if( text.compare("maximum") == 0 ) {
       vars->taperApply = TAPER_APPLY_MAX;
     } else {
-      log->line("ERROR:Unknown 'taper_apply': %s", text.c_str());
+      writer->line("ERROR:Unknown 'taper_apply': %s", text.c_str());
       env->addError();    
     }
     vars->taperApply_str = toUpperCase( text );
   }
 
   if ( vars->taperLengthSamples > 0 ){
-    log->line("A %s taper of length %d samples will be applied at the %s of the mute.", 
+    writer->line("A %s taper of length %d samples will be applied at the %s of the mute.", 
               vars->taperType_str.c_str(), 
               vars->taperLengthSamples,
               vars->taperApply_str.c_str() );
@@ -447,11 +448,11 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
       param->getFloat( "window", &endTime, 2 );
       vars->windowStartSample = std::max( 0, (int)round( startTime / (float)shdr->sampleInt ) );
       vars->windowEndSample   = std::min( shdr->numSamples-1, (int)round( endTime / (float)shdr->sampleInt ) );
-      if( vars->windowStartSample >= shdr->numSamples ) log->error("Window start time (=%f) exceeds trace length (=%f)", startTime, shdr->numSamples );
-      if( vars->windowEndSample <= vars->windowStartSample ) log->error("Window start time (=%f) exceeds or equals window end time (=%f)", startTime, endTime );
+      if( vars->windowStartSample >= shdr->numSamples ) writer->error("Window start time (=%f) exceeds trace length (=%f)", startTime, shdr->numSamples );
+      if( vars->windowEndSample <= vars->windowStartSample ) writer->error("Window start time (=%f) exceeds or equals window end time (=%f)", startTime, endTime );
     }
     else {
-      log->error("Unknown mode option: '%s'", text.c_str());
+      writer->error("Unknown mode option: '%s'", text.c_str());
     }
   }
 
@@ -464,7 +465,7 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
     } else if( text.compare("no") == 0 ) {
       vars->killZeroTraces = false;
     } else {
-      log->line("ERROR:Unknown 'kill' option: '%s'", text.c_str());
+      writer->line("ERROR:Unknown 'kill' option: '%s'", text.c_str());
       env->addError();    
     }
   }
@@ -483,27 +484,18 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
 //*************************************************************************************************
 // Exec phase
 //*************************************************************************************************
-bool exec_mod_mute_(
-                    csTrace* trace,
-                    int* port,
-                    csExecPhaseEnv* env, csLogWriter* log )
+void exec_mod_mute_(
+  csTraceGather* traceGather,
+  int* port,
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup()){
-    if( vars->table != NULL ) {
-      delete vars->table;
-      vars->table = NULL;
-    }
-    if( vars->hdrId_keys != NULL ) {
-      delete [] vars->hdrId_keys;
-      vars->hdrId_keys = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
 
   float* samples = trace->getTraceSamples();
 
@@ -519,7 +511,7 @@ bool exec_mod_mute_(
     }
     catch( csException& e ) {
       delete [] keyValueBuffer;
-      log->error("MUTE:ERROR:Retrieving mute value from table %s", e.getMessage());
+      writer->error("MUTE:ERROR:Retrieving mute value from table %s", e.getMessage());
       throw(e);
     }
     if ( vars->nValued == 2 ){
@@ -528,7 +520,7 @@ bool exec_mod_mute_(
       }
       catch( csException& e ) {
         delete [] keyValueBuffer;
-        log->error("MUTE:ERROR:Retrieving second mute value from table %s", e.getMessage());
+        writer->error("MUTE:ERROR:Retrieving second mute value from table %s", e.getMessage());
         throw(e);
       }
     }
@@ -551,7 +543,7 @@ bool exec_mod_mute_(
         samples[isamp] = vars->indicateValue;
       }      
     }
-    return true;
+    return;
   }
 
   // Note: Taper_start/_end are samples, so taper_start is always < taper_end. 
@@ -595,7 +587,7 @@ bool exec_mod_mute_(
         mute_end    = taper_start - 1; 
 
         // nothing muted
-        if ( taper_end < 0 ){return true;}
+        if ( taper_end < 0 ){ return; }
 
         // Do taper here
         do_taper_front( vars->taperType, vars->taperLengthSamples, 
@@ -629,7 +621,7 @@ bool exec_mod_mute_(
         mute_start  = taper_end;
 
         // nothing muted
-        if ( taper_start > vars->inLength-1 ){return true;}
+        if ( taper_start > vars->inLength-1 ){return ;}
 
         // Do taper here
         do_taper_end( vars->taperType, vars->taperLengthSamples, 
@@ -640,7 +632,10 @@ bool exec_mod_mute_(
     }
 
     // Kill trace?
-    if( vars->killZeroTraces && mute_end >= vars->inLength-1 && mute_start <= 0 ) {return false;}
+    if( vars->killZeroTraces && mute_end >= vars->inLength-1 && mute_start <= 0 ) {
+      traceGather->freeAllTraces();
+      return;
+    }
 
     // Do hard FRONT/END mute here
     do_mute( mute_start, mute_end, samples );
@@ -685,7 +680,7 @@ bool exec_mod_mute_(
         mute_end     = taper_start2 - 1;
 
         // Nothing muted        
-        if ( taper_start1 >= taper_end2 ){return true;}
+        if ( taper_start1 >= taper_end2 ){return;}
 
         // Deal with special case of crossing tapers!
         int taper_end_final   = vars->inLength-1;
@@ -706,7 +701,10 @@ bool exec_mod_mute_(
                         taper_front_zero, vars->inLength-1 );
       }
 
-      if( vars->killZeroTraces && mute_end >= vars->inLength-1 && mute_start <= 0 ) {return false;}
+      if( vars->killZeroTraces && mute_end >= vars->inLength-1 && mute_start <= 0 ) {
+        traceGather->freeAllTraces();
+        return;
+      }
 
       // Hard mute between the two mutes
       do_mute( mute_start, mute_end, samples );
@@ -737,7 +735,7 @@ bool exec_mod_mute_(
         mute_end     = taper_end2;
 
         // Nothing muted
-        if ( taper_end1 < 0 && taper_start2 > vars->inLength-1 ){return true;}
+        if ( taper_end1 < 0 && taper_start2 > vars->inLength-1 ){return;}
 
         // Do taper here
         do_taper_front( vars->taperType, vars->taperLengthSamples, 
@@ -748,7 +746,10 @@ bool exec_mod_mute_(
                       zero, vars->inLength-1 );        
       }
 
-      if( vars->killZeroTraces && mute_start >= mute_end ) {return false;}
+      if( vars->killZeroTraces && mute_start >= mute_end ) {
+        traceGather->freeAllTraces();
+        return;
+      }
 
       // Hard mute outside the two times
       do_mute( 0, mute_start, samples );
@@ -756,7 +757,7 @@ bool exec_mod_mute_(
     }
   }  
   
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -833,13 +834,49 @@ void params_mod_mute_( csParamDef* pdef ) {
 
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_mute_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_mute::VariableStruct* vars = reinterpret_cast<mod_mute::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_mute_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_mute::VariableStruct* vars = reinterpret_cast<mod_mute::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->table != NULL ) {
+    delete vars->table;
+    vars->table = NULL;
+  }
+  if( vars->hdrId_keys != NULL ) {
+    delete [] vars->hdrId_keys;
+    vars->hdrId_keys = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_mute_( csParamDef* pdef ) {
   params_mod_mute_( pdef );
 }
-extern "C" void _init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_mute_( param, env, log );
+extern "C" void _init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_mute_( param, env, writer );
 }
-extern "C" bool _exec_mod_mute_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_mute_( trace, port, env, log );
+extern "C" bool _start_exec_mod_mute_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_mute_( env, writer );
 }
-
+extern "C" void _exec_mod_mute_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_mute_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_mute_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_mute_( env, writer );
+}

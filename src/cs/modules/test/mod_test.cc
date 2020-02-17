@@ -19,7 +19,7 @@ using mod_test::VariableStruct;
 //*************************************************************************************************
 // Init phase
 //
-void init_mod_test_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_test_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   csTraceHeaderDef* hdef = env->headerDef;
@@ -31,12 +31,13 @@ void init_mod_test_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
   vars->numTracesToSkip = 0;
   vars->hdrID = -1;
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
   if( param->exists("skip") ) {
     param->getInt("skip", &vars->numTracesToSkip );
     if( vars->numTracesToSkip < 0 ) {
-      log->error("Incorrect entry for number of traces to skip: %d", vars->numTracesToSkip);
+      writer->error("Incorrect entry for number of traces to skip: %d", vars->numTracesToSkip);
     }
   }
   if( param->exists("header") ) {
@@ -54,19 +55,19 @@ void init_mod_test_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
 //*************************************************************************************************
 // Exec phase
 //
-bool exec_mod_test_(
-  csTrace* trace,
+void exec_mod_test_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>(env->execPhaseDef->variables());
-  csExecPhaseDef* edef = env->execPhaseDef;
+  //  csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup()){
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
 
   vars->traceCounter += 1;
   if( vars->traceCounter > vars->numTracesToSkip ) {
@@ -82,10 +83,11 @@ bool exec_mod_test_(
     csTraceHeader* trcHdr = trace->getTraceHeader();
     trcHdr->setFloatValue( vars->hdrID, mean );
     vars->traceCounter = 0;
-    return true;
+    return;
   }
   else {
-    return false;
+    traceGather->freeAllTraces();
+    return;
   }
 }
 
@@ -101,13 +103,41 @@ void params_mod_test_( csParamDef* pdef ) {
   pdef->addParam( "header", "Trace header to store mean trace value", NUM_VALUES_FIXED );
   pdef->addValue( "mean", VALTYPE_STRING, "Trace header name" );
 }
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_test_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_test::VariableStruct* vars = reinterpret_cast<mod_test::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_test_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_test::VariableStruct* vars = reinterpret_cast<mod_test::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_test_( csParamDef* pdef ) {
   params_mod_test_( pdef );
 }
-extern "C" void _init_mod_test_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_test_( param, env, log );
+extern "C" void _init_mod_test_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_test_( param, env, writer );
 }
-extern "C" bool _exec_mod_test_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_test_( trace, port, env, log );
+extern "C" bool _start_exec_mod_test_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_test_( env, writer );
 }
-
+extern "C" void _exec_mod_test_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_test_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_test_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_test_( env, writer );
+}

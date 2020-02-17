@@ -5,7 +5,7 @@
 #define CS_SEGY_TRACE_H
 
 #include <string>
-#include "csSegyHeader.h"
+#include "csSegyDefines.h"
 #include "csByteHeader.h"
 
 namespace cseis_geolib {
@@ -22,7 +22,7 @@ public:
   csSegyTrace( int numSamples ) {
     myNumSamples = numSamples;
     myDataBuffer = new float[myNumSamples];
-    myHdr = new csByteHeader( csSegyHeader::SIZE_TRCHDR );
+    myHdr = new csByteHeader( cseis_segy::SIZE_TRCHDR );
   }
   float const* getSamples() {
     return myDataBuffer;

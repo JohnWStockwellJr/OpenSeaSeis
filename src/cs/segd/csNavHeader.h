@@ -44,10 +44,10 @@ typedef struct
   int distOffline;         // 133-138 Distance offline (I5M) 
   int distInline;          // 140-148 Distance inline (I8M) 
   int lineStatus;          // 150-150 Line status (I2)
-                        	              //  0 Off line
-                        								//	1 Approach
-                        								//	2 On line
-                        								//	3 Run out 
+  //  0 Off line
+  //  1 Approach
+  //  2 On line
+  //  3 Run out 
   float GPSHeight;         // 152-157 GPS height (F5.1M) 
   char lineName[16+1];          //  159-174  Line name (A16) 
   char eod;                    // 175-175 End of HydroNav data '*' 
@@ -75,10 +75,10 @@ typedef struct
   int distOffline;       // 133-138 Distance offline (I5M) 
   int distInline;        // 140-148 Distance inline (I8M) 
   int lineStatus;        // 150-150 Line status (I2)
-                        	            //    0 Off line
-                        							//		1 Approach
-                        							//		2 On line
-                        							//		3 Run out 
+  //    0 Off line
+  //    1 Approach
+  //    2 On line
+  //    3 Run out 
   float GPSHeight;         // 152-157 GPS height (F5.1M) 
   char vesselId[15+1];         // 159-173 Vessel id (A15) 
   char eod;                    // 175-175 End of HydroNav data '*' 

@@ -86,12 +86,10 @@ namespace mod_fft_2d {
 }
 using namespace mod_fft_2d;
 
-bool factor_2357( int &in, int &out );
-
 //*************************************************************************************************
 // Init phase
 //*************************************************************************************************
-void init_mod_fft_2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_fft_2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   csSuperHeader*    shdr = env->superHeader;
@@ -99,7 +97,6 @@ void init_mod_fft_2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
   VariableStruct* vars   = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
   edef->setTraceSelectionMode( TRCMODE_ENSEMBLE );
 
   // Initialize
@@ -134,7 +131,7 @@ void init_mod_fft_2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       vars->normalize = false;
     }
     else {
-      log->line("ERROR:Unknown 'norm' option: %s", text.c_str());
+      writer->line("ERROR:Unknown 'norm' option: %s", text.c_str());
       env->addError();
     }
   }
@@ -148,7 +145,7 @@ void init_mod_fft_2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
   if ( text.compare("forward") == 0 ) {
     direction = FORWARD;
     vars->direction_str = "FORWARD";
-    log->line("FORWARD transform.");
+    writer->line("FORWARD transform.");
 
     // Override domain stored in the superheader if it conflicts with the user parameters.
     bool override_domain = false;
@@ -160,7 +157,7 @@ void init_mod_fft_2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       } else if( text.compare("no")  == 0 ) {
         override_domain = false;
       } else {
-        log->line("ERROR:Unknown 'override_domain' option: %s", text.c_str());
+        writer->line("ERROR:Unknown 'override_domain' option: %s", text.c_str());
         env->addError();
       }
     }
@@ -184,13 +181,13 @@ void init_mod_fft_2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
         vars->taperLengthInSamples = shdr->numSamples/2;
 
       } else {
-        log->line("ERROR:Unknown 'taper_type' option: %s", text.c_str());
+        writer->line("ERROR:Unknown 'taper_type' option: %s", text.c_str());
         env->addError();
       }
     }
     if( param->exists("taper_len") ) {
       if( vars->taperType == TAPER_HANNING ) {
-        log->line("ERROR:Cannot specify 'taper_len' for Hanning taper, taper length is fixed to half the trace length");
+        writer->line("ERROR:Cannot specify 'taper_len' for Hanning taper, taper length is fixed to half the trace length");
         env->addError();
       } else {
         param->getInt("taper_len", &vars->taperLengthInSamples);
@@ -207,7 +204,7 @@ void init_mod_fft_2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       } else if( text.compare("no")  == 0 ) {
         optimize_length = false;
       } else {
-        log->line("ERROR:Unknown 'optimize_length' option: %s", text.c_str());
+        writer->line("ERROR:Unknown 'optimize_length' option: %s", text.c_str());
         env->addError();
       }
     }
@@ -215,9 +212,9 @@ void init_mod_fft_2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
     // Check the input domain and set the output domain.
     if( shdr->domain != DOMAIN_XT ) {
       if ( override_domain ) {
-        log->warning("Input traces do not appear to be in XT domain but 'override' specified." );
+        writer->warning("Input traces do not appear to be in XT domain but 'override' specified." );
       } else {
-        log->line("ERROR:Input traces are not in XT domain. FFT forward transform not possible." );
+        writer->line("ERROR:Input traces are not in XT domain. FFT forward transform not possible." );
         env->addError();
       }
     }
@@ -227,15 +224,16 @@ void init_mod_fft_2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
     int nin = vars->nSamplesTime;
     int nout = 0;
     if ( optimize_length ) {
-      if ( factor_2357( nin, nout ) ){
-        log->line("Optimizing number of real samples to transform to %d (input is %d).", nout, nin );
-      } else {
-        log->line("ERROR:Failed optimizing FFT length %d.", nin );
+      if( cseis_geolib::factor_2357( nin, nout ) ) {
+        writer->line("Optimizing number of real samples to transform to %d (input is %d).", nout, nin );
+      }
+      else {
+        writer->line("ERROR:Failed optimizing FFT length %d.", nin );
         env->addError();              
       }    
     } else {
       nout = nin;
-      log->line("Trace length NOT optimized for FFT: %d.", nin );
+      writer->line("Trace length NOT optimized for FFT: %d.", nin );
     }
     vars->nSamplesToFFT = nout;
     //    vars->nSamplesToFFT = vars->nSamplesTime;
@@ -271,17 +269,17 @@ void init_mod_fft_2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       vars->fftDataType      = FK_PSD;
 
     } else {
-      log->line("ERROR: Unknown 'output' parameter specified: %s", text.c_str() );
+      writer->line("ERROR: Unknown 'output' parameter specified: %s", text.c_str() );
       env->addError();
     }
-    log->line("Transformed data will be output in format: %s", text.c_str() );
+    writer->line("Transformed data will be output in format: %s", text.c_str() );
     if ( vars->fftDataType != FK_AMP_PHASE 
          && vars->fftDataType != FK_REAL_IMAG
          && vars->fftDataType != FK_COMPLEX ){
-      log->warning("Will not be able to inverse transform data if only %s data output.", text.c_str() );
+      writer->warning("Will not be able to inverse transform data if only %s data output.", text.c_str() );
     }
 
-    log->line("Number of output samples is %d.",vars->nSamplesToOutput );
+    writer->line("Number of output samples is %d.",vars->nSamplesToOutput );
 
     // Fixed number of output traces, optionally optimize.
     if( param->exists("fix_ntr") ){
@@ -297,27 +295,27 @@ void init_mod_fft_2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
         } else if ( text.compare("no") == 0 ){
           do_opt = false;
         } else {
-          log->line("ERROR:Unknown value for 'fix_ntr': %s.", text.c_str());
+          writer->line("ERROR:Unknown value for 'fix_ntr': %s.", text.c_str());
           env->addError();    
         }
       }
 
       if ( do_opt ){
         int out;
-        if ( factor_2357( fixntr, out ) ){
-          log->line("Fixing optimum number of traces at %d (specified was %d).", out, fixntr);
+        if( cseis_geolib::factor_2357( fixntr, out ) ) {
+          writer->line("Fixing optimum number of traces at %d (specified was %d).", out, fixntr);
           fixntr = out;
         } else {
-          log->line("ERROR:Cannot optimize 'fix_ntr': %d.",  fixntr );
+          writer->line("ERROR:Cannot optimize 'fix_ntr': %d.",  fixntr );
           env->addError();              
         }
       } else {
-        log->line("Fixing number of output traces at %d. NOT optimized for FFT.", fixntr);
+        writer->line("Fixing number of output traces at %d. NOT optimized for FFT.", fixntr);
       }
 
       vars->fixedNtr = fixntr;
     } else {
-      log->line("Number of traces in output ensemble will be same as number of input traces. Not optimized");
+      writer->line("Number of traces in output ensemble will be same as number of input traces. Not optimized");
     }
 
     // At the start, always measure; reset automatically in exec if neeeded.
@@ -336,7 +334,7 @@ void init_mod_fft_2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
     vars->timeSampleRate = vars->sampleRateInput;
     vars->nyquist = 1./(2.*(vars->timeSampleRate/1000.0));
     vars->freqSampleRate = vars->nyquist/((float)vars->nFreqToFFT-1);
-    log->line("Input sample rate = %f -> Nyquist is %f @ delta f = %f.",
+    writer->line("Input sample rate = %f -> Nyquist is %f @ delta f = %f.",
               vars->timeSampleRate, vars->nyquist, vars->freqSampleRate );
     
     // Save the time-domain information now.
@@ -354,18 +352,18 @@ void init_mod_fft_2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
   } else   if ( text.compare("inverse") == 0 ) {
     direction = INVERSE;
     vars->direction_str = "INVERSE";
-    log->line("INVERSE transform.");
+    writer->line("INVERSE transform.");
 
-    if( param->exists("output") ) {log->warning("Option 'ouput' ignored for INVERSE." ); }
-    if( param->exists("override") ) {log->warning("Option 'override' ignored for INVERSE." ); }
-    if( param->exists("fix_ntr") ) {log->warning("Option 'fix_ntr' ignored for INVERSE." ); }
-    if( param->exists("length_opt") ) {log->warning("Option 'length_opt' ignored for INVERSE." ); }
-    if( param->exists("taper_type") ) {log->warning("Option 'taper_type' ignored for INVERSE." ); }
-    if( param->exists("taper_len") ) {log->warning("Option 'taper_len' ignored for INVERSE." ); }
+    if( param->exists("output") ) {writer->warning("Option 'ouput' ignored for INVERSE." ); }
+    if( param->exists("override") ) {writer->warning("Option 'override' ignored for INVERSE." ); }
+    if( param->exists("fix_ntr") ) {writer->warning("Option 'fix_ntr' ignored for INVERSE." ); }
+    if( param->exists("length_opt") ) {writer->warning("Option 'length_opt' ignored for INVERSE." ); }
+    if( param->exists("taper_type") ) {writer->warning("Option 'taper_type' ignored for INVERSE." ); }
+    if( param->exists("taper_len") ) {writer->warning("Option 'taper_len' ignored for INVERSE." ); }
 
     // Check the input domain and set the output domain.
     if( shdr->domain != DOMAIN_FK ) {
-      log->line("ERROR:Input traces are not in FK domain. FFT inverse transform not possible" );
+      writer->line("ERROR:Input traces are not in FK domain. FFT inverse transform not possible" );
       env->addError();
     }
 
@@ -383,15 +381,15 @@ void init_mod_fft_2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       text = "FK_PSD";
     } else {
       text = "UNKNOWN";
-      log->line("ERROR:Cannot inverse transform data of type %d.", vars->fftDataType );
+      writer->line("ERROR:Cannot inverse transform data of type %d.", vars->fftDataType );
       env->addError();      
     }
 
-    log->line("Determined input data is in format: %s", text.c_str() );
+    writer->line("Determined input data is in format: %s", text.c_str() );
     if ( vars->fftDataType != FK_AMP_PHASE 
          && vars->fftDataType != FK_REAL_IMAG
          && vars->fftDataType != FK_COMPLEX ){
-      log->line("ERROR: Cannot inverse transform data if only %s data present.", text.c_str() );
+      writer->line("ERROR: Cannot inverse transform data if only %s data present.", text.c_str() );
       env->addError();
     }
 
@@ -413,7 +411,7 @@ void init_mod_fft_2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       vars->padID = hdef->headerIndex( vars->padHeader );
       hdef->deleteHeader( vars->padHeader );
     } else {
-      log->warning("Missing %s header. Cannot determine if traces were padded. All traces will be output.", vars->padHeader.c_str() );
+      writer->warning("Missing %s header. Cannot determine if traces were padded. All traces will be output.", vars->padHeader.c_str() );
     }
 
     // FORWARD headers no longer needed
@@ -430,7 +428,7 @@ void init_mod_fft_2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
     shdr->fftDataType = FK_NONE;
 
   } else {
-    log->line("ERROR: Unknown 'direction' parameter specified: %s", text.c_str() );
+    writer->line("ERROR: Unknown 'direction' parameter specified: %s", text.c_str() );
     env->addError();
   }
   vars->direction = direction;
@@ -446,27 +444,13 @@ void exec_mod_fft_2d_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader    const* shdr = env->superHeader;
   csTraceHeaderDef const* hdef = env->headerDef;
 
-  if( edef->isCleanup()){
-    if( vars->realBuffer != NULL ) {
-      fftw_free(vars->realBuffer); vars->realBuffer = NULL;
-    }
-    if( vars->complexBuffer != NULL ) {
-      fftw_free(vars->complexBuffer); vars->complexBuffer = NULL;
-    }   
-    if( vars->myPlan != NULL ) {
-      fftw_destroy_plan (vars->myPlan); vars->myPlan = NULL;
-    }
-    delete vars; 
-    vars = NULL;
-    return;
-  }
 
   int numTracesIn = traceGather->numTraces();
 
@@ -477,7 +461,7 @@ void exec_mod_fft_2d_(
 
     //Make sure the number of traces doesn't exceed the fixed value.
     if ( traceGather->numTraces() >  vars->fixedNtr ) {
-      log->error("Number of traces input %d exceeds user specified limit % d", numTracesIn, vars->fixedNtr );
+      writer->error("Number of traces input %d exceeds user specified limit % d", numTracesIn, vars->fixedNtr );
     }
 
   } else {
@@ -905,45 +889,51 @@ void params_mod_fft_2d_( csParamDef* pdef ) {
 
 }
 
-extern "C" void _params_mod_fft_2d_( csParamDef* pdef ) {
-  params_mod_fft_2d_( pdef );
-}
-extern "C" void _init_mod_fft_2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_fft_2d_( param, env, log );
-}
-extern "C" void _exec_mod_fft_2d_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_fft_2d_( traceGather, port, numTrcToKeep, env, log );
-}
 
-// Calculate the first multiple of small primes (2,3,5 and 7) greater than or 
-// equal to the input value. 
-bool factor_2357( int &in, int &out ){
-  int  test,  n2, n3, n5, n7, count;
-
-  out = -1;
-  if ( in < 0 || in > (INT_MAX-1) ) return false; // Fail if input bad  
-  if ( in <=1 ){ out = 1; return true; } // Skip the loop for the easy one. 
-
-  // Factor-out small primes from the input number. It should reduce to 1 once 
-  // it is a perfect factor of 2,3,5 and 7. If not, increment the input and repeat.
-  // Fail if the number of iterations or the test value gets to large. 
-  test  = 0;
-  count = 0;
-  while ( test != 1 && count < INT_MAX ){
-     test = in+count;
-     if ( test == INT_MAX ) break;
-     count++;     
-
-     n2=n3=n5=n7=0;
-     while ( test%7 == 0 ){ test = test/7; n7++; }
-     while ( test%5 == 0 ){ test = test/5; n5++; }
-     while ( test%3 == 0 ){ test = test/3; n3++; }
-     while ( test%2 == 0 ){ test = test/2; n2++; }
-
-  }
-  if ( test != 1 ) return false;
-  out = (int)round(pow(2.0,n2) * pow(3.0,n3) * pow(5.0,n5) * pow(7.0,n7));
-
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_fft_2d_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_fft_2d::VariableStruct* vars = reinterpret_cast<mod_fft_2d::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
   return true;
 }
 
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_fft_2d_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_fft_2d::VariableStruct* vars = reinterpret_cast<mod_fft_2d::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->realBuffer != NULL ) {
+    fftw_free(vars->realBuffer); vars->realBuffer = NULL;
+  }
+  if( vars->complexBuffer != NULL ) {
+    fftw_free(vars->complexBuffer); vars->complexBuffer = NULL;
+  }   
+  if( vars->myPlan != NULL ) {
+    fftw_destroy_plan (vars->myPlan); vars->myPlan = NULL;
+  }
+  delete vars; 
+  vars = NULL;
+}
+
+extern "C" void _params_mod_fft_2d_( csParamDef* pdef ) {
+  params_mod_fft_2d_( pdef );
+}
+extern "C" void _init_mod_fft_2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_fft_2d_( param, env, writer );
+}
+extern "C" bool _start_exec_mod_fft_2d_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_fft_2d_( env, writer );
+}
+extern "C" void _exec_mod_fft_2d_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_fft_2d_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_fft_2d_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_fft_2d_( env, writer );
+}

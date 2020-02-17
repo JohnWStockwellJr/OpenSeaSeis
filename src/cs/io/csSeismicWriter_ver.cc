@@ -161,7 +161,7 @@ bool csSeismicWriter_ver::writeFileHeader( csSeismicIOConfig const* config ) {
   appendInt( config->byteSizeHdrValueBlock );
 
   appendInt( numTrcHdrs );
-  char randomName[3];
+  char randomName[4];
   int randomCounter = 0;
   for( int ihdr = 0; ihdr < numTrcHdrs; ihdr++ ) {
     cseis_geolib::csHeaderInfo const* info;
@@ -176,6 +176,7 @@ bool csSeismicWriter_ver::writeFileHeader( csSeismicIOConfig const* config ) {
     }
     else {
       // ??? Zero length header name. This must be a bug in CSEIS. Give this header a random name...
+      if( randomCounter >= 99 ) randomCounter = 0;
       sprintf(randomName,"A%-2d", randomCounter++);
       appendInt( 3 );
       appendString( randomName, 3 );

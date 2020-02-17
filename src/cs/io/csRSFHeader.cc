@@ -2,6 +2,7 @@
 /* All rights reserved.                       */
 
 #include "csRSFHeader.h"
+#include "geolib_defines.h"
 #include <cstring>
 
 using namespace std;
@@ -11,9 +12,11 @@ csRSFHeader::csRSFHeader() {
   n1 = 0;
   n2 = 0;
   n3 = 0;
-  o1 = 0; o2 = 0; o3 = 0;
-  e1 = 0; e2 = 0; e3 = 0;
-  d1 = 0; d2 = 0; d3 = 0;
+  n4 = 0;
+  n5 = 0;
+  o1 = 0; o2 = 0; o3 = 0; o4 = 0; o5 = 0;
+  e1 = 0; e2 = 0; e3 = 0; e4 = 0; e5 = 0;
+  d1 = 0; d2 = 0; d3 = 0; d4 = 0; d5=0;
   world_x1 = 0; world_x2 = 0; world_x3 = 0;
   world_y1 = 0; world_y2 = 0; world_y3 = 0;
   il1 = il2 = il3 = 0;
@@ -22,6 +25,10 @@ csRSFHeader::csRSFHeader() {
   unit1 = csRSFHeader::SAMPLE_UNIT_UNKNOWN;
   unit2 = csRSFHeader::SAMPLE_UNIT_UNKNOWN;
   unit3 = csRSFHeader::SAMPLE_UNIT_UNKNOWN;
+  unit4 = csRSFHeader::SAMPLE_UNIT_UNKNOWN;
+  unit5 = csRSFHeader::SAMPLE_UNIT_UNKNOWN;
+  sou_x = sou_y = sou_z = 0;
+  domain1 = cseis_geolib::DOMAIN_XT;
   esize = 4;
   filename_bin = "";
   filename_bin_full_path = "";
@@ -31,18 +38,26 @@ void csRSFHeader::set( csRSFHeader const& hdr ) {
   n1 = hdr.n1;
   n2 = hdr.n2;
   n3 = hdr.n3;
+  n4 = hdr.n4;
+  n5 = hdr.n5;
   
   o1 = hdr.o1;
   o2 = hdr.o2;
   o3 = hdr.o3;
+  o4 = hdr.o4;
+  o5 = hdr.o5;
   
   e1 = hdr.e1;
   e2 = hdr.e2;
   e3 = hdr.e3;
+  e4 = hdr.e4;
+  e5 = hdr.e5;
 
   d1 = hdr.d1;
   d2 = hdr.d2;
   d3 = hdr.d3;
+  d4 = hdr.d4;
+  d5 = hdr.d5;
 
   world_x1 = hdr.world_x1;
   world_x2 = hdr.world_x2;
@@ -63,9 +78,17 @@ void csRSFHeader::set( csRSFHeader const& hdr ) {
   ild = hdr.ild;
   xld = hdr.xld;
 
+  sou_x = hdr.sou_x;
+  sou_y = hdr.sou_y;
+  sou_z = hdr.sou_z;
+
   unit1 = hdr.unit1;
   unit2 = hdr.unit2;
   unit3 = hdr.unit3;
+  unit4 = hdr.unit4;
+  unit5 = hdr.unit5;
+
+  domain1 = hdr.domain1;
 
   data_format = hdr.data_format;
   esize = hdr.esize;
@@ -81,7 +104,7 @@ bool csRSFHeader::setField( char const* name, char const* value ) {
     int length = (int)strlen(value);
     if( length > 0 ) {
       if( value[0] == '\"' ) {
-	value = &value[1];
+        value = &value[1];
         length -= 1;
       }
       if( value[length-1] == '\"' ) {
@@ -113,6 +136,12 @@ bool csRSFHeader::setField( char const* name, char const* value ) {
   else if( !strcmp(name,"n3") ) {
     n3 = atoi(value); found = true;
   }
+  else if( !strcmp(name,"n4") ) {
+    n4 = atoi(value); found = true;
+  }
+  else if( !strcmp(name,"n5") ) {
+    n5 = atoi(value); found = true;
+  }
   else if( !strcmp(name,"o1") ) {
     o1 = atof(value); found = true;
   }
@@ -121,6 +150,12 @@ bool csRSFHeader::setField( char const* name, char const* value ) {
   }
   else if( !strcmp(name,"o3") ) {
     o3 = atof(value); found = true;
+  }
+  else if( !strcmp(name,"o4") ) {
+    o4 = atof(value); found = true;
+  }
+  else if( !strcmp(name,"o5") ) {
+    o5 = atof(value); found = true;
   }
   else if( !strcmp(name,"e1") ) {
     e1 = atof(value); found = true;
@@ -131,6 +166,12 @@ bool csRSFHeader::setField( char const* name, char const* value ) {
   else if( !strcmp(name,"e3") ) {
     e3 = atof(value); found = true;
   }
+  else if( !strcmp(name,"e4") ) {
+    e4 = atof(value); found = true;
+  }
+  else if( !strcmp(name,"e5") ) {
+    e5 = atof(value); found = true;
+  }
   else if( !strcmp(name,"d1") ) {
     d1 = atof(value); found = true;
   }
@@ -139,6 +180,12 @@ bool csRSFHeader::setField( char const* name, char const* value ) {
   }
   else if( !strcmp(name,"d3") ) {
     d3 = atof(value); found = true;
+  }
+  else if( !strcmp(name,"d4") ) {
+    d4 = atof(value); found = true;
+  }
+  else if( !strcmp(name,"d5") ) {
+    d5 = atof(value); found = true;
   }
   else if( !strcmp(name,"world_x1") ) {
     world_x1 = atof(value); found = true;
@@ -157,6 +204,15 @@ bool csRSFHeader::setField( char const* name, char const* value ) {
   }
   else if( !strcmp(name,"world_y3") ) {
     world_y3 = atof(value); found = true;
+  }
+  else if( !strcmp(name,"src_x") ) {
+    sou_x = atof(value); found = true;
+  }
+  else if( !strcmp(name,"src_y") ) {
+    sou_y = atof(value); found = true;
+  }
+  else if( !strcmp(name,"src_z") ) {
+    sou_z = atof(value); found = true;
   }
   else if( !strcmp(name,"il1") ) {
     il1 = atof(value); found = true;
@@ -193,6 +249,18 @@ bool csRSFHeader::setField( char const* name, char const* value ) {
     }
     else if( !strcmp(name,"unit3") ) {
       unit3 = unit;
+    }
+    else if( !strcmp(name,"unit4") ) {
+      unit4 = unit;
+    }
+    else if( !strcmp(name,"unit5") ) {
+      unit5 = unit;
+    }
+  }
+  else if( !strncmp(name,"label1",6) ) {
+    found = true;
+    if( !strcmp(value,"depth") ) {
+      domain1 = cseis_geolib::DOMAIN_XD;
     }
   }
   return found;
@@ -237,6 +305,26 @@ void csRSFHeader::dump( FILE* stream, bool outputGrid ) {
     fprintf(stream,"unit3=%d\n",unit3);
   }
 
+  if( n4 > 0 ) {
+    fprintf(stream,"n4=%d\n",n4);
+    fprintf(stream,"d4=%f\n",d4);
+    fprintf(stream,"o4=%f\n",o4);
+    fprintf(stream,"e4=%f\n",e4);
+    if( unit4 != csRSFHeader::SAMPLE_UNIT_UNKNOWN ) {
+      fprintf(stream,"unit4=%d\n",unit4);
+    }
+  }
+
+  if( n5 > 0 ) {
+    fprintf(stream,"n5=%d\n",n5);
+    fprintf(stream,"d5=%f\n",d5);
+    fprintf(stream,"o5=%f\n",o5);
+    fprintf(stream,"e5=%f\n",e5);
+    if( unit5 != csRSFHeader::SAMPLE_UNIT_UNKNOWN ) {
+      fprintf(stream,"unit5=%d\n",unit5);
+    }
+  }
+
 
   if( outputGrid ) {
     fprintf(stream,"xl1=%f\n",xl1);
@@ -274,10 +362,8 @@ bool csRSFHeader::readRSFHeaderFile( char const* filename_rsf, csRSFHeader& hdr 
       char* name = cPtr;
       cPtr = strtok(NULL,"=");
       if( cPtr != NULL ) {
-	char* value = cPtr;
-	hdr.setField( name, value );
-	//  bool success = hdr.setField( name, value );
-	//	  fprintf(stderr,"%s set field '%s' to '%s'\n", success ? "successfully" : "unsuccessfully", name, value);
+        char* value = cPtr;
+        hdr.setField( name, value );
       }
     }
   }

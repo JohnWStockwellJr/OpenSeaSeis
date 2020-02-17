@@ -34,7 +34,7 @@ using mod_kill::VariableStruct;
 //
 //
 //*************************************************************************************************
-void init_mod_kill_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_kill_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -42,7 +42,8 @@ void init_mod_kill_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
   
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
   vars->killZeroTraces  = false;
   vars->killOneZeroTrace = false;
@@ -67,7 +68,7 @@ void init_mod_kill_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
       vars->killOneZeroTrace = true;
     }
     else {
-      log->error( "Option not recognised: '%s'", text.c_str() );
+      writer->error( "Option not recognised: '%s'", text.c_str() );
     }
   }
 
@@ -76,7 +77,7 @@ void init_mod_kill_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
     // Create new headers
     int nLines = param->getNumLines( "header" );
     if( nLines > 1 ) {
-      log->line( "More than one line encountered for user parameter '%s'. Only one line is supported.", "header" );
+      writer->line( "More than one line encountered for user parameter '%s'. Only one line is supported.", "header" );
       env->addError();
     }
 
@@ -84,7 +85,7 @@ void init_mod_kill_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
     param->getAll( "header", &valueList );
 
     if( valueList.size() == 0 ) {
-      log->line("Wrong number of arguments for user parameter '%s'. Expected: >0, found: %d.", "header", valueList.size());
+      writer->line("Wrong number of arguments for user parameter '%s'. Expected: >0, found: %d.", "header", valueList.size());
       env->addError();
     }
     else {
@@ -98,7 +99,7 @@ void init_mod_kill_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
       }
       catch( csException& e ) {
         vars->selectionManager = NULL;
-        log->error( "%s", e.getMessage() );
+        writer->error( "%s", e.getMessage() );
       }
       if( edef->isDebug() ) vars->selectionManager->dump();
     }
@@ -113,11 +114,11 @@ void init_mod_kill_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
       vars->isModeInclude = false;
     }
     else {
-      log->error( "Mode option not recognised: '%s'", text.c_str() );
+      writer->error( "Mode option not recognised: '%s'", text.c_str() );
     }
   }
 
-  if( edef->isDebug() ) log->line("Mode include: %d", vars->isModeInclude );
+  if( edef->isDebug() ) writer->line("Mode include: %d", vars->isModeInclude );
 }
 
 //*************************************************************************************************
@@ -126,43 +127,51 @@ void init_mod_kill_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
 //
 //
 //*************************************************************************************************
-bool exec_mod_kill_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
+void exec_mod_kill_(
+  csTraceGather* traceGather,
+  int* port,
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
+{
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup() ) {
-    if( vars->selectionManager ) {
-      delete vars->selectionManager; vars->selectionManager = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
+  bool returnValue = true;
 
   if( !vars->killZeroTraces ) {
     if( vars->selectionManager->contains( trace->getTraceHeader() ) ) {
-      return !vars->isModeInclude;
+      returnValue = !vars->isModeInclude;
     }
     else {
-      return vars->isModeInclude;
+      returnValue = vars->isModeInclude;
     }
   }
   else {
     float* samples = trace->getTraceSamples();
     if( !vars->killOneZeroTrace ) {
+      returnValue = !vars->isModeInclude;
       for( int i = 0; i < shdr->numSamples; i++ ) {
-        if( samples[i] != 0.0 ) return vars->isModeInclude;
-      }
-      return !vars->isModeInclude;
-    }      
-    else {
-      for( int i = 0; i < shdr->numSamples; i++ ) {
-        if( samples[i] == 0.0 ) {
-          return !vars->isModeInclude;// false;
+        if( samples[i] != 0.0 ) {
+          returnValue = vars->isModeInclude;
+          break;
         }
       }
-      return vars->isModeInclude;
+    }      
+    else {
+      returnValue = vars->isModeInclude;
+      for( int i = 0; i < shdr->numSamples; i++ ) {
+        if( samples[i] == 0.0 ) {
+          returnValue = !vars->isModeInclude;// false;
+          break;
+        }
+      }
     }
+  }
+  if( !returnValue ) {
+    traceGather->freeAllTraces();
   }
 }
 
@@ -194,13 +203,44 @@ void params_mod_kill_( csParamDef* pdef ) {
   pdef->addOption( "one", "Kill traces that contains at least one zero" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_kill_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_kill::VariableStruct* vars = reinterpret_cast<mod_kill::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_kill_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_kill::VariableStruct* vars = reinterpret_cast<mod_kill::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->selectionManager ) {
+    delete vars->selectionManager; vars->selectionManager = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_kill_( csParamDef* pdef ) {
   params_mod_kill_( pdef );
 }
-extern "C" void _init_mod_kill_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_kill_( param, env, log );
+extern "C" void _init_mod_kill_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_kill_( param, env, writer );
 }
-extern "C" bool _exec_mod_kill_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_kill_( trace, port, env, log );
+extern "C" bool _start_exec_mod_kill_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_kill_( env, writer );
 }
-
+extern "C" void _exec_mod_kill_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_kill_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_kill_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_kill_( env, writer );
+}

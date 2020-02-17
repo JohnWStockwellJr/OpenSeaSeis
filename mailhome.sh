@@ -4,7 +4,7 @@
 #set -x
 
 # these items identify the date/release of the codes
-DATE="20 October 2013"
+DATE="9 February 2020"
 RELEASE=${VERSION}
 
 # home address

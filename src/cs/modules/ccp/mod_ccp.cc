@@ -61,7 +61,7 @@ using mod_ccp::VariableStruct;
 // Init phase//
 //
 //*************************************************************************************************
-void init_mod_ccp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_ccp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
 //  csSuperHeader*    shdr = env->superHeader;
@@ -69,7 +69,6 @@ void init_mod_ccp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
   edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
 
   vars->times        = NULL;
@@ -121,7 +120,7 @@ void init_mod_ccp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
       vars->method = mod_ccp::METHOD_CCP_ISO;
     }
     else {
-      log->error("Uknown option: %s", text.c_str());
+      writer->error("Uknown option: %s", text.c_str());
     }
   }
 
@@ -138,7 +137,7 @@ void init_mod_ccp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
         vars->mode = mod_ccp::MODE_NUMBER;
       }
       else {
-        log->error("Uknown option: %s", text.c_str());
+        writer->error("Uknown option: %s", text.c_str());
       }
     }
     
@@ -156,7 +155,7 @@ void init_mod_ccp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
         }
       }
       else {
-        log->error("Uknown option: %s", text.c_str());
+        writer->error("Uknown option: %s", text.c_str());
       }
     }
   }
@@ -181,7 +180,7 @@ void init_mod_ccp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
         ccpxHdrIdList.insertEnd( hdef->headerIndex(name_ccpx) );
         ccpzHdrIdList.insertEnd( hdef->headerIndex(name_ccpz) );
         rayTimeHdrIdList.insertEnd( hdef->headerIndex(name_time) );
-        if( edef->isDebug() ) log->line("Ray2D trace header names for CCP binning (#%d): %s %s %s",counter,name_ccpx,name_ccpz,name_time);
+        if( edef->isDebug() ) writer->line("Ray2D trace header names for CCP binning (#%d): %s %s %s",counter,name_ccpx,name_ccpz,name_time);
         counter += 1;
       }
     } while( found );
@@ -201,7 +200,7 @@ void init_mod_ccp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
   }
 
   if( vars->method == mod_ccp::METHOD_CCP_ISO && vars->mode == mod_ccp::MODE_NONE ) {
-    log->error("Computation of both the CCP bin number and CCP bin XY coordinates is turned off. At least one of these need to be comptued.");
+    writer->error("Computation of both the CCP bin number and CCP bin XY coordinates is turned off. At least one of these need to be comptued.");
   }
 
   //-------------------------------------------------------------
@@ -210,7 +209,7 @@ void init_mod_ccp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
   if( param->exists( "time" ) ) {
     param->getAll( "time", &valueList );
     if( valueList.size() < 1 ){
-      log->error("No times specified in user parameter 'time'!");
+      writer->error("No times specified in user parameter 'time'!");
     }
   }
   vars->numTimes = valueList.size();
@@ -233,19 +232,19 @@ void init_mod_ccp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
   param->getAll( "velocity", &valueList );
 
   if( valueList.size() < 1 ){
-    log->error("Missing user parameter 'velocity'!");
+    writer->error("Missing user parameter 'velocity'!");
   }
   else if( valueList.size() != vars->numTimes ) {
-    log->error("Unequal number of velocities(%d) and times(%d)", valueList.size(), vars->numTimes );
+    writer->error("Unequal number of velocities(%d) and times(%d)", valueList.size(), vars->numTimes );
   }
   csFlexNumber number;
   for( int i = 0; i < vars->numTimes; i++ ) {
 //    vars->scalar[i] = atof( valueList.at(i).c_str() );
     if( !number.convertToNumber( valueList.at(i) ) ) {
-      log->error("Specified velocity is not a valid number: '%s'", valueList.at(i).c_str() );
+      writer->error("Specified velocity is not a valid number: '%s'", valueList.at(i).c_str() );
     }
     vars->velocities[i] = number.floatValue();
-    if( edef->isDebug() ) log->line("Velocity #%d: '%s' --> %f", i, valueList.at(i).c_str(), vars->velocities[i] );
+    if( edef->isDebug() ) writer->line("Velocity #%d: '%s' --> %f", i, valueList.at(i).c_str(), vars->velocities[i] );
   }
 
 */
@@ -256,10 +255,10 @@ void init_mod_ccp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
       param->getFloat("bin_scalar",&vars->bin_scalar);
     }
     if( !hdef->headerExists( "rcv" ) ) {
-      log->error("Trace header 'rcv' does not exist.");
+      writer->error("Trace header 'rcv' does not exist.");
     }
     if( !hdef->headerExists( "source" ) ) {
-      log->error("Trace header 'source' does not exist.");
+      writer->error("Trace header 'source' does not exist.");
     }
     if( !hdef->headerExists( "ccp" ) ) {
       hdef->addStandardHeader( "ccp" );
@@ -287,7 +286,7 @@ void init_mod_ccp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
   // Headers
   //
   if( !hdef->headerExists( "offset" ) ) {
-    log->error("Trace header 'offset' does not exist.");
+    writer->error("Trace header 'offset' does not exist.");
   }
   vars->hdrId_offset = hdef->headerIndex( "offset" );
 
@@ -307,49 +306,13 @@ void exec_mod_ccp_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
   csTraceHeaderDef const* hdef = env->headerDef;
 
-  if( edef->isCleanup()){
-    if( vars->times != NULL ) {
-      delete [] vars->times;
-      vars->times = NULL;
-    }
-    if( vars->velocities != NULL ) {
-      delete [] vars->velocities;
-      vars->velocities = NULL;
-    }
-    if( vars->hdrId_ray2D_ccpDist != NULL ) {
-      delete [] vars->hdrId_ray2D_ccpDist;
-      vars->hdrId_ray2D_ccpDist = NULL;
-    }
-    if( vars->hdrId_ray2D_ccpDepth != NULL ) {
-      delete [] vars->hdrId_ray2D_ccpDepth;
-      vars->hdrId_ray2D_ccpDepth = NULL;
-    }
-    if( vars->hdrId_ray2D_rayTime != NULL ) {
-      delete [] vars->hdrId_ray2D_rayTime;
-      vars->hdrId_ray2D_rayTime    = NULL;
-    }
-    if( vars->rayTime != NULL ) {
-      delete [] vars->rayTime;
-      vars->rayTime    = NULL;
-    }
-    if( vars->ccpDist != NULL ) {
-      delete [] vars->ccpDist;
-      vars->ccpDist    = NULL;
-    }
-    if( vars->ccpDepth != NULL ) {
-      delete [] vars->ccpDepth;
-      vars->ccpDepth    = NULL;
-    }
-    delete vars; vars = NULL;
-    return;
-  }
 
   csTrace* trace = traceGather->trace(0);
   csTraceHeader* trcHdr = trace->getTraceHeader();
@@ -374,7 +337,7 @@ void exec_mod_ccp_(
     if( fabs(offset) >= min_offset ) {
       ccp_offset_iso( vars->vpvs, offset, vars->depth, &offset_pside );
       ratio = (offset_pside/offset);
-      if( edef->isDebug() ) log->line("CCP ratio: %f, offset: %f, offset_pside: %f", ratio, offset, offset_pside);
+      if( edef->isDebug() ) writer->line("CCP ratio: %f, offset: %f, offset_pside: %f", ratio, offset, offset_pside);
     }
     if( (vars->mode & mod_ccp::MODE_COORD) != 0 ) {
       if( fabs(offset) >= min_offset ) {
@@ -492,20 +455,20 @@ void exec_mod_ccp_(
           //          fprintf(stdout,"SAMPLES: %d %d   %d\n", currentTopSample, sampleBottom, numSamples2Copy);
           if( currentTopSample < 0 ) {
             //            fprintf(stderr,"SAMPLES: %d %d   %d\n", currentTopSample, sampleBottom, numSamples2Copy);
-            log->error("CCP  ERROR: Sample index < 0: %d", currentTopSample);
+            writer->error("CCP  ERROR: Sample index < 0: %d", currentTopSample);
           }
           else if( currentTopSample >= shdr->numSamples ) {
             //            fprintf(stderr,"SAMPLES: %d %d   %d\n", currentTopSample, sampleBottom, numSamples2Copy);
-            log->error("CCP  ERROR: Sample index > numSamples: %d", currentTopSample);
+            writer->error("CCP  ERROR: Sample index > numSamples: %d", currentTopSample);
           }
           else if( sampleBottom > shdr->numSamples ) {
             //            fprintf(stderr,"SAMPLES: %d %d   %d\n", currentTopSample, sampleBottom, numSamples2Copy);
-            log->error("CCP  ERROR: Bottom Sample index > numSamples: %d", sampleBottom );
+            writer->error("CCP  ERROR: Bottom Sample index > numSamples: %d", sampleBottom );
           }
 
           if( currentTopSample+numSamples2Copy > shdr->numSamples ) {
             //            fprintf(stderr,"SAMPLES: %d %d   %d\n", currentTopSample, sampleBottom, numSamples2Copy);
-            log->error("CCP  ERROR: Sample index++ > numSamples: %d", currentTopSample+numSamples2Copy,numSamples2Copy);
+            writer->error("CCP  ERROR: Sample index++ > numSamples: %d", currentTopSample+numSamples2Copy,numSamples2Copy);
           }
 
           for( int isamp = 0; isamp < currentTopSample; isamp++ ) {
@@ -616,13 +579,73 @@ void params_mod_ccp_( csParamDef* pdef ) {
   pdef->addValue( "", VALTYPE_NUMBER, "List of average vertical velocities [m/s]..." );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_ccp_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_ccp::VariableStruct* vars = reinterpret_cast<mod_ccp::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_ccp_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_ccp::VariableStruct* vars = reinterpret_cast<mod_ccp::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->times != NULL ) {
+    delete [] vars->times;
+    vars->times = NULL;
+  }
+  if( vars->velocities != NULL ) {
+    delete [] vars->velocities;
+    vars->velocities = NULL;
+  }
+  if( vars->hdrId_ray2D_ccpDist != NULL ) {
+    delete [] vars->hdrId_ray2D_ccpDist;
+    vars->hdrId_ray2D_ccpDist = NULL;
+  }
+  if( vars->hdrId_ray2D_ccpDepth != NULL ) {
+    delete [] vars->hdrId_ray2D_ccpDepth;
+    vars->hdrId_ray2D_ccpDepth = NULL;
+  }
+  if( vars->hdrId_ray2D_rayTime != NULL ) {
+    delete [] vars->hdrId_ray2D_rayTime;
+    vars->hdrId_ray2D_rayTime    = NULL;
+  }
+  if( vars->rayTime != NULL ) {
+    delete [] vars->rayTime;
+    vars->rayTime    = NULL;
+  }
+  if( vars->ccpDist != NULL ) {
+    delete [] vars->ccpDist;
+    vars->ccpDist    = NULL;
+  }
+  if( vars->ccpDepth != NULL ) {
+    delete [] vars->ccpDepth;
+    vars->ccpDepth    = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_ccp_( csParamDef* pdef ) {
   params_mod_ccp_( pdef );
 }
-extern "C" void _init_mod_ccp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_ccp_( param, env, log );
+extern "C" void _init_mod_ccp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_ccp_( param, env, writer );
 }
-extern "C" void _exec_mod_ccp_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_ccp_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_ccp_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_ccp_( env, writer );
 }
-
+extern "C" void _exec_mod_ccp_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_ccp_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_ccp_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_ccp_( env, writer );
+}

@@ -57,7 +57,12 @@ public:
    * Free unused memory if possible
    */
   void trim();
-private:
+
+  int mpi_getByteSize() const;
+  int mpi_compress( char* data ) const;
+  void mpi_decompress( char const* data );
+
+ private:
   /// Object containing seismic trace header definitions (name,format,...)
   csTraceHeader* myTraceHeader;
   /// Object containing seismic data samples

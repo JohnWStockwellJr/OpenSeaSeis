@@ -2,7 +2,10 @@
 /* All rights reserved.                       */
 
 #include "csFFTTools.h"
+#include "csFFT.h"
 #include "csException.h"
+#include "csTimeFunction.h"
+#include "csInterpolation.h"
 #include "geolib_math.h"
 #include "geolib_defines.h"
 #include <cmath>
@@ -12,100 +15,93 @@
 
 using namespace cseis_geolib;
 
-csFFTTools::csFFTTools( int numSamples ) {
-  myNumSamplesIn  = numSamples;
-  myNumSamplesOut = numSamples;
-  myOrder = 0;
-  myCutOffFreqHz = 0;
-  init();
-}
-
 csFFTTools::csFFTTools( int numSamples, float sampleInt ) {
-  myNumSamplesIn  = numSamples;
-  mySampleIntIn     = sampleInt;
-  myNumSamplesOut = myNumSamplesIn;
-  mySampleIntOut    = mySampleIntIn;
+  init( numSamples, sampleInt );
 
-  myOrder = 4;
-  float freqNyquist = (float)(500.0/mySampleIntIn);
-  myCutOffFreqHz = freqNyquist;
-
-  init();
+  myFFT    = new csFFT( myNumSamplesIn );
+  myBuffer = new float[2*myFFT->numFreqValues()];
 }
 
-csFFTTools::csFFTTools( int theNumSamplesIn, int theNumSamplesOut, float theSampleIntIn, float theSampleIntOut ) {
-  myNumSamplesIn  = theNumSamplesIn;
-  mySampleIntIn     = theSampleIntIn;
-  myNumSamplesOut = theNumSamplesOut;
-  mySampleIntOut    = theSampleIntOut;
+csFFTTools::csFFTTools( int numSamplesIn, int numSamplesOut, float sampleIntIn, float sampleIntOut ) {
+  init( numSamplesIn, sampleIntIn );
 
-  myOrder  = 20;
-  float freqNyquist = (float)(500.0/mySampleIntIn);
-  double ratio = (double)mySampleIntOut / (double)mySampleIntIn;
-  myCutOffFreqHz = (float)( freqNyquist / ratio ) * 0.8f;
+  myNumSamplesOut = numSamplesOut;
+  mySampleIntOut  = sampleIntOut;
+  myFFTOut        = new csFFT( myNumSamplesOut );
+  myBufferOut     = new float[2*myFFTOut->numFreqValues()];
 
-  init();
+  int numFreqOut  = myFFTOut->numFreqValues();
+  float ratio     = mySampleIntOut / mySampleIntIn;
+  int ratio_int   = (int)round(ratio);
+  int numFFTValuesIn_forced = 2 * ratio_int * ( numFreqOut - 1 );
+
+  myFFT    = new csFFT( myNumSamplesIn, numFFTValuesIn_forced );
+  myBuffer = new float[2*myFFT->numFreqValues()];
+}
+int csFFTTools::numFFTSamples() const {
+  return myFFT->numFFTValues();
+}
+int csFFTTools::numFFTSamplesOut() const {
+  return myFFTOut->numFFTValues();
 }
 //--------------------------------------------------------------------------------
 //
 //
-void csFFTTools::init() {
-  myNumFFTSamplesIn  = myNumSamplesIn;
-  myNumFFTSamplesOut = myNumSamplesOut;
+void csFFTTools::init( int numSamples_time, float sampleInt_time ) {
+  mySampleIntIn  = sampleInt_time;
+  myNumSamplesIn = numSamples_time;
+  mySampleIntOut  = mySampleIntIn;
+  myNumSamplesOut = myNumSamplesIn;
+
+  myFFT    = NULL;
+  myFFTOut = NULL;
+
+  myBuffer = NULL;
+  myBufferOut = NULL;
 
   myFilterWavelet = NULL;
+  myFilterScalars = NULL;
   myLengthFilterWavelet = 0;
   myIsFilterWavelet     = false;
 
-  int two_power_m;
-  csFFTTools::Powerof2( myNumFFTSamplesIn, &myTwoPowerIn, &two_power_m );
-  if( two_power_m != myNumFFTSamplesIn ) {
-    myNumFFTSamplesIn = two_power_m * 2;
-    myTwoPowerIn += 1;
-  }
-
-  myNumFFTSamplesOut = myNumSamplesOut;
-  csFFTTools::Powerof2( myNumFFTSamplesOut, &myTwoPowerOut, &two_power_m );
-  if( two_power_m != myNumFFTSamplesOut ) {
-    myNumFFTSamplesOut = two_power_m * 2;
-    myTwoPowerOut += 1;
-  }
-  myBufferReal = new double[myNumFFTSamplesIn];
-  myBufferImag = new double[myNumFFTSamplesIn];
-  myNotchFilter = NULL;
-
-  myOutputImpulseResponse = false;
+  myNotchFilterScalars = NULL;
 }
 
 //--------------------------------------------------------------------------------
 //
 //
 csFFTTools::~csFFTTools() {
-  if( myBufferReal != NULL ) {
-    delete [] myBufferReal;
-    myBufferReal = NULL;
+  if( myBuffer != NULL ) {
+    delete [] myBuffer;
+    myBuffer = NULL;
   }
-  if( myBufferImag != NULL ) {
-    delete [] myBufferImag;
-    myBufferImag = NULL;
+  if( myBufferOut != NULL ) {
+    delete [] myBufferOut;
+    myBufferOut = NULL;
   }
-  if( myNotchFilter == NULL ) {
-    delete []   myNotchFilter;
-    myNotchFilter = NULL;
+  if( myNotchFilterScalars == NULL ) {
+    delete []   myNotchFilterScalars;
+    myNotchFilterScalars = NULL;
   }
 
+  if( myFilterScalars != NULL ) {
+    delete [] myFilterScalars;
+    myFilterScalars = NULL;
+  }
   if( myFilterWavelet != NULL ) {
     delete [] myFilterWavelet;
     myFilterWavelet = NULL;
+  }
+  if( myFFT != NULL ) {
+    delete myFFT;
+    myFFT = NULL;
   }
 }
 //--------------------------------------------------------------------------------
 //
 //
-void csFFTTools::setFilter( float order, float cutOffFreqHz, bool outputImpulseResponse ) {
-  myOrder = order;
-  myCutOffFreqHz = cutOffFreqHz;
-  myOutputImpulseResponse = outputImpulseResponse;
+void csFFTTools::setFilter( float cutOffFreqHz, float slope ) {
+  prepareBandpassFilter( 1, &cutOffFreqHz, &slope, 0, NULL, NULL );
 }
 void csFFTTools::setFilterWavelet( int length ) {
   myIsFilterWavelet = true;
@@ -116,176 +112,215 @@ void csFFTTools::setFilterWavelet( int length ) {
   myFilterWavelet = new double[myLengthFilterWavelet];
 }
 //--------------------------------------------------------------------------------
-bool csFFTTools::fft_forward( float const* samples, bool doNormalisation ) {
-  setBuffer( samples );
-  return csFFTTools::fft( csFFTTools::FORWARD, myTwoPowerIn, myBufferReal, myBufferImag, doNormalisation );
-}
-//--------------------------------------------------------------------------------
-bool csFFTTools::fft_forward( float const* samples, float* ampSpec, bool doNormalisation ) {
-  return fft_forward( samples, ampSpec, NULL, doNormalisation );
-}
-bool csFFTTools::fft_forward( float const* samples, float* ampSpec, float* phaseSpec, bool doNormalisation ) {
-  setBuffer( samples );
-  bool success = csFFTTools::fft( csFFTTools::FORWARD, myTwoPowerIn, myBufferReal, myBufferImag, doNormalisation );
-  if( !success ) return false;
-  
-  convertToAmpPhase( ampSpec, phaseSpec );
-  return true;
-}
-//--------------------------------------------------------------------------------
-// Convert real/imaginary spectrum to to amp/phase
 //
-void csFFTTools::convertToAmpPhase( float* ampSpec, float* phaseSpec ) {
-  if( ampSpec != NULL ) {
-    for( int i = 0; i <= myNumFFTSamplesIn/2; i++ ) {
-      ampSpec[i] = (float)( 2*sqrt(myBufferReal[i]*myBufferReal[i] + myBufferImag[i]*myBufferImag[i]) );
+//
+double csFFTTools::sampleIntFreq() const {
+  double freqNyquist = 1.0 / ( 2.0 * ( (double)mySampleIntIn / 1000.0 ) );
+  return( ( freqNyquist / (double)(myFFT->numFreqValues()-1) ) );
+}
+//--------------------------------------------------------------------------------
+//
+//
+void csFFTTools::prepareBandpassFilter( int numLowPassFilters, float const* lowPassFreq, float const* lowPassSlope, int numHighPassFilters, float const* highPassFreq, float const* highPassSlope ) {
+  double G0 = 1.0;
+  double df = sampleIntFreq();
+
+  if( myFilterScalars != NULL ) delete [] myFilterScalars;
+
+  int numFreq = myFFT->numFreqValues();
+  myFilterScalars = new float[numFreq];
+
+  for( int ifreq = 0; ifreq < numFreq; ifreq++ ) {
+    myFilterScalars[ifreq] = 1.0f;
+  }
+  for( int i = 0; i < numLowPassFilters; i++ ) {
+    float slope   = lowPassSlope[i];
+    double power  = fabs(slope/3.0f);
+    float cutOffFreq = lowPassFreq[i];
+    for( int ifreq = 0; ifreq < numFreq; ifreq++ ) {
+      double freq = (double)ifreq * df;
+      float dampG = (float)sqrt(G0 / (1.0 + pow(freq/cutOffFreq,power) ));
+      if( slope <= 0 && dampG == 0.0 ) dampG = 1.0;
+      myFilterScalars[ifreq] *= dampG;
     }
   }
-  if( phaseSpec != NULL ) {
-    for( int i = 0; i <= myNumFFTSamplesIn/2; i++ ) {
-      phaseSpec[i] = (float)atan2( -myBufferImag[i], myBufferReal[i] );
+  for( int i = 0; i < numHighPassFilters; i++ ) {
+    float slope   = highPassSlope[i];
+    double power  = fabs(slope/3.0f);
+    float cutOffFreq = highPassFreq[i];
+    for( int ifreq = 0; ifreq < numFreq; ifreq++ ) {
+      double freq = (double)ifreq * df;
+      float dampG = (float)sqrt(G0 / (1.0 + pow(cutOffFreq/freq,power) ));
+      if( freq == 0 ) {
+        if( slope > 0 ) {
+          dampG = 0.0f;
+        }
+        else {
+          dampG = 1.0f;
+        }
+      }
+      else if( slope <= 0 ) {
+        if( dampG == 0.0f ) dampG = 1.0f;
+      }
+      myFilterScalars[ifreq] *= dampG;
     }
   }
 }
-//--------------------------------------------------------------------------------
-// Convert amp/phase spectrum to to real/imaginary
-//
-void csFFTTools::convertFromAmpPhase( float const* ampSpec, float const* phaseSpec ) {
-  for( int i = 0; i <= myNumFFTSamplesIn/2; i++ ) {
-    myBufferReal[i] = 0.5*ampSpec[i] * cos(phaseSpec[i]);
-    myBufferImag[i] = -0.5*ampSpec[i] * sin(phaseSpec[i]);
-  }
-  for( int i = 1; i < myNumFFTSamplesIn/2; i++ ) {
-    myBufferReal[myNumFFTSamplesIn-i] = myBufferReal[i];
-    myBufferImag[myNumFFTSamplesIn-i] = -myBufferImag[i];
-  }
 
-  // Phase at 0Hz and numFFTSamplesNyquist is always set to zero. If not, time series will have imaginary part.
-  myBufferImag[0] = 0.0;
-  myBufferImag[myNumFFTSamplesIn/2] = 0.0;
+void csFFTTools::applyBandpassFilter( float* samples, bool outputImpulseResponse ) {
+  if( myFilterScalars == NULL ) throw( csException("csFFTTools::applyBandpassFilter: Filters have not been initialized. Call prepareBandpassFilter() first") );
+  if( outputImpulseResponse ) {
+    memset( samples, 0, myNumSamplesIn * sizeof(float) );
+    samples[myNumSamplesIn/2] = 1.0f/mySampleIntIn;
+  }
+  myFFT->applyAmpFilter( samples, myFilterScalars );
 }
-//--------------------------------------------------------------------------------
-//
-bool csFFTTools::fft_inverse( bool doNormalisation ) {
-  return csFFTTools::fft( csFFTTools::INVERSE, myTwoPowerIn, myBufferReal, myBufferImag, doNormalisation );
-}
-bool csFFTTools::fft_inverse( float const* samples, int fftDataType, bool doNormalisation ) {
-  if( fftDataType == FX_REAL_IMAG ) {
-    for( int i = 0; i < myNumFFTSamplesIn; i++ ) {
-      myBufferReal[i] = samples[i];
-      myBufferImag[i] = samples[i+myNumFFTSamplesIn];
+
+float csFFTTools::resample( float* samples, bool applyFilter, bool applyRMSNorm ) {
+  float rmsIn  = 1.0;
+  if( applyRMSNorm ) rmsIn = compute_rms( samples, myNumSamplesIn );
+
+  myFFT->forwardTransform( samples, myBuffer, cseis_geolib::FX_AMP_PHASE );
+
+  int numFreqIn  = myFFT->numFreqValues();
+  int numFreqOut = myFFTOut->numFreqValues();
+
+  myBuffer[0] = 0.0;         // Set DC amp to 0
+  myBuffer[numFreqIn] = 0.0; // Set DC phase to 0
+
+  if( applyFilter ) {
+    if( myFilterScalars == NULL ) throw( csException("csFFTTools::resample: Anti-alias filter has not been initialized.") );
+    for( int ifreq = 0; ifreq < numFreqIn; ifreq++ ) {
+      myBuffer[ifreq] *= myFilterScalars[ifreq];
     }
   }
-  else if( fftDataType == FX_AMP_PHASE ) {
-    // Input float array contains both amplitude and phase spectrum
-    convertFromAmpPhase( &samples[0], &samples[myNumFFTSamplesIn/2+1] );
-  }
-  else {
-    // ...just use currently stored real/imag buffers for inverse FFT
-//    return false;
-  }
-  return csFFTTools::fft( csFFTTools::INVERSE, myTwoPowerIn, myBufferReal, myBufferImag, doNormalisation );
-}
 
-bool csFFTTools::fft_inverse( float const* ampSpec, float const* phaseSpec, bool doNormalisation ) {
-  convertFromAmpPhase( ampSpec, phaseSpec );
-  return csFFTTools::fft( csFFTTools::INVERSE, myTwoPowerIn, myBufferReal, myBufferImag, doNormalisation );
-}
-//--------------------------------------------------------------------------------
-//
-//
-void csFFTTools::lowPass( float* samples, float order, float cutOffFreqHz, bool outputImpulseResponse ) {
-  myCutOffFreqHz = cutOffFreqHz;
-  myOrder = order;
-  myOutputImpulseResponse = outputImpulseResponse;
-  filter( samples, LOWPASS );
-}
-//--------------------------------------------------------------------------------
-//
-//
-void csFFTTools::highPass( float* samples, float order, float cutOffFreqHz, bool outputImpulseResponse ) {
-  myCutOffFreqHz = cutOffFreqHz;
-  myOrder = order;
-  myOutputImpulseResponse = outputImpulseResponse;
-  filter( samples, HIGHPASS );
-}
-//--------------------------------------------------------------------------------
-// Apply cosine taper around notch frequency
-//
-void csFFTTools::notchFilter( float* samples, bool addNoise ) {
-
-  setBuffer( samples );
-  if( !csFFTTools::fft( csFFTTools::FORWARD, myTwoPowerIn, myBufferReal, myBufferImag, false ) ) {
-    delete [] myBufferReal;
-    delete [] myBufferImag;
-    throw( csException("csFFTTools::notchFilter(): Unknown error occurred during forward FFT transform.") );
+  for( int ifreqOut = 0; ifreqOut < numFreqOut; ifreqOut++ ) {
+    myBufferOut[ifreqOut]            = myBuffer[ifreqOut];    // Amplitude
+    myBufferOut[ifreqOut+numFreqOut] = myBuffer[ifreqOut+numFreqIn]; // Phase
   }
 
-  /*
-  double* noiseReal = NULL;
-  double* noiseImag = NULL;
+  myFFTOut->inverseTransform( myBufferOut, samples, cseis_geolib::FX_AMP_PHASE );
 
-  if( addNoise ) {
-    noiseReal = new double[myNumFFTSamplesIn];
-    noiseImag = new double[myNumFFTSamplesIn];
-    for( int isamp = 0; isamp < indexFirstRed; isamp++ ) {
-      noiseReal[isamp] = 0;
-      noiseImag[isamp] = 0;
-    }
-    for( int isamp = indexLastRed+1; isamp < myNumFFTSamplesIn; isamp++ ) {
-      noiseReal[isamp] = 0;
-      noiseImag[isamp] = 0;
+  if( applyRMSNorm ) {
+    float rmsOut = compute_rms( samples, myNumSamplesOut );
+    if( rmsOut != 0.0 ) {
+      float ratio = rmsIn / rmsOut;
+      for( int i = 0; i < myNumSamplesOut; i++ ) {
+        samples[i] *= ratio;
+      }
+      return ratio;
     }
   }
-  */
-  /*  if( isCosineTaper ) {
-    if( addNoise ) {
-      for( int isamp = indexFirstRed; isamp <= indexLastRed; isamp++ ) {
-        double phase  = 2.0*( ( (double)(isamp-indexFirst) / (double)width ) - 1.0 ) * M_PI;
-        double scalar = 0.5 * (cos(phase) + 1.0);
-        noiseReal[isamp] = myBufferReal[isamp] * (1.0 - scalar);
-        noiseImag[isamp] = myBufferImag[isamp] * (1.0 - scalar);
+  return 1.0f;
+}
+
+//--------------------------------------------------------------------------------
+// Hilbert transform == Shift phase by 90deg
+//
+void csFFTTools::hilbertTransform( float* samplesInOut ) {
+  hilbertTransform( samplesInOut, samplesInOut );
+}
+void csFFTTools::hilbertTransform( float const* samplesIn, float* samplesOut) {
+
+  myFFT->forwardTransform( samplesIn, myBuffer, cseis_geolib::FX_AMP_PHASE );
+
+  int numFreq    = myFFT->numFreqValues();
+  int numFreq_x2 = 2*numFreq;
+  float pi_half  = (float)( M_PI / 2.0 );
+  for( int ifreq = numFreq; ifreq < numFreq_x2; ifreq++ ) {
+    myBuffer[ifreq] -= pi_half; // Hilbert transform == quadrature phase == 90deg phase shift
+  }
+
+  myFFT->inverseTransform( myBuffer, samplesOut, cseis_geolib::FX_AMP_PHASE );
+
+  //  for( int isamp = 0; isamp < myNumSamplesOut; isamp++ ) {
+  //   samplesOut[isamp] *= 0.5f;
+  //  }
+}
+
+//--------------------------------------------------------------------------------
+void csFFTTools::envelope( float* samples ) {
+  if( myBufferOut == NULL ) {
+    myBufferOut = new float[myNumSamplesIn];
+  }
+
+  // 1) Hilbert transform == Shift phase by 90deg, stored in myBuffer
+  hilbertTransform( samples, myBufferOut );
+
+  // 2) Combine input trace and 90deg shifted trace to form envelope
+  for( int isamp = 0; isamp < myNumSamplesIn; isamp++ ) {
+    float sampleInput = samples[isamp];
+    float sampleHilb  = myBufferOut[isamp];
+    samples[isamp] = (float)sqrt( sampleInput*sampleInput + sampleHilb*sampleHilb );
+  } 
+}
+//--------------------------------------------------------------------------------
+void csFFTTools::inst_phase( float* samples ) {
+  if( myBufferOut == NULL ) {
+    myBufferOut = new float[myNumSamplesIn];
+  }
+
+  hilbertTransform( samples, myBufferOut );
+
+  // Compute instantaneous phase
+  // analytic_signal(x) = signal(x) + i * hilbert(x)
+  for( int isamp = 0; isamp < myNumSamplesIn; isamp++ ) {
+    float phase_inst = (float) atan2( -myBufferOut[isamp], samples[isamp] );
+    samples[isamp] = phase_inst;
+  }
+}
+//--------------------------------------------------------------------------------
+void csFFTTools::inst_freq( float* samples ) {
+  inst_phase( samples );
+
+  // Compute instantaneous frequency
+  double phaseThreshold = M_PI - 1e-5;
+  double phasePrev = 0;
+  for( int isamp = 0; isamp < myNumSamplesIn; isamp++ ) {
+    double phase     = samples[isamp];
+    double phaseDiff = phase - phasePrev;
+    if( phaseDiff > phaseThreshold ) phaseDiff -= 2.0 * M_PI;
+    else if( phaseDiff < -phaseThreshold ) phaseDiff += 2.0 * M_PI;
+    samples[isamp] = (float)( fabs(phaseDiff) / ( 2.0 * M_PI ) * 1000.0 / mySampleIntIn );
+    phasePrev = phase;
+  }
+}
+
+void csFFTTools::unwrap_phase() {
+  int numFreqIn   = myFFT->numFreqValues();
+  float* phasePtr = &myBuffer[numFreqIn];
+  float* phaseTmp = new float[numFreqIn];
+  double ph0  = phasePtr[0];
+  phaseTmp[0] = (float)ph0;
+  double threshold = M_PI - 1e-5;
+  double po = 0.0;
+  for( int ifreq = 1; ifreq < numFreqIn; ifreq++ ) {
+    double cp = phasePtr[ifreq] + po;
+    double dp = cp - ph0;
+    ph0 = cp;
+    if( dp > threshold ) {
+      while( dp > threshold ) {
+        po -= 2.0*M_PI;
+        dp -= 2.0*M_PI;
       }
     }
-  }
-  */
-
-  for( int is = 0; is < myNumFFTSamplesIn; is++ ) {
-    myBufferReal[is] *= myNotchFilter[is];
-    myBufferImag[is] *= myNotchFilter[is];
-  }
-
-  if( !csFFTTools::fft( csFFTTools::INVERSE, myTwoPowerOut, myBufferReal, myBufferImag, true ) ) {
-    delete [] myBufferReal;
-    delete [] myBufferImag;
-    myBufferReal = NULL;
-    myBufferImag = NULL;
-    throw( csException("csFFTTools::notchFilter(): Unknown error occurred during inverse FFT transform.") );
-  }
-  for( int i = 0; i < myNumSamplesOut; i++ ) {
-    samples[i] = (float)myBufferReal[i];
-  }
-
-  /*  if( addNoise ) {
-    if( !csFFTTools::fft( csFFTTools::INVERSE, myTwoPowerOut, noiseReal, noiseImag, true ) ) {
-      delete [] noiseReal;
-      delete [] noiseImag;
-      throw( csException("csFFTTools::notchFilter(): Unknown error occurred during inverse FFT transform of noise model.") );
+    else if( fabs(dp) > threshold ) {
+      while( fabs(dp) > threshold ) {
+        po += 2.0*M_PI;
+        dp += 2.0*M_PI;
+      }
     }
-    for( int i = 0; i < myNumSamplesOut; i++ ) {
-      samples[i] += (float)noiseReal[i];
-    }
-    delete [] noiseReal;
-    delete [] noiseImag;
+    phaseTmp[ifreq] = phasePtr[ifreq] + (float)po;
+    ph0 = phaseTmp[ifreq];
   }
-  */
+  memcpy( phasePtr, phaseTmp, sizeof(float) * numFreqIn );
+  delete [] phaseTmp;
 }
 
-float csFFTTools::sampleIntFreqHz() const {
-  return 1.0 / ( (double)myNumFFTSamplesIn*mySampleIntIn/1000.0 );
-}
-double const* csFFTTools::setupNotchFilter( float notchFreqHz, float notchWidthHz, float order, bool isCosineTaper ) {
-  double df = 1.0 / ( (double)myNumFFTSamplesIn*mySampleIntIn/1000.0 );
+float const* csFFTTools::prepareNotchFilter( float notchFreqHz, float notchWidthHz, float slope, bool isCosineTaper ) {
+  int numFreq = myFFT->numFreqValues();
+  double df = sampleIntFreq();
   double freq1 = notchFreqHz - 0.5*notchWidthHz;
   double freq2 = notchFreqHz + 0.5*notchWidthHz;
   int indexFirst = (int)round( freq1 / df );
@@ -293,74 +328,40 @@ double const* csFFTTools::setupNotchFilter( float notchFreqHz, float notchWidthH
   int width = indexLast - indexFirst;
   if( width == 0 ) {
     indexFirst = std::max(0,indexFirst-1);
-    indexLast  = std::min(indexFirst + 2,myNumFFTSamplesIn);
+    indexLast  = std::min(indexFirst + 2,numFreq-1);
     width = indexLast - indexFirst;
   }
   int indexFirstRed = std::max(0,indexFirst);
-  int indexLastRed  = std::min(myNumFFTSamplesIn,indexLast);
+  int indexLastRed  = std::min(numFreq-1,indexLast);
 
-  myNotchFilter = new double[myNumFFTSamplesIn];
-  for( int is = 0; is < myNumFFTSamplesIn; is++ ) {
-    myNotchFilter[is] = 0.0;
-  }
+  myNotchFilterScalars = new float[numFreq];
+  //  myNotchFilterScalars = new double[myNumFFTSamplesIn];
+  //  for( int ifreq = 0; ifreq < numFreq; ifreq++ ) {
+  //  myNotchFilterScalars[ifreq] = 0.0;
+  // }
+  memset( myNotchFilterScalars, 0, numFreq * sizeof(float) );
 
   if( isCosineTaper ) {
-    for( int is = 0; is < myNumFFTSamplesIn; is++ ) {
-      myNotchFilter[is] = 1.0;
+    for( int ifreq = 0; ifreq < numFreq; ifreq++ ) {
+      myNotchFilterScalars[ifreq] = 1.0;
     }
-    /*    if( addNoise ) {
-      for( int isamp = indexFirstRed; isamp <= indexLastRed; isamp++ ) {
-        double phase  = 2.0*( ( (double)(isamp-indexFirst) / (double)width ) - 1.0 ) * M_PI;
-        double scalar = 0.5 * (cos(phase) + 1.0);
-        myNotchFilter[is] = (1.0 - scalar);
-        myNotchFilter[myNumFFTSamplesIn-is] = (1.0 - scalar);
-      }
-    }
-    */
-    for( int isamp = indexFirstRed; isamp <= indexLastRed; isamp++ ) {
-      double phase  = 2.0*( ( (double)(isamp-indexFirst) / (double)width ) - 1.0 ) * M_PI;
+    for( int ifreq = indexFirstRed; ifreq <= indexLastRed; ifreq++ ) {
+      double phase  = 2.0*( ( (double)(ifreq-indexFirst) / (double)width ) - 1.0 ) * M_PI;
       double scalar = 0.5 * (cos(phase) + 1.0);
-      myNotchFilter[isamp] = scalar;
-      myNotchFilter[myNumFFTSamplesIn-isamp] = scalar;
+      myNotchFilterScalars[ifreq] = (float)scalar;
     }
   }
   else { // Apply Butterworth notch filter
     double G0 = 1.0;
-    double power = fabs(order) * 2.0;
-    double df = 1.0 / ( (double)myNumFFTSamplesIn*mySampleIntIn/1000.0 );
+    double power = fabs(slope) / 3.0f;
 
-    for( int is = 0; is <= myNumFFTSamplesIn/2; is++ ) {
-      double freq = (double)is * df;
+    for( int ifreq = 0; ifreq < numFreq; ifreq++ ) {
+      double freq = (double)ifreq * df;
       double dampG = sqrt(G0 / (1.0 + pow(freq/freq1,power) ));
-      myNotchFilter[is] += dampG;
-    }
-    for( int is = myNumFFTSamplesIn/2+1; is < myNumFFTSamplesIn; is++ ) {
-      double freq = -(double)(is-myNumFFTSamplesIn)*df;
-      double dampG = sqrt(G0 / (1.0 + pow(freq/freq1,power) ));
-      myNotchFilter[is] += dampG;
-    }
-    // HIGHPASS
-    for( int is = 0; is <= myNumFFTSamplesIn/2; is++ ) {
-      double freq = (double)is * df;
-      double dampG;
-      if( freq == 0 ) {
-        dampG = 0;
+      if( ifreq > 0 ) {
+        dampG += sqrt(G0 / (1.0 + pow(freq2/freq,power) ));    // HIGHPASS
       }
-      else {
-        dampG = sqrt(G0 / (1.0 + pow(freq2/freq,power) ));
-      }
-      myNotchFilter[is] += dampG;
-    }
-    for( int is = myNumFFTSamplesIn/2+1; is < myNumFFTSamplesIn; is++ ) {
-      double freq = -(double)(is-myNumFFTSamplesIn)*df;
-      double dampG;
-      if( freq == 0 ) {
-        dampG = 0.0;
-      }
-      else {
-        dampG = sqrt(G0 / (1.0 + pow(freq2/freq,power) ));
-      }
-      myNotchFilter[is] += dampG;
+      myNotchFilterScalars[ifreq] += (float)dampG;
     }
   }
   
@@ -368,477 +369,73 @@ double const* csFFTTools::setupNotchFilter( float notchFreqHz, float notchWidthH
   double maxValue1 = 0;
   int maxIndex1 = 0;
   int indexNotch  = (int)round( notchFreqHz / df );
-  for( int is = 0; is < indexNotch; is++ ) {
-    if( myNotchFilter[is] > maxValue1 ) {
-      maxValue1 = myNotchFilter[is];
-      maxIndex1 = is;
+  for( int ifreq = 0; ifreq < indexNotch; ifreq++ ) {
+    if( myNotchFilterScalars[ifreq] > maxValue1 ) {
+      maxValue1 = myNotchFilterScalars[ifreq];
+      maxIndex1 = ifreq;
     }
   }
   if( maxIndex1 != 0 ) {
     int maxIndex2 = 0;
     double maxValue2 = 0;
-    for( int is = indexNotch; is < 2*indexNotch; is++ ) {
-      if( myNotchFilter[is] > maxValue2 ) {
-        maxValue2 = myNotchFilter[is];
-        maxIndex2 = is;
+    for( int ifreq = indexNotch; ifreq < 2*indexNotch; ifreq++ ) {
+      if( myNotchFilterScalars[ifreq] > maxValue2 ) {
+        maxValue2 = myNotchFilterScalars[ifreq];
+        maxIndex2 = ifreq;
       }
     }
-    double correctionTerm = 1.0 - 0.5*( maxValue1 + maxValue2 );
-    for( int is = 0; is < maxIndex1; is++ ) {
-      if( myNotchFilter[is] > 1.0 ) myNotchFilter[is] = 1.0;
+    float correctionTerm = (float)( 1.0 - 0.5*( maxValue1 + maxValue2 ) );
+    for( int ifreq = 0; ifreq < maxIndex1; ifreq++ ) {
+      if( myNotchFilterScalars[ifreq] > 1.0f ) myNotchFilterScalars[ifreq] = 1.0f;
     }
-    for( int is = maxIndex1; is <= maxIndex2; is++ ) {
-      myNotchFilter[is] += correctionTerm;
+    for( int ifreq = maxIndex1; ifreq <= maxIndex2; ifreq++ ) {
+      myNotchFilterScalars[ifreq] += correctionTerm;
     }
-    double maxIndex3 = myNumFFTSamplesIn - maxIndex2;
-    double maxIndex4 = myNumFFTSamplesIn - maxIndex1;
-    for( int is = maxIndex2+1; is < maxIndex3; is++ ) {
-      if( myNotchFilter[is] > 1.0 ) myNotchFilter[is] = 1.0;
+    int maxIndex3 = numFreq - maxIndex2;
+    int maxIndex4 = numFreq - maxIndex1;
+    for( int ifreq = maxIndex2+1; ifreq < maxIndex3; ifreq++ ) {
+      if( myNotchFilterScalars[ifreq] > 1.0f ) myNotchFilterScalars[ifreq] = 1.0f;
     }
-    for( int is = maxIndex3; is <= maxIndex4; is++ ) {
-      myNotchFilter[is] += correctionTerm;
+    for( int ifreq = maxIndex3; ifreq <= maxIndex4; ifreq++ ) {
+      myNotchFilterScalars[ifreq] += correctionTerm;
     }
-    for( int is = maxIndex4+1; is < myNumFFTSamplesIn; is++ ) {
-      if( myNotchFilter[is] > 1.0 ) myNotchFilter[is] = 1.0;
+    for( int ifreq = maxIndex4+1; ifreq < numFreq; ifreq++ ) {
+      if( myNotchFilterScalars[ifreq] > 1.0f ) myNotchFilterScalars[ifreq] = 1.0f;
     }
   }
-  
-  return myNotchFilter;
+  return myNotchFilterScalars;
 }
 //--------------------------------------------------------------------------------
+// Apply notch filter
 //
+void csFFTTools::applyNotchFilter( float* samples, bool outputImpulseResponse ) {
+  if( myNotchFilterScalars == NULL ) throw( csException("csFFTTools::applyNotchFilter: Filters have not been initialized. Call prepareNotchFilter() first") );
+  if( outputImpulseResponse ) {
+    memset( samples, 0, myNumSamplesIn * sizeof(float) );
+    samples[myNumSamplesIn/2] = 1.0f/mySampleIntIn;  // 
+  }
+  myFFT->applyAmpFilter( samples, myNotchFilterScalars );
+}
+
+//--------------------------------------------------------------------------------
+// Apply filter defined by function
 //
-float csFFTTools::resample( float* samples ) {
-  return resample( samples, false, false );
-}
-float csFFTTools::resample( float* samples, bool applyFilter, bool applyNorm ) {
-  return resample( samples, myOrder, myCutOffFreqHz, applyFilter, applyNorm );
-}
-float csFFTTools::resample( float* samples, float order, float cutOffFreqHz, bool applyFilter, bool applyNorm ) {
-  myCutOffFreqHz = cutOffFreqHz;
-  myOrder = order;
-  myOutputImpulseResponse = false;
-
-  //  filter( samples, RESAMPLE );
-
-  setBuffer( samples );
-
-  float rmsIn  = 1.0;
-  float rmsOut = 1.0;
-  if( applyNorm ) rmsIn = compute_rms( samples, myNumSamplesIn );
-
-  if( !csFFTTools::fft( csFFTTools::FORWARD, myTwoPowerIn, myBufferReal, myBufferImag, false ) ) {
-    delete [] myBufferReal;
-    delete [] myBufferImag;
-    throw( csException("csFFTTools::filter(): Unknown error occurred during forward FFT transform.") );
+void csFFTTools::applyFilter( float* samples, csTimeFunction<double> const* freqFunc ) {
+  int numFreq = myFFT->numFreqValues();
+  if( myFilterScalars == NULL ) {
+    myFilterScalars = new float[numFreq];
   }
-
-  double G0 = 1.0;
-  double power = fabs(myOrder) * 2.0;
-  double df = 1.0 / ( (double)myNumFFTSamplesIn*mySampleIntIn/1000.0 );
-
-  myBufferReal[myNumFFTSamplesOut/2] = 0.0; //myBufferReal[numFFTSamples/2];
-  myBufferImag[myNumFFTSamplesOut/2] = 0.0; //myBufferImag[numFFTSamples/2];
-
-  if( applyFilter ) {
-    for( int is = 0; is < myNumFFTSamplesOut/2; is++ ) {
-      double freq = (double)is * df;
-      double dampG = sqrt(G0 / (1.0 + pow(freq/myCutOffFreqHz,power) ));
-      myBufferReal[is] *= dampG;
-      myBufferImag[is] *= dampG;
-    }
-    for( int is = 1; is < myNumFFTSamplesOut/2; is++ ) {
-      int indexOut  = myNumFFTSamplesOut/2 + is;
-      int indexIn = 3*myNumFFTSamplesIn/4 + is;
-      double freq = (double)fabs(indexIn-myNumFFTSamplesIn)*df;
-      double dampG = sqrt(G0 / (1.0 + pow(freq/myCutOffFreqHz,power) ));
-      myBufferReal[indexOut] = myBufferReal[indexIn] * dampG;
-      myBufferImag[indexOut] = myBufferImag[indexIn] * dampG;
-    }
+  double df = sampleIntFreq();
+  for( int ifreq = 0; ifreq < numFreq; ifreq++ ) {
+    double freq = df * (double)ifreq;
+    myFilterScalars[ifreq] = (float)freqFunc->valueAt( freq );
   }
-  else {
-    for( int is = 1; is < myNumFFTSamplesOut/2; is++ ) {
-      int indexOut  = myNumFFTSamplesOut/2 + is;
-      int indexIn = 3*myNumFFTSamplesIn/4 + is;
-      myBufferReal[indexOut] = myBufferReal[indexIn];
-      myBufferImag[indexOut] = myBufferImag[indexIn];
-    }
-  }
-
-  if( !csFFTTools::fft( csFFTTools::INVERSE, myTwoPowerOut, myBufferReal, myBufferImag, true ) ) {
-    delete [] myBufferReal;
-    delete [] myBufferImag;
-    throw( csException("filter: Unknown error occurred during inverse FFT transform.") );
-  }
-  for( int i = 0; i < myNumSamplesOut; i++ ) {
-    samples[i] = (float)myBufferReal[i];
-  }
-
-  if( applyNorm ) {
-    compute_rms( samples, myNumSamplesOut );
-    if( rmsOut != 0.0 ) {
-      float ratio = rmsIn / rmsOut;
-      for( int i = 0; i < myNumSamplesOut; i++ ) {
-        samples[i] *= ratio;
-      }
-      //    fprintf(stdout,"%f %f  %f\n", rmsIn, rmsOut, rmsIn/rmsOut);
-      return ratio;
-    }
-  }
-  //  fprintf(stderr,"Num samples in/out: %d %d, order: %d %f\n", myNumSamplesIn, myNumSamplesOut, myOrder, myCutOffFreqHz );
-  return 1.0;
+  myFFT->applyAmpFilter( samples, myFilterScalars );
 }
 //--------------------------------------------------------------------------------
+// Apply filter defined by coefficients
 //
-//
-void csFFTTools::filter( float* samples, int filterType ) {
-  setBuffer( samples );
-
-  if( !csFFTTools::fft( csFFTTools::FORWARD, myTwoPowerIn, myBufferReal, myBufferImag, false ) ) {
-    delete [] myBufferReal;
-    delete [] myBufferImag;
-    throw( csException("csFFTTools::filter(): Unknown error occurred during forward FFT transform.") );
-  }
-
-  double G0 = 1.0;
-  double power = fabs(myOrder) * 2.0;
-  double df = 1.0 / ( (double)myNumFFTSamplesIn*mySampleIntIn/1000.0 );
-
-  if( filterType == LOWPASS ) {
-    //    fprintf(stderr,"order: %f, freq: %.3f\n", myOrder, myCutOffFreqHz);
-    if( myOrder > 0 ) {
-      for( int is = 0; is <= myNumFFTSamplesIn/2; is++ ) {
-	double freq = (double)is * df;
-	double dampG = sqrt(G0 / (1.0 + pow(freq/myCutOffFreqHz,power) ));
-	myBufferReal[is] *= dampG;
-	myBufferImag[is] *= dampG;
-      }
-      for( int is = myNumFFTSamplesIn/2+1; is < myNumFFTSamplesIn; is++ ) {
-	double freq = -(double)(is-myNumFFTSamplesIn)*df;
-	double dampG = sqrt(G0 / (1.0 + pow(freq/myCutOffFreqHz,power) ));
-	myBufferReal[is] *= dampG;
-	myBufferImag[is] *= dampG;
-      }
-    }
-    else { //if( myOrder < 0 ) {
-      for( int is = 0; is <= myNumFFTSamplesIn/2; is++ ) {
-	double freq = (double)is * df;
-	double dampG = sqrt(G0 / (1.0 + pow(freq/myCutOffFreqHz,power) ));
-	if( dampG == 0.0 ) dampG = 1.0;
-	myBufferReal[is] /= dampG;
-	myBufferImag[is] /= dampG;
-      }
-      for( int is = myNumFFTSamplesIn/2+1; is < myNumFFTSamplesIn; is++ ) {
-	double freq = -(double)(is-myNumFFTSamplesIn)*df;
-	double dampG = sqrt(G0 / (1.0 + pow(freq/myCutOffFreqHz,power) ));
-	if( dampG == 0.0 ) dampG = 1.0;
-	myBufferReal[is] /= dampG;
-	myBufferImag[is] /= dampG;
-      }
-    }
-  }
-  else if( filterType == HIGHPASS ) {
-    if( myOrder > 0 ) {
-      for( int is = 0; is <= myNumFFTSamplesIn/2; is++ ) {
-	double freq = (double)is * df;
-	double dampG;
-	if( freq == 0 ) {
-	  dampG = 0;
-	}
-	else {
-	  dampG = sqrt(G0 / (1.0 + pow(myCutOffFreqHz/freq,power) ));
-	}
-	myBufferReal[is] *= dampG;
-	myBufferImag[is] *= dampG;
-      }
-      for( int is = myNumFFTSamplesIn/2+1; is < myNumFFTSamplesIn; is++ ) {
-	double freq = -(double)(is-myNumFFTSamplesIn)*df;
-	double dampG;
-	if( freq == 0 ) {
-	  dampG = 0.0;
-	}
-	else {
-	  dampG = sqrt(G0 / (1.0 + pow(myCutOffFreqHz/freq,power) ));
-	}
-	myBufferReal[is] *= dampG;
-	myBufferImag[is] *= dampG;
-      }
-    }
-    else { //if( myOrder < 0 ) {
-      for( int is = 0; is <= myNumFFTSamplesIn/2; is++ ) {
-	double freq = (double)is * df;
-	double dampG;
-	if( freq == 0 ) {
-	  dampG = 1.0;
-	}
-	else {
-	  dampG = sqrt(G0 / (1.0 + pow(myCutOffFreqHz/freq,power) ));
-	  if( dampG == 0.0 ) dampG = 1.0;
-	}
-	myBufferReal[is] /= dampG;
-	myBufferImag[is] /= dampG;
-      }
-      for( int is = myNumFFTSamplesIn/2+1; is < myNumFFTSamplesIn; is++ ) {
-	double freq = -(double)(is-myNumFFTSamplesIn)*df;
-	double dampG;
-	if( freq == 0 ) {
-	  dampG = 1.0;
-	}
-	else {
-	  dampG = sqrt(G0 / (1.0 + pow(myCutOffFreqHz/freq,power) ));
-	  if( dampG == 0.0 ) dampG = 1.0;
-	}
-	myBufferReal[is] /= dampG;
-	myBufferImag[is] /= dampG;
-      }
-    }
-  }
-  else {
-    //
-  }
-
-  if( !csFFTTools::fft( csFFTTools::INVERSE, myTwoPowerOut, myBufferReal, myBufferImag, true ) ) {
-    delete [] myBufferReal;
-    delete [] myBufferImag;
-    myBufferReal = NULL;
-    myBufferImag = NULL;
-    throw( csException("filter: Unknown error occurred during inverse FFT transform.") );
-  }
-  for( int i = 0; i < myNumSamplesOut; i++ ) {
-    samples[i] = (float)myBufferReal[i];
-  }
-}
-//--------------------------------------------------------------------------------
-//
-//
-/*void csFFTTools::applyQCompensation( float* samples, float qvalue, float freqRef, bool applyAmp, bool applyPhase ) {
-  setBuffer( samples );
-
-  if( !csFFTTools::fft( csFFTTools::FORWARD, myTwoPowerIn, myBufferReal, myBufferImag, false ) ) {
-    delete [] myBufferReal;
-    delete [] myBufferImag;
-    throw( csException("csFFTTools::applyQCompensation(): Unknown error occurred during forward FFT transform.") );
-  }
-
-
-  if( !csFFTTools::fft( csFFTTools::INVERSE, myTwoPowerOut, myBufferReal, myBufferImag, true ) ) {
-    delete [] myBufferReal;
-    delete [] myBufferImag;
-    throw( csException("filter: Unknown error occurred during inverse FFT transform.") );
-  }
-  for( int i = 0; i < myNumSamplesOut; i++ ) {
-    samples[i] = (float)myBufferReal[i];
-  }
-
-}
-*/
-//--------------------------------------------------------------------------------
-// Set FFT coefficients
-//
-void csFFTTools::setBuffer( float const* samples ) {
-  if( !myOutputImpulseResponse ) {
-    for( int i = 0; i < myNumSamplesIn; i++ ) {
-      myBufferReal[i] = samples[i];
-      myBufferImag[i] = 0;
-    }
-    for( int i = myNumSamplesIn; i < myNumFFTSamplesIn; i++ ) {
-      myBufferReal[i] = 0;
-      myBufferImag[i] = 0;
-    }
-  }
-  //----------------------------------------------------------
-  // Create filter impulse response
-  else {
-    double amplitude = 1.0;
-    for( int i = 0; i < myNumFFTSamplesIn; i++ ) {
-      myBufferReal[i] = 0;
-      myBufferImag[i] = 0;
-    }
-    myBufferReal[myNumFFTSamplesIn/2] = amplitude;
-  }
+void csFFTTools::applyAmpFilter( float* samplesInOut, float const* filterCoefficients ) {
+  myFFT->applyAmpFilter( samplesInOut, filterCoefficients );
 }
 
-
-bool csFFTTools::Powerof2( int numFFTSamplesX, int* m, int* twopm ) {
-  int value = numFFTSamplesX;
-  *m = 0;
-  while( (value = (int)(value / 2)) > 0 ) {
-    *m += 1;
-  }
-  *twopm = (int)pow( 2.0, *m );
-  return( *twopm == numFFTSamplesX );
-}
-
-
-/*-------------------------------------------------------------------------
-   This computes an in-place complex-to-complex FFT
-   x and y are the real and imaginary arrays of 2^m points.
-   dir =  1 gives forward transform
-   dir = -1 gives reverse transform
-
-     Formula: forward
-                  N-1
-                  ---
-              1   \          - j k 2 pi n / N
-      X(n) = ---   >   x(k) e                    = forward transform
-              N   /                                n=0..N-1
-                  ---
-                  k=0
-
-      Formula: reverse
-                  N-1
-                  ---
-                  \          j k 2 pi n / N
-      X(n) =       >   x(k) e                    = forward transform
-                  /                                n=0..N-1
-                  ---
-                  k=0
- * This fft implementation is pulled somewhere from the Internet, I forgot where...
- */
-//bool csFFTTools::fft( int dir, int power_of_two, double *realValues, double *imagValues ) {
-//  return csFFTTools::fft( dir, power_of_two, realValues, imagValues, false );
-//}
-bool csFFTTools::fft( int dir, int power_of_two, double *realValues, double *imagValues, bool doNormalisation )
-{
-   long nn,i,i1,j,k,i2,l,l1,l2;
-   double c1,c2,tx,ty,t1,t2,u1,u2,z;
-
-   /* Calculate the number of points */
-   nn = 1;
-   for (i=0;i<power_of_two;i++)
-      nn *= 2;
-
-   /* Do the bit reversal */
-   i2 = nn >> 1;
-   j = 0;
-   for (i=0;i<nn-1;i++) {
-      if (i < j) {
-         tx = realValues[i];
-         ty = imagValues[i];
-         realValues[i] = realValues[j];
-         imagValues[i] = imagValues[j];
-         realValues[j] = tx;
-         imagValues[j] = ty;
-      }
-      k = i2;
-      while (k <= j) {
-         j -= k;
-         k >>= 1;
-      }
-      j += k;
-   }
-
-   /* Compute the FFT */
-   c1 = -1.0;
-   c2 = 0.0;
-   l2 = 1;
-   for (l=0;l<power_of_two;l++) {
-      l1 = l2;
-      l2 <<= 1;
-      u1 = 1.0;
-      u2 = 0.0;
-      for (j=0;j<l1;j++) {
-         for (i=j;i<nn;i+=l2) {
-            i1 = i + l1;
-            t1 = u1 * realValues[i1] - u2 * imagValues[i1];
-            t2 = u1 * imagValues[i1] + u2 * realValues[i1];
-            realValues[i1] = realValues[i] - t1;
-            imagValues[i1] = imagValues[i] - t2;
-            realValues[i] += t1;
-            imagValues[i] += t2;
-         }
-         z =  u1 * c1 - u2 * c2;
-         u2 = u1 * c2 + u2 * c1;
-         u1 = z;
-      }
-      c2 = sqrt((1.0 - c1) / 2.0);
-      if (dir == 1)
-         c2 = -c2;
-      c1 = sqrt((1.0 + c1) / 2.0);
-   }
-
-   // Normalisation should be done for reverse transform
-   if( doNormalisation ) {
-      for (i=0;i<nn;i++) {
-         realValues[i] /= (double)nn;
-         imagValues[i] /= (double)nn;
-      }
-   }
-
-   return(true);
-}
-
-// Not tested yet...
-bool csFFTTools::fft_2d( int dir, double** realValues, double** imagValues, int numFFTSamplesX, int numFFTSamplesY )
-{
-  int mx,my,twopm;
-
-  // Transform the rows
-  int max_numFFTSamples = std::max(numFFTSamplesX,numFFTSamplesY);
-  double* real = new double[max_numFFTSamples];
-  double* imag = new double[max_numFFTSamples];
-
-  if( real == NULL || imag == NULL ) return false;
-  if( !csFFTTools::Powerof2( numFFTSamplesX, &mx, &twopm ) || twopm != numFFTSamplesX ) {
-    return false;
-  }
-  if( !csFFTTools::Powerof2( numFFTSamplesY, &my, &twopm ) || twopm != numFFTSamplesY ) {
-    return false;
-  }
-  for( int j = 0; j < numFFTSamplesY; j++ ) {
-    for( int i = 0; i < numFFTSamplesX; i++ ) {
-      real[i] = realValues[i][j];
-      imag[i] = imagValues[i][j];
-    }
-    csFFTTools::fft(dir,mx,real,imag,false);
-    for( int i = 0; i < numFFTSamplesX; i++ ) {
-      realValues[i][j] = real[i];
-      imagValues[i][j] = imag[i];
-    }
-  }
-
-   // Transform the columns
-  for( int i = 0; i < numFFTSamplesX; i++) {
-//    memcpy( real, &realValues[i][0], numFFTSamplesY*sizeof(double) );
-//    memcpy( imag, &imagValues[i][0], numFFTSamplesY*sizeof(double) );
-    for( int j = 0; j < numFFTSamplesY; j++ ) {
-      real[j] = realValues[i][j];
-      imag[j] = imagValues[i][j];
-    }
-    csFFTTools::fft(dir,my,real,imag,false);
-//    memcpy( &realValues[i][0], real, numFFTSamplesY*sizeof(double) );
-//    memcpy( &imagValues[i][0], imag, numFFTSamplesY*sizeof(double) );
-    for( int j = 0; j < numFFTSamplesY; j++ ) {
-      realValues[i][j] = real[j];
-      imagValues[i][j] = imag[j];
-    }
-  }
-  delete [] real;
-  delete [] imag;
-  
-  return true;
-}
-
-void csFFTTools::applyTaper( int taperType, int taperLengthInSamples, int numSamplesIn, float* samples ) {
-  if( taperType == csFFTTools::TAPER_COSINE || taperType == csFFTTools::TAPER_HANNING ) {
-    for( int i = 0; i < taperLengthInSamples; i++ ) {
-      float scalar = cos( M_PI_2 * (float)(taperLengthInSamples-i)/(float)taperLengthInSamples );
-      samples[i] *= scalar;
-    }
-    for( int i = numSamplesIn-taperLengthInSamples; i < numSamplesIn; i++ ) {
-      float scalar = cos( M_PI_2 * (float)(taperLengthInSamples-numSamplesIn+i+1)/(float)taperLengthInSamples );
-      samples[i] *= scalar;
-    }
-  }
-  else if( taperType == csFFTTools::TAPER_BLACKMAN ) {
-    float alpha = 0.16;
-    float a0 = 0.5 * (1.0 - alpha);
-    float a1 = 0.5;
-    float a2 = 0.5 * alpha;
-    for( int i = 0; i < numSamplesIn; i++ ) {
-      float piFactor = (2.0 * M_PI) * (float)i / (float)(numSamplesIn - 1);
-      float weight = a0 - a1*cos( piFactor ) + a2*cos( 2 * piFactor );
-      samples[i] *= weight;
-    }
-  }
-}    

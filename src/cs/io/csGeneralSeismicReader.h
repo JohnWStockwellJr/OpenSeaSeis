@@ -15,11 +15,6 @@ namespace cseis_geolib {
   class csIOSelection;
 }
 
-namespace cseis_system {
-  class csSuperHeader;
-  class csTraceHeaderDef;
-}  
-
 namespace cseis_io {
   class csSeismicReader_ver;
   class csSeismicIOConfig;

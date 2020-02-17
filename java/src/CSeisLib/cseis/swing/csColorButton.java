@@ -15,6 +15,7 @@ import java.awt.Component;
  * Square colored button, extending JButton
  * @author Bjorn Olofsson
  */
+@SuppressWarnings("serial")
 public class csColorButton extends JButton {
   public static final int APPEARANCE_CENTER = 0;
   public static final int APPEARANCE_RIGHT  = 1;

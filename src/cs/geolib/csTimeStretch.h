@@ -54,6 +54,12 @@ public:
    * Same as applyStretchFunction() but providing pairs of input/output horizon times instead of layer stretch function
    */
   void applyTimeInterval( float const* samplesIn, float const* timesIn_ms, float const* timesOut_ms, int numTimes, float* samplesOut );
+  /**
+   */
+  void initialize_timeDepthConversion( int numSamplesOut, float sampleIntOut );
+  void apply_timeDepthConversion( float const* samplesIn, float const* velFunc, float sampleIntVel_m, int numSamplesVel, float* samplesOut, bool isTime2Depth );
+  //  void convert_depth2time( float const* samplesIn, float const* velFunc, float sampleIntVel_m, int numSamplesVel, float* samplesOut );
+  //  void convert_time2depth( float const* samplesIn, float const* velFunc, float sampleIntVel_m, int numSamplesVel, float* samplesOut );
 private:
   void init( double sampleInt_ms, int numSamples, int methodSampleInterpolation );
   csInterpolation* mySampleInterpolation;
@@ -63,6 +69,12 @@ private:
   double mySampleInt;        // [ms]
   double myTimeOfLastSample;  // [s]
   bool   myIsBottomStretch;
+
+  float* myIndexBufferOut;
+  float* myTimeDepthFunc;
+  int myNumSamplesOut;
+  float mySampleIntOut;
+  cseis_geolib::csInterpolation* myInterpol_timeDepthConversion;
 };
 
 } // namespace

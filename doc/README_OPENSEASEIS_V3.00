@@ -1,0 +1,92 @@
+
+*** OpenSeaSeis v3.00 ***
+
+
+*** HOW TO INSTALL ***
+
+Linux installation - quick overview
+1) Extract downloaded tar file into arbitrary directory
+   For example:
+   mkdir /opt/seaseis; cp seaseis_v3.00.tgz /opt/seaseis; cd /opt/seaseis;
+   tar xfz seaseis_v3.00.tgz
+   The tar file will extract into directory: /opt/seaseis/seaseis_v3.00
+2) Review compiler settings
+   If necessary, change compilers at the top of the bash script make_seaseis.sh
+3) Run make
+   cd /opt/seaseis/seaseis_v3.00
+   ./make_seaseis.sh
+4) Add Seaseis bin directory to your binary path
+   bash:  export PATH=${PATH}:/opt/seaseis/bin
+   tcsh:  set path = ($path /opt/seaseis/bin)
+5) Run seaseis/seaview
+   seaseis -h
+   seaview.sh
+
+For more details:
+- Read instructions on web site cwp.mines.edu/cwpcodes/OpenSeaSeis
+- Read instructions in make utility scripts in this directory:
+
+make_java.sh            Make utility for Java source code (There is no need to use this since the jar files are provided)
+make_seaseis.sh         Make utility for Linux
+make_seaseis_win64.sh   Make utility for Windows 64bit, make on Linux system (MinGW)
+
+
+Seismic Unix:
+- See README_SEISMIC_UNIX for details
+
+How to install fftw libraries:
+- Download and extract fftw source code distribution from http://www.fftw.org/download.html
+- ./configure --enable-float
+- make
+- make install
+
+--------------------------------------------------------------------------------------
+
+*** OpenSeaseis (OSS) version 3.00 - Major changes and new features since v2.03***
+MODULE API CHANGES:
+- Each module now has to define two additional functions:
+  1) "Start Exec Phase" function
+    - This function is called only once, just before the module's "Exec Phase" is called for the first time
+    - This allows to perform any tasks that need to be done only once before the "Exec Phase" starts
+  2) "Cleanup" function
+    - This function is called only once before the process terminates
+    - In previous OSS versions, clean-up tasks were performed in the module's "Exec Phase", using a flag
+- Only one type of "Exec Phase" API, instead of two
+  - Previously, there were two different "Exec Phase" APIs, one for single-trace and one for multi-trace modules
+  - In OSS v3, all modules are "multi-trace" modules
+  - As previously, there are two types of implementations for "multi-trace" modules:
+    a) "Fixed-trace": The "Exec Phase" is called with a fixed number of traces, set in the "Init Phase"
+    b) "Ensemble":    The "Exec Phase" is called with a full ensemble of traces, defined by the "ensemble" trace header
+                      Ensembles can have varying number of input traces
+
+LIST OF FUNCTIONS that each OSS module needs to define, in the order they are called up by the OSS system:
+  Assume module with name XYZ:
+  1) Parameter definition function:   void _params_mod_XYZ_(...)
+     - Define user parameters, provide module documentation
+  2) Initialization phase function:   void _init_mod_XYZ_(...)
+     - Read in user-specified parameters, initialize objects needed during execution phase
+  3) Start execution phase function:  bool _start_exec_mod_XYZ_(...)
+     - Perform tasks that need to be performed only once before the execution phase is started
+  4) Execution phase function:        void _exec_mod_XYZ_(...)
+     - Main function: Apply the module's processes to trace data in flow
+  5) Clean-up phase function:         void _cleanup_mod_XYZ_(...)
+     - Perform last-minute tasks after completion of exec phase, clean up memory
+
+MPI SUPPORT
+- OSS v3 adds generic MPI support for "fixed-trace" modules (=fixed number of traces in each "Exec Phase" call).
+- Since the MPI capabilities have not been fully tested yet it is advised NOT to use them for now
+- To compile with MPI, set the MPI build flag in the build script make_seaseis.sh
+- How MPI works in OSS v3:
+  - Each MPI process parses the input flow and runs through the "Init Phase" of the modules that support MPI
+  - Each MPI process writes log information to a separate log file named "<logfile>XXXX", where XXXX in the MPI process ID
+  - Only "fixed-trace" modules can be MPI-enabled. (NT traces in each "Exec Phase" call)
+  - In the "Exec Phase", general trace management is handled by the main MPI process, i.e. the main MPI process moves traces through the trace flow.
+  - Each time an MPI-enabled module is called, (NP x NT) traces are distributed between NP processes
+  - All output traces (can be more or less than (NP x NT)) are merged back in the order they were received
+  - Traces are passed on to the next module by the main MPI process, and so on..
+- As a programmer, how to enable MPI for a given module?
+  a) Set the MPI support flag in the module's "Init Phase":  edef->setMPISupport(true);
+  b) In principle, nothing else needs to be done. The system will handle MPI for this module.
+     - However, the programmer needs to ensure that the module's "Init Phase" and other functions can run in multiple parallel processes.
+- Only a couple of modules have MPI support "enabled" yet
+

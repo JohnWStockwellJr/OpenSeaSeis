@@ -1,8 +1,8 @@
 /* Copyright (c) Colorado School of Mines, 2013.*/
 /* All rights reserved.                       */
 
-#ifndef CS_TOKEN_HH
-#define CS_TOKEN_HH
+#ifndef CS_TOKEN_H
+#define CS_TOKEN_H
 
 #include <string>
 #include <cstdio>

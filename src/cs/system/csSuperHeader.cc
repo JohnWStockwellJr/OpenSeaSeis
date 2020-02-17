@@ -6,6 +6,7 @@
 #include "csVector.h"
 #include "csException.h"
 #include "csGeolibUtils.h"
+#include <cstring>
 
 using namespace cseis_system;
 
@@ -37,6 +38,118 @@ csSuperHeader::~csSuperHeader() {
     myEnsKeyInfo = NULL;
   }
 }
+int csSuperHeader::mpi_getByteSize() const {
+  char* dataBuffer = new char[10000];
+  int byteSize = mpi_compress( dataBuffer );
+  delete [] dataBuffer;
+  return byteSize;
+}
+int csSuperHeader::mpi_compress( char* data ) const {
+  int byteLoc = 0;
+  memcpy( &data[byteLoc], &numSamples, sizeof(int) );
+  byteLoc += sizeof(int);
+  memcpy( &data[byteLoc], &sampleInt, sizeof(float) );
+  byteLoc += sizeof(float);
+  memcpy( &data[byteLoc], &domain, sizeof(int) );
+  byteLoc += sizeof(int);
+  memcpy( &data[byteLoc], &numSamplesXT, sizeof(int) );
+  byteLoc += sizeof(int);
+  memcpy( &data[byteLoc], &sampleIntXT, sizeof(float) );
+  byteLoc += sizeof(float);
+  memcpy( &data[byteLoc], &fftDataType, sizeof(int) );
+  byteLoc += sizeof(int);
+  memcpy( &data[byteLoc], &grid_orig_x, sizeof(double) );
+  byteLoc += sizeof(double);
+  memcpy( &data[byteLoc], &grid_orig_y, sizeof(double) );
+  byteLoc += sizeof(double);
+  memcpy( &data[byteLoc], &grid_orig_il, sizeof(int) );
+  byteLoc += sizeof(int);
+  memcpy( &data[byteLoc], &grid_orig_xl, sizeof(int) );
+  byteLoc += sizeof(int);
+  memcpy( &data[byteLoc], &grid_binsize_il, sizeof(double) );
+  byteLoc += sizeof(double);
+  memcpy( &data[byteLoc], &grid_binsize_xl, sizeof(double) );
+  byteLoc += sizeof(double);
+  memcpy( &data[byteLoc], &grid_azim_il, sizeof(double) );
+  byteLoc += sizeof(double);
+  memcpy( &data[byteLoc], &grid_azim_xl, sizeof(double) );
+  byteLoc += sizeof(double);
+  memcpy( &data[byteLoc], &myNumEnsKeys, sizeof(int) );
+  byteLoc += sizeof(int);
+  memcpy( &data[byteLoc], &myNumAllocatedEnsKeys, sizeof(int) );
+  byteLoc += sizeof(int);
+
+  for( int i = 0; i < myNumEnsKeys; i++ ) {
+    keyInfoStruct info = myEnsKeyInfo[i];
+    int strLength = info.name.length();
+    memcpy( &data[byteLoc], &strLength, sizeof(int) );
+    byteLoc += sizeof(int);
+    memcpy( &data[byteLoc], info.name.c_str(), strLength*sizeof(char) );
+    byteLoc += strLength*sizeof(char);
+    memcpy( &data[byteLoc], &info.hdrType, sizeof(int) );
+    byteLoc += sizeof(int);
+    memcpy( &data[byteLoc], &info.hdrIndex, sizeof(int) );
+    byteLoc += sizeof(int);
+  }
+  return byteLoc;
+}
+
+void csSuperHeader::mpi_decompress( char const* data ) {
+  int byteLoc = 0;
+  memcpy( &numSamples, &data[byteLoc], sizeof(int) );
+  byteLoc += sizeof(int);
+  memcpy( &sampleInt, &data[byteLoc], sizeof(float) );
+  byteLoc += sizeof(float);
+  memcpy( &domain, &data[byteLoc], sizeof(int) );
+  byteLoc += sizeof(int);
+  memcpy( &numSamplesXT, &data[byteLoc], sizeof(int) );
+  byteLoc += sizeof(int);
+  memcpy( &sampleIntXT, &data[byteLoc], sizeof(float) );
+  byteLoc += sizeof(float);
+  memcpy( &fftDataType, &data[byteLoc], sizeof(int) );
+  byteLoc += sizeof(int);
+  memcpy( &grid_orig_x, &data[byteLoc], sizeof(double) );
+  byteLoc += sizeof(double);
+  memcpy( &grid_orig_y, &data[byteLoc], sizeof(double) );
+  byteLoc += sizeof(double);
+  memcpy( &grid_orig_il, &data[byteLoc], sizeof(int) );
+  byteLoc += sizeof(int);
+  memcpy( &grid_orig_xl, &data[byteLoc], sizeof(int) );
+  byteLoc += sizeof(int);
+  memcpy( &grid_binsize_il, &data[byteLoc], sizeof(double) );
+  byteLoc += sizeof(double);
+  memcpy( &grid_binsize_xl, &data[byteLoc], sizeof(double) );
+  byteLoc += sizeof(double);
+  memcpy( &grid_azim_il, &data[byteLoc], sizeof(double) );
+  byteLoc += sizeof(double);
+  memcpy( &grid_azim_xl, &data[byteLoc], sizeof(double) );
+  byteLoc += sizeof(double);
+  memcpy( &myNumEnsKeys, &data[byteLoc], sizeof(int) );
+  byteLoc += sizeof(int);
+  memcpy( &myNumAllocatedEnsKeys, &data[byteLoc], sizeof(int) );
+  byteLoc += sizeof(int);
+
+  if( myEnsKeyInfo != NULL ) delete [] myEnsKeyInfo;
+  myEnsKeyInfo = NULL;
+  if( myNumAllocatedEnsKeys > 0 ) myEnsKeyInfo = new keyInfoStruct[myNumAllocatedEnsKeys];
+  
+  for( int i = 0; i < myNumEnsKeys; i++ ) {
+    keyInfoStruct info;
+    int strLength;
+    memcpy( &strLength, &data[byteLoc], sizeof(int) );
+    byteLoc += sizeof(int);
+    char* nameStr = new char[strLength];
+    memcpy( nameStr, &data[byteLoc], strLength*sizeof(char) );
+    byteLoc += strLength*sizeof(char);
+    myEnsKeyInfo[i].name = nameStr;
+    delete [] nameStr;
+    memcpy( &myEnsKeyInfo[i].hdrType, &data[byteLoc], sizeof(int) );
+    byteLoc += sizeof(int);
+    memcpy( &myEnsKeyInfo[i].hdrIndex, &data[byteLoc], sizeof(int) );
+    byteLoc += sizeof(int);
+  }
+}
+
 void csSuperHeader::set( csSuperHeader const* superHeader ) {
   numSamples   = superHeader->numSamples;
   numSamplesXT = superHeader->numSamplesXT;
@@ -69,7 +182,7 @@ void csSuperHeader::clearEnsembleKeys() {
   myNumEnsKeys = 0;
 }
 void csSuperHeader::reallocate( int newNumAllocatedKeys ) {
-  if( myNumAllocatedEnsKeys == 0 ) {
+  if( myNumAllocatedEnsKeys < newNumAllocatedKeys ) {
     keyInfoStruct* keyInfo = new keyInfoStruct[newNumAllocatedKeys];
     for( int i = 0; i < myNumAllocatedEnsKeys; i++ ) {
       keyInfo[i].name = myEnsKeyInfo[i].name;

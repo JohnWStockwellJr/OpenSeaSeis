@@ -10,6 +10,7 @@ import cseis.general.*;
  * Color bar used for image plot.
  * @author 2009 Bjorn Olofsson
  */
+@SuppressWarnings("serial")
 public class csPlotImageColorBar extends csColorBarPanel {
 
   private int myHeight;

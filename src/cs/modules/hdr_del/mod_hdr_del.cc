@@ -22,19 +22,19 @@ using namespace std;
 //
 //*******************************************************************
 
-void init_mod_hdr_del_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_hdr_del_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
-//  csSuperHeader*    shdr = env->superHeader;
   edef->setVariables( NULL );
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
   csVector<std::string> valueList;
   int numLines = param->getNumLines("header");
   if( numLines < 1 ) {
-    log->error("Required user parameter 'header' not found");
+    writer->error("Required user parameter 'header' not found");
   }
   csVector<std::string> tmpList;
   for( int iline = 0; iline < numLines; iline++ ) {
@@ -56,7 +56,7 @@ void init_mod_hdr_del_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
      isModeInclude = false;
     }
     else {
-     log->error( "Mode option not recognised: '%s'", text.c_str() );
+     writer->error( "Mode option not recognised: '%s'", text.c_str() );
     }
   }
 
@@ -88,7 +88,7 @@ void init_mod_hdr_del_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
         valueList.remove(i);
       }
       if( !found ) {
-        log->line("Error: Unknown trace header '%s'", name.c_str() );
+        writer->line("Error: Unknown trace header '%s'", name.c_str() );
         env->addError();
       }
     }
@@ -101,12 +101,12 @@ void init_mod_hdr_del_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
     for( int i = 0; i < valueList.size(); i++ ) {
       string hdrName = valueList.at(i);
       if( hdef->isSystemTraceHeader( hdrName ) ) {
-        log->line("Trace header '%s' is a system trace header which cannot be deleted", hdrName.c_str());
+        writer->line("Trace header '%s' is a system trace header which cannot be deleted", hdrName.c_str());
         env->addError();
       }
       hdef->deleteHeader( hdrName );
     }
-    log->line("List of trace headers to delete:");
+    writer->line("List of trace headers to delete:");
   }
   else {
     for( int ihdr = 0; ihdr < hdef->numHeaders(); ihdr++ ) {
@@ -125,10 +125,10 @@ void init_mod_hdr_del_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
         hdef->deleteHeader( hdrName );
       }
     }
-    log->line("List of trace headers to keep:");
+    writer->line("List of trace headers to keep:");
   }
   for( int i = 0; i < valueList.size(); i++ ) {
-    log->line(" %s", valueList.at(i).c_str());
+    writer->line(" %s", valueList.at(i).c_str());
   }
 }
 
@@ -138,14 +138,14 @@ void init_mod_hdr_del_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
 //
 //
 //*************************************************************************************************
-bool exec_mod_hdr_del_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  csExecPhaseDef* edef = env->execPhaseDef;
-
-  if( edef->isCleanup()){
-    return true;
-  }
-
-  return true;
+void exec_mod_hdr_del_(
+  csTraceGather* traceGather,
+  int* port,
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
+{
+  // Nothing to do
 }
 
 //*************************************************************************************************
@@ -165,13 +165,35 @@ void params_mod_hdr_del_( csParamDef* pdef ) {
   pdef->addOption( "exclude", "Kill all trace headers EXCEPT the ones specified." );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_hdr_del_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_hdr_del_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  // Nothing to do
+}
+
 extern "C" void _params_mod_hdr_del_( csParamDef* pdef ) {
   params_mod_hdr_del_( pdef );
 }
-extern "C" void _init_mod_hdr_del_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_hdr_del_( param, env, log );
+extern "C" void _init_mod_hdr_del_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_hdr_del_( param, env, writer );
 }
-extern "C" bool _exec_mod_hdr_del_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_hdr_del_( trace, port, env, log );
+extern "C" bool _start_exec_mod_hdr_del_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_hdr_del_( env, writer );
 }
-
+extern "C" void _exec_mod_hdr_del_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_hdr_del_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_hdr_del_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_hdr_del_( env, writer );
+}

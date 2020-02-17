@@ -4,7 +4,7 @@
 #set -x
 
 # these items identify the date/release of the codes
-DATE="15 July"
+DATE="9 February 2020"
 RELEASE=$VERSION
 
 echo

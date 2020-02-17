@@ -31,7 +31,7 @@ public:
   void set( char const* name, char const* value );
   void set( cseis_geolib::csVector<std::string> const& tokenList );
   void convertToLowerCase( int valIndex );
-//  void setValueType( int valIndex, int valueType );
+  void setValue( int valIndex, double value );
 //  void setValueTypeVariable( int valIndexStart, int valueType );
   /**
   * @return name of user parameter

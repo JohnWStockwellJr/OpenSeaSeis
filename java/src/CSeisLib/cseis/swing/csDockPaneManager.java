@@ -19,6 +19,7 @@ import javax.swing.event.ChangeListener;
  * It defines several layout options, provides drag and sync functionality etc.
  * @author 2013 Felipe Punto
  */
+@SuppressWarnings("serial")
 public class csDockPaneManager extends JPanel implements csIDockPaneListener {
   public static final int LAYOUT_TABS       = 0;
   public static final int LAYOUT_ONE_ROW    = 1;
@@ -66,6 +67,8 @@ public class csDockPaneManager extends JPanel implements csIDockPaneListener {
   private boolean myDoActivateNewPanes;
   private boolean myShowActivePaneFeedback;
 
+  private int myMaxTabWidth;
+  
   public csDockPaneManager() {
     this( false );
   }
@@ -78,10 +81,24 @@ public class csDockPaneManager extends JPanel implements csIDockPaneListener {
     myTabbedPane = null;
     myIsNewPaneInProgress = false;
     myShowActivePaneFeedback = true;
+    myMaxTabWidth = 9999;
     
     myPanes = new ArrayList<csDockPane>();
     myListeners  = new ArrayList<csIDockPaneSelectionListener>();
     setLayout( myGridLayout );
+  }
+  public void setMaxTabWidth( int maxTabWidth ) {
+    myMaxTabWidth = maxTabWidth > 50 ? maxTabWidth : 50;
+    if( myTabbedPane != null ) {
+      int numTabs = myTabbedPane.getTabCount();
+      if( myPanes.size() < numTabs ) numTabs = myPanes.size();
+      for( int i = 0; i < numTabs; i++ ) {
+        myTabbedPane.setTabComponentAt( i, myPanes.get(i).getTabComponent() );
+      }
+    }
+  }
+  public int getMaxTabWidth() {
+    return myMaxTabWidth;
   }
   // Show graphical feedback when active pane is selected (=highlight panel for a short time)
   public void setActivePaneFeedback( boolean showFeedback ) {
@@ -201,6 +218,7 @@ public class csDockPaneManager extends JPanel implements csIDockPaneListener {
   private void insertTab( csDockPane pane, int atIndex ) {
     myTabbedPane.insertTab( "", null, pane, "", atIndex );
     myTabbedPane.setTabComponentAt( atIndex, pane.getTabComponent() );
+    myTabbedPane.setToolTipTextAt( atIndex, pane.attr().titleDescription );
   }
   public void resetActiveTitle( String title, String titleDescription ) {
     csDockPane activePane = getActiveDockPane();
@@ -530,8 +548,6 @@ public class csDockPaneManager extends JPanel implements csIDockPaneListener {
     for( int i = 0; i < myPanes.size(); i++ ) {
       if( myPanes.get(i).isVisible() ) {
         setActivePane( myPanes.get(i), myLayoutOption );
-//        myPanes.get(i).setActive(true);
-//        myActivePaneIndex = i;
         fireDockPaneSelectionEvent( myPanes.get(i) );
         return;
       }
@@ -660,7 +676,6 @@ public class csDockPaneManager extends JPanel implements csIDockPaneListener {
       pane.setActive(false);
       resetActivePane();
     }
-    //    fireHideStateEvent( myNumPanesVisible != myPanes.size() );
   }
   @Override
   public void closePane( csDockPane pane ) {
@@ -674,8 +689,12 @@ public class csDockPaneManager extends JPanel implements csIDockPaneListener {
         }
       }
       myPanes.remove(paneIndex); // Completely remove pane from manager
-//      if( stateCurrent == STATE_HIDDEN && myNumPanesVisible == myPanes.size() ) fireHideStateEvent( myNumPanesVisible != myPanes.size() );
-      if( paneIndex == myActivePaneIndex ) resetActivePane();
+      if( paneIndex == myActivePaneIndex ) {
+        resetActivePane();
+      }
+      else if( paneIndex < myActivePaneIndex ) {
+        myActivePaneIndex -= 1;
+      }
       resetWindowLayout( myLayoutOption, true );
       fireDockPaneClosedEvent( pane );
     }
@@ -708,11 +727,6 @@ public class csDockPaneManager extends JPanel implements csIDockPaneListener {
       reset();
     }
   }
-//  private void fireHideStateEvent( boolean hiddenPanesExist ) {
-//    for( int i = 0; i < myListeners.size(); i++ ) {
-//      myListeners.get(i).hideStateChanged( hiddenPanesExist );
-//    }
-//  }
   private void fireDockPaneSelectionEvent( csDockPane pane ) {
     for( int i = 0; i < myListeners.size(); i++ ) {
       myListeners.get(i).dockPaneSelected( pane );

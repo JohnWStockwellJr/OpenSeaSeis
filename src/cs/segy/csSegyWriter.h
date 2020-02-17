@@ -15,7 +15,6 @@ namespace cseis_geolib {
   class csSegyBinHeader;
   class csSegyTraceHeader;
   class csFlexNumber;
-  class csSegyHeader;
   class csSegyHdrMap;
 
 /**

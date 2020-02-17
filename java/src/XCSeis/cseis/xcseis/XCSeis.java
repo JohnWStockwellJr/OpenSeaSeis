@@ -41,6 +41,7 @@ public class XCSeis extends JFrame implements csFileMenuListener, csIFlowViewLis
   private csProjectDef myProjDef;
 //  private ArrayList<csFlowPanel> myFlowPanelList;
   private JTabbedPane myTabPaneFlows;
+  private int myTabIndexModuleHelpPane;
 
   // Menu & status bar
   private csMenuBar myMenuBar;
@@ -56,21 +57,13 @@ public class XCSeis extends JFrame implements csFileMenuListener, csIFlowViewLis
   private JTextArea myTextOutput;
 
   // Panels
-  private csSubPanel myPanelFlow;
-  private csSubPanel myPanelLog;
-  private JPanel myPanelParam;
-  private JPanel myPanelHelp;
-  private JPanel myPanelModuleList;
-  private JPanel myPanelHeaderList;
-  private JPanel myPanelPreview;
-  private csSubPanel myPanelOutput;
-
-  // Panel title labels
-  private JLabel myTitleFlow;
-  private JLabel myTitleLog;
-  private JLabel myTitleParam;
-  private JLabel myTitlePreview;
-  private JLabel myTitleOutput;
+  private final csSubPanel myPanelFlow;
+  private final csSubPanel myPanelLog;
+  private final JPanel myPanelParam;
+  private final JPanel myPanelHelp;
+  private final JPanel myPanelModuleList;
+  private final JPanel myPanelHeaderList;
+  private final csSubPanel myPanelOutput;
 
   // Scroll panes
   private JScrollPane myPaneLog;
@@ -87,6 +80,7 @@ public class XCSeis extends JFrame implements csFileMenuListener, csIFlowViewLis
   private JSplitPane mySplitPaneLogOutput;
   private JSplitPane mySplitPaneAll;
   private JTabbedPane myTabPaneHelp;
+  private JTabbedPane myTabPaneModuleParam;
 
   public XCSeis() {
     super("XCSeis, version " + XCSeis.VERSION);
@@ -119,38 +113,30 @@ public class XCSeis extends JFrame implements csFileMenuListener, csIFlowViewLis
 //      myTextOutput.setText("...problem occurred when capturing standard output stream.");
 //    }
 
-    myButtonFlowView = new JToggleButton("Flow View", false);
-    myButtonSubmit = new JButton("Submit flow");
-    myTitleFlow = new JLabel("<html> &nbsp; <b>Flow viewer</b> </html>");
-    myTitleLog  = new JLabel("<html> &nbsp; <b>Log viewer</b></html>");
-    myTitleParam = new JLabel("<html> &nbsp; <b>Parameter viewer</b></html>");
-    myTitlePreview    = new JLabel("<html> &nbsp; <b>Preview</b></html>");
-    myTitleOutput    = new JLabel("<html> &nbsp; <b>Output</b></html>");
+    myButtonFlowView = new JToggleButton("Flow View     ", false);
+    myButtonSubmit = new JButton("Submit Flow   ");
     
-//    myTextPaneFlow  = new JTextPane();
     myTextAreaLog   = new JTextArea();
     myTextAreaParam = new JTextArea();
 
-//    myTextPaneFlow.setEditable( true );
-//    myTextPaneFlow.setLineWrap( false );
     myTextAreaLog.setEditable( false );
     myTextAreaLog.setLineWrap( false );
     myTextAreaLog.setFont( new Font("Monospaced",Font.PLAIN, 11 ));
     myTextAreaParam.setEditable( true );
     myTextAreaParam.setLineWrap( false );
 
-    myPanelFlow  = new csSubPanel( "<html> &nbsp; <b>Flow viewer</b> </html>" );
+    myPanelFlow  = new csSubPanel( "<html> &nbsp; <b>Flow editor</b> </html>" );
     myPanelLog   = new csSubPanel( "<html> &nbsp; <b>Log viewer</b></html>" );
     myPanelOutput = new csSubPanel( "<html> &nbsp; <b>Output</b></html>" );
+//    myPanePreview = new csSubPanel( "<html> &nbsp; <b>Preview</b></html>" );
     myPanelParam = new JPanel( new BorderLayout() );
     myPanelHelp  = new JPanel( new BorderLayout() );
     myPanelModuleList = new JPanel( new BorderLayout() );
     myPanelHeaderList = new JPanel( new BorderLayout() );
-    myPanelPreview = new JPanel( new BorderLayout() );
+//    myPanelPreview = new JPanel( new BorderLayout() );
 
     csFlowPanel panel = new csFlowPanel(this,TEXT_NEW_FLOW);
     panel.updateModel(new StringBuffer(""));
-//    myFlowPanelList.add(panel);
     myTabPaneFlows  = new JTabbedPane();
     myTabPaneFlows.add( TEXT_NEW_FLOW, panel );
     myTabPaneFlows.setTabComponentAt(myTabPaneFlows.getTabCount()-1,new csButtonTab(this,myTabPaneFlows));
@@ -161,9 +147,14 @@ public class XCSeis extends JFrame implements csFileMenuListener, csIFlowViewLis
       }
     });
     
+    myTabPaneModuleParam = new JTabbedPane( JTabbedPane.TOP, JTabbedPane.SCROLL_TAB_LAYOUT );
+    myTabPaneModuleParam.addTab( "Parameter editor", myPanelParam );
+    myTabPaneModuleParam.addTab( "Module list", myPanelModuleList );
+    myTabPaneModuleParam.setSelectedIndex( myTabPaneModuleParam.getTabCount()-1 );
+
     myTabPaneHelp = new JTabbedPane( JTabbedPane.TOP, JTabbedPane.SCROLL_TAB_LAYOUT );
+    myTabIndexModuleHelpPane = 0;
     myTabPaneHelp.addTab( "Help", myPanelHelp );
-    myTabPaneHelp.addTab( "Module list", myPanelModuleList );
     myTabPaneHelp.addTab( "Header list", myPanelHeaderList );
 
     // Scroll panes
@@ -179,15 +170,14 @@ public class XCSeis extends JFrame implements csFileMenuListener, csIFlowViewLis
     myPanelFlow.add( myTabPaneFlows,  BorderLayout.CENTER );
     myPanelLog.add( myPaneLog,  BorderLayout.CENTER );
     myPanelOutput.add( myPaneOutput,  BorderLayout.CENTER );
-    myPanelParam.add( myTitleParam, BorderLayout.NORTH );
+//    myPanelParam.add( myTitleParam, BorderLayout.NORTH );
     myPanelParam.add( myPaneParam,  BorderLayout.CENTER );
     myPanelHelp.add( myPaneHelp,  BorderLayout.CENTER );
     myPanelModuleList.add( myPaneModuleList,  BorderLayout.CENTER );
     myPanelHeaderList.add( myPaneHeaderList,  BorderLayout.CENTER );
-    myPanelPreview.add( myTitlePreview, BorderLayout.NORTH );
-    myPanelPreview.add( myPanePreview,  BorderLayout.CENTER );
+//    myPanelPreview.add( myPanePreview,  BorderLayout.CENTER );
 
-    mySplitPaneParamHelp     = new JSplitPane( JSplitPane.VERTICAL_SPLIT, myPanelParam, myTabPaneHelp );
+    mySplitPaneParamHelp     = new JSplitPane( JSplitPane.VERTICAL_SPLIT, myTabPaneModuleParam, myTabPaneHelp );
     mySplitPaneFlowParamHelp = new JSplitPane( JSplitPane.HORIZONTAL_SPLIT, mySplitPaneParamHelp, myPanelFlow );
     mySplitPaneLogOutput = new JSplitPane( JSplitPane.VERTICAL_SPLIT, myPanelLog, myPanelOutput );
     mySplitPaneAll      = new JSplitPane( JSplitPane.HORIZONTAL_SPLIT, mySplitPaneFlowParamHelp, mySplitPaneLogOutput );
@@ -220,11 +210,9 @@ public class XCSeis extends JFrame implements csFileMenuListener, csIFlowViewLis
 
     pack();
     Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
-    Dimension appSize = new Dimension( screenSize.width * 9 / 10, screenSize.height * 9 / 10 );
+    Dimension appSize = new Dimension( screenSize.width * 9 / 10, screenSize.height * 8 / 10 );
     setSize( appSize );
     setLocation( ( screenSize.width - appSize.width ) / 2, ( screenSize.height - appSize.height ) / 2 );
-    // TEMP:
-//    Dimension appSize = new Dimension( screenSize.width * 9 / 10, screenSize.height * 7 / 10 );
     setSize( appSize );
     setLocation( ( screenSize.width - appSize.width ) / 2, 0 );
     mySplitPaneParamHelp.setDividerLocation( (int)(appSize.height / 3) );
@@ -232,9 +220,25 @@ public class XCSeis extends JFrame implements csFileMenuListener, csIFlowViewLis
     mySplitPaneLogOutput.setDividerLocation( (int)(2*appSize.height / 3) );
     mySplitPaneAll.setDividerLocation( (int)(3*appSize.width / 4) );
 
+    myPaneModuleList.addModuleListingListener( new csIModuleListingListener() {
+      public void selectModule(String moduleName) {
+        showModuleHelp( moduleName );
+      }
+      public void addModule( String moduleName ) {
+        csNativeModuleHelp moduleHelp = new csNativeModuleHelp();
+        String text = moduleHelp.moduleExample(moduleName) + "\n"; // Add empty line at end
+        if( myActivePanel == null ) {
+          updateActiveFlow();
+        }
+        if( myActivePanel != null ) {
+          myActivePanel.addModule( moduleName, text );
+        }
+      }
+    });
+      
     myButtonFormat.addActionListener( new ActionListener() {
       public void actionPerformed(ActionEvent e) {
-        // myFlowPanelList.get(myTabPaneFlows.getSelectedIndex()).formatText(true);
+        // myFlowPanelList.get(myTabPaneFlows.getSeulelectedIndex()).formatText(true);
       }
     });
     myButtonSubmit.addActionListener( new ActionListener() {
@@ -533,6 +537,10 @@ public class XCSeis extends JFrame implements csFileMenuListener, csIFlowViewLis
           flowName = flowPath.substring(index);
           flowRootPath = flowPath.substring(0,index);
         }
+        if( flowRootPath == null ) {
+          JOptionPane.showMessageDialog(rootPane, "No flow file: Make sure to save your flow to disk before job submission", "Error", JOptionPane.ERROR_MESSAGE);
+          return;
+        }
         String logName = myProjDef.pathLogs() + flowName.substring(0,flowName.length()-5) + ".log";
         String commandText = "seaseis -f " + flowPath + " -o " + logName;
 
@@ -569,8 +577,8 @@ public class XCSeis extends JFrame implements csFileMenuListener, csIFlowViewLis
           catch (InterruptedException ex) {
           }
         }
-        catch (Exception err) {
-          err.printStackTrace();
+        catch( Exception err ) {
+          JOptionPane.showMessageDialog(rootPane, err.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
         updateLogFile(logName);
         setSubmissionEnabled( true );
@@ -631,12 +639,19 @@ public class XCSeis extends JFrame implements csFileMenuListener, csIFlowViewLis
     }
   }
   //---------------------------------------------------------------------------
-  public void moduleChanged( int moduleIndex, String moduleName ) {
+  public void selectModuleInFlow( int moduleIndex, String moduleName ) {
+    showModuleHelp( moduleName );
+  }
+  public void deleteModuleInFlow( int moduleIndex, String moduleName ) {
+    // Not implemented yet
+  }
+  public void showModuleHelp( String moduleName ) {
     myPaneHelp.updateModule(moduleName);
     csNativeModuleHelp moduleHelp = new csNativeModuleHelp();
     String text = moduleHelp.moduleHtmlHelp(moduleName);
     myPaneHelp.updateModuleHelp(text);
     myPaneParam.updateModuleExample(moduleName);
+    myTabPaneHelp.setSelectedIndex( myTabIndexModuleHelpPane );
   }
   public boolean setProjectDir( String projDir ) {
     try {
@@ -663,10 +678,10 @@ public class XCSeis extends JFrame implements csFileMenuListener, csIFlowViewLis
     }
     catch( java.lang.UnsatisfiedLinkError e ) {
       JOptionPane.showMessageDialog( null,
-          e.toString() + "\n" +
-          "java.library.path = " + System.getProperty( "java.library.path" ) + "\n" +
-          " - XCSeis will not show any module documentation.", "Error",
-          JOptionPane.ERROR_MESSAGE );
+                                     e.toString() + "\n" +
+                                     "java.library.path = " + System.getProperty( "java.library.path" ) + "\n" +
+                                     " - XCSeis will not show any module documentation.", "Error",
+                                     JOptionPane.ERROR_MESSAGE );
     }
 
     try {

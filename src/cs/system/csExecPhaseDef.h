@@ -28,7 +28,7 @@ namespace cseis_system {
 */
 class csExecPhaseDef {
 public:
-  csExecPhaseDef( std::string& moduleName );
+  csExecPhaseDef( std::string& moduleName, int mpiProc );
   ~csExecPhaseDef();
   /**
    * Set trace selection mode.
@@ -52,11 +52,11 @@ public:
   /**
    * Set exec phase type
    * EXEC_TYPE_INPUT is reserved for 'input' modules, i.e. modules which can act as first modules in a flow.
-   * Modules with type=EXEC_TYPE_SINGLE receive a single trace from the base system each time the exec
-   * phase subroutine is called. Modules with EXEC_TYPE_MULTITRACE receive a trace gather from the base system:
+   * All other modules have type=EXEC_TYPE_NORMAL.
+   * Modules with EXEC_TYPE_NORMAL receive a trace gather from the base system:
    * Either an ensemble or a fixed number of traces, based on the setting for the 'trace selection mode'.
    *
-   * @param theExecType EXEC_TYPE_INPUT, EXEC_TYPE_SINGLETRACE, or EXEC_TYPE_MULTITRACE
+   * @param theExecType EXEC_TYPE_INPUT, EXEC_TYPE_NORMAL
    */
   void setExecType( int theExecType );
   /**
@@ -77,6 +77,11 @@ public:
    */
   inline bool isCleanup() const { return myIsCleanup; }
   /**
+   * @return true if this module supports MPI
+   */
+  inline bool isMPISupported() const { return myIsMPISupported; }
+  inline int getMPIProcID() const { return myMPIProcID; }
+  /**
    * Debug flag is set/not set.
    * The module programmer can use this flag to print out special diagnostic messages that will help
    * the user to debug problems occurring during the job when calling the current module.
@@ -89,7 +94,7 @@ public:
    */
   inline std::string moduleName() const { return myModuleName; }
   /**
-   * @return exec phase 'type': EXEC_TYPE_INPUT, EXEC_TYPE_SINGLETRACE, or EXEC_TYPE_MULTITRACE
+   * @return exec phase 'type': EXEC_TYPE_INPUT, EXEC_TYPE_NORMAL
    */
   inline int execType() const { return myExecType; }
   /**
@@ -120,6 +125,7 @@ public:
   void setTraceMode( int traceMode );
   void setLastCall( bool isLastCall );
   void setCleanUp( bool isCleanUp );
+  void setMPISupport( bool isSupported );
   int getNumTraces() const { return numTraces; }
 
   /// class csModule needs access to the private fields of this class
@@ -131,7 +137,7 @@ private:
 
   /// Trace selection mode defining which traces shall be passed to a module: TRCMODE_FIXED or TRCMODE_ENSEMBLE
   int traceMode;
-  /// 'Type' of module execution method: EXEC_TYPE_INPUT, EXEC_TYPE_SINGLETRACE, or EXEC_TYPE_MULTITRACE
+  /// 'Type' of module execution method: EXEC_TYPE_INPUT, EXEC_TYPE_NORMAL
   int myExecType;
   /// Number of traces to pass to module (trace selection mode = TRCMODE_FIXED)
   int numTraces;
@@ -145,6 +151,10 @@ private:
   bool myTracesAreWaiting;
   /// true if this is the last call from the base system to this module's exec phase (different from cleanup phase)
   bool myIsLastCall;
+  /// true if module supports mpi
+  bool myIsMPISupported;
+  /// MPI process number
+  int myMPIProcID;
 };
 
 } // namespace

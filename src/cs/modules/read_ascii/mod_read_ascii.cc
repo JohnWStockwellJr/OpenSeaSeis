@@ -7,6 +7,8 @@
 #include "csFlexNumber.h"
 #include "csTime.h"
 #include <cstring>
+#include <string>
+
 
 using namespace cseis_system;
 using namespace cseis_geolib;
@@ -42,22 +44,25 @@ namespace mod_read_ascii {
     int numHeaders;
     bool dropUnmatchedTraces;
     bool showWarnings;
-
     bool      isTimeKey;
     bool      isTimeKey_us;
-//    csDate_t  date;
+    //    csDate_t  date;
     int       timeKeyYear;
     int       hdrId_time_key;
+    int assignMode;
+    int traceCounter;
   };
 
-// Do not change index number! ...gives number of parameters for each method
+  // Do not change index number! ...gives number of parameters for each method
   static int const METHOD_COLUMNS   = 2;
   static int const METHOD_POSITIONS = 3;
+  static int const ASSIGN_NORMAL   = 11;
+  static int const ASSIGN_CONSECUTIVE   = 12;
 
-struct Pos {
-  int start;
-  int length;
-};
+  struct Pos {
+    int start;
+    int length;
+  };
 
 }
 using namespace mod_read_ascii;
@@ -67,14 +72,15 @@ using namespace mod_read_ascii;
 //
 //
 //*************************************************************************************************
-void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
   vars->npos       = 0;
   vars->currentPos = 0;
@@ -97,11 +103,12 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   vars->isTimeKey    = false;
   vars->isTimeKey_us = false;
   vars->hdrId_time_key = -1;
+  vars->assignMode = mod_read_ascii::ASSIGN_NORMAL;
+  vars->traceCounter = 0;
 
   //----------------------------------------------------
 
   std::string filename;
-  std::string methodText;
   csVector<std::string> valueList;
   csVector<std::string> headerNameList;
   csVector<int> headerColumnList;
@@ -124,21 +131,38 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   //---------------------------------------------------------
   // Read in general parameters
   //
-  int method = -1;
+  if( param->exists( "assign_mode" ) ) {
+    std::string text;
+    param->getString( "assign_mode", &text );
+    if( !text.compare("normal") ) {
+      vars->assignMode = mod_read_ascii::ASSIGN_NORMAL;
+    }
+    else if( !text.compare("consecutive") ) {
+      vars->assignMode = mod_read_ascii::ASSIGN_CONSECUTIVE;
+    }
+    else {
+      writer->line("Option for parameter 'assign_mode' not recognised: %s", text.c_str());
+      env->addError();
+    }
+  }
 
   param->getString( "filename", &filename );
-  param->getString( "method", &methodText );
-  methodText = toLowerCase( methodText );
 
-  if( !methodText.compare("columns") ) {
-    method = METHOD_COLUMNS;
-  }
-  else if( !methodText.compare("positions") ) {
-    method = METHOD_POSITIONS;
-  }
-  else {
-    log->line("Option for parameter METHOD not recognised: %s", methodText.c_str());
-    env->addError();
+  int method = mod_read_ascii::METHOD_COLUMNS;
+  if( param->exists( "method" ) ) {
+    std::string methodText;
+    param->getString( "method", &methodText );
+    methodText = toLowerCase( methodText );
+    if( !methodText.compare("columns") ) {
+      method = METHOD_COLUMNS;
+    }
+    else if( !methodText.compare("positions") ) {
+      method = METHOD_POSITIONS;
+    }
+    else {
+      writer->line("Option for parameter METHOD not recognised: %s", methodText.c_str());
+      env->addError();
+    }
   }
 
   std::string text;
@@ -152,7 +176,7 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       vars->showWarnings = false;
     }
     else {
-      log->line("Option for parameter 'warnings' not recognised: %s", text.c_str());
+      writer->line("Option for parameter 'warnings' not recognised: %s", text.c_str());
     }
   }
 
@@ -166,12 +190,12 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       checkConsistency = false;
     }
     else {
-      log->line("Option not recognised: %s", text.c_str());
+      writer->line("Option not recognised: %s", text.c_str());
     }
   }
 
-//-------------------------------------------
-//
+  //-------------------------------------------
+  //
   Pos timeKeyPos;
   if( param->exists("key_sps_time") ) {
     param->getInt( "time_year", &vars->timeKeyYear );
@@ -179,18 +203,18 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     vars->isTimeKey = true;
     int numValues = param->getNumValues("key_sps_time");
     if( numValues < 2 ) {
-      log->error("Parameter key_sps_time expects two or three values: Header name, column or start position, and length");
+      writer->error("Parameter key_sps_time expects two or three values: Header name, column or start position, and length");
     }
     param->getString( "key_sps_time", &timeKeyName, 0 );
     param->getInt( "key_sps_time", &timeKeyPos.start, 1 );
     timeKeyPos.start -= 1;  // Convert to C-type position index
     if( method == METHOD_POSITIONS ) {
       if( numValues < 3 ) {
-        log->error("Parameter key_sps_time expects three values: Header name, column or start position, and length");
+        writer->error("Parameter key_sps_time expects three values: Header name, column or start position, and length");
       }
       param->getInt( "key_sps_time", &timeKeyPos.length, 2 );
       if( timeKeyPos.start < 0 || timeKeyPos.length <= 0 ) {
-        log->line("Error: Inconsistent position/length given for time key %s: start=%d, length=%d",
+        writer->line("Error: Inconsistent position/length given for time key %s: start=%d, length=%d",
                   timeKeyName.c_str(), timeKeyPos.start+1, timeKeyPos.length);
         env->addError();
       }
@@ -206,56 +230,56 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       vars->keyTypeList->insertEnd( hdef->headerType(timeKeyName) );
     }
 
-//    if( !text.compare("jjjhhmmss") ) {
-//      vars->showWarnings = true;
-//    }
-//    else {
-//      log->line("Specified time key format not supported: %s. Use jjjhhmmss instead", text.c_str());
-//    }
-//    vars->dateFormat = new char[20];
-//    sprintf(vars->dateFormat,"%%3d%%2d%%2d%%2d");
+    //    if( !text.compare("jjjhhmmss") ) {
+    //      vars->showWarnings = true;
+    //    }
+    //    else {
+    //      writer->line("Specified time key format not supported: %s. Use jjjhhmmss instead", text.c_str());
+    //    }
+    //    vars->dateFormat = new char[20];
+    //    sprintf(vars->dateFormat,"%%3d%%2d%%2d%%2d");
   }
 
-//-------------------------------------------
-// Ignore/select certain lines... not implemented yet
+  //-------------------------------------------
+  // Ignore/select certain lines... not implemented yet
   bool isIgnore = false;
   bool isSelect = false;
   if( param->exists("ignore_line") ) {
     valueList.clear();
     param->getAll( "ignore_line", &valueList );
-    if( valueList.size() > 1 ) log->error("Only one 'ignore' character supported...");
+    if( valueList.size() > 1 ) writer->error("Only one 'ignore' character supported...");
     isIgnore = true;
     vars->ignoreChar = valueList.at(0).at(0);
-    if( edef->isDebug() ) log->line("Ignore character: '%c'", vars->ignoreChar );
+    if( edef->isDebug() ) writer->line("Ignore character: '%c'", vars->ignoreChar );
   }
 
-//-------------------------------------------
+  //-------------------------------------------
 
   if( param->exists("select_line") ) {
     valueList.clear();
     param->getAll( "select_line", &valueList );
-    if( valueList.size() > 1 ) log->error("Only one 'select' character supported...");
+    if( valueList.size() > 1 ) writer->error("Only one 'select' character supported...");
     isSelect = true;
     vars->selectChar = valueList.at(0).at(0);
   }
 
-//---------------------------------------------------------------
-// Read in user parameters for headers
-//
+  //---------------------------------------------------------------
+  // Read in user parameters for headers
+  //
   int maxNumColumn = 0;
   int maxPosition  = 0;
 
   vars->numHeaders = param->getNumLines( "header" );
-        //   = nLines;   // !CHANGE! Make sure numHeaders is used in all instances of the headers, not list.size() or similar...
+  //   = nLines;   // !CHANGE! Make sure numHeaders is used in all instances of the headers, not list.size() or similar...
   if( vars->numHeaders == 0 ) {
-    log->line("User parameter 'header' missing. No headers specified which shall be read in.");
+    writer->line("User parameter 'header' missing. No headers specified which shall be read in.");
     env->addError();
   }
   for( int iLine = 0; iLine < vars->numHeaders; iLine++ ) {
     valueList.clear();
     param->getAll( "header", &valueList, iLine );
     if( valueList.size() != method ) {
-      log->line("Wrong number of arguments for user parameter 'header'. Expected: %d, found: %d.",
+      writer->line("Wrong number of arguments for user parameter 'header'. Expected: %d, found: %d.",
                 method, valueList.size());
       env->addError();
     }
@@ -272,7 +296,7 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
         pos.start  = atoi(valueList.at(1).c_str()) - 1;  // C style index (starting with 0)
         pos.length = atoi(valueList.at(2).c_str());
         if( pos.start < 0 || pos.length <= 0 ) {
-          log->line("Error: Inconsistent positions given for header %s: start=%d, length=%d",
+          writer->line("Error: Inconsistent positions given for header %s: start=%d, length=%d",
                     headerName.c_str(), pos.start+1, pos.length);
           env->addError();
         }
@@ -282,35 +306,35 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     }
   }
   vars->numHeaders = headerNameList.size();
-  if( vars->numHeaders == 0 ) log->error("No (valid) trace headers specified.");
+  if( vars->numHeaders == 0 ) writer->error("No (valid) trace headers specified.");
 
 
-//---------------------------------------------------------------
-// Read in user parameters for keys
-//
+  //---------------------------------------------------------------
+  // Read in user parameters for keys
+  //
   vars->numKeys = param->getNumLines( "key" );
   if( vars->numKeys <= 0 && !vars->isTimeKey ) {
-    log->error("User parameter KEY missing. At least one key needs to be specified.");
+    writer->error("User parameter KEY missing. At least one key needs to be specified.");
   }
   else if( vars->numKeys > 0 && vars->isTimeKey ) {
-    log->error("When time key is used, no other key is supported.");
+    writer->error("When time key is used, no other key is supported.");
   }
   else if( vars->numKeys > 0 ) {
     vars->keyDoubleBuffer = new double[vars->numKeys];
     vars->keyIntBuffer    = new int[vars->numKeys];
-//    vars->keyStringBuffer = new std::string[vars->numKeys];
+    //    vars->keyStringBuffer = new std::string[vars->numKeys];
     for( int ikey = 0; ikey < vars->numKeys; ikey++ ) {
       vars->keyIntBuffer[ikey] = 0;
       vars->keyDoubleBuffer[ikey] = 0.0;
-//      vars->keyStringBuffer[ikey] = "";
+      //      vars->keyStringBuffer[ikey] = "";
     }
 
     for( int ikey = 0; ikey < vars->numKeys; ikey++ ) {
-      if( edef->isDebug() ) log->line("Reading parameters for key %d", ikey+1);
+      if( edef->isDebug() ) writer->line("Reading parameters for key %d", ikey+1);
       valueList.clear();
       param->getAll( "key", &valueList, ikey );
       if( valueList.size() != method ) {
-        log->line("Wrong number of arguments for user parameter 'key'. Expected: %d, found: %d.",
+        writer->line("Wrong number of arguments for user parameter 'key'. Expected: %d, found: %d.",
                   method, valueList.size());
         env->addError();
       }
@@ -327,7 +351,7 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
           pos.start  = atoi(valueList.at(1).c_str()) - 1;  //  C style column index (starting with 0)
           pos.length = atoi(valueList.at(2).c_str());
           if( pos.start < 0 || pos.length <= 0 ) {
-            log->line("Error: Inconsistent positions given for key %s: start=%d, length=%d",
+            writer->line("Error: Inconsistent positions given for key %s: start=%d, length=%d",
                       keyName.c_str(), pos.start+1, pos.length);
             env->addError();
           }
@@ -338,7 +362,7 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   }
 
 
-//---------------------------------------------------------------
+  //---------------------------------------------------------------
   vars->dropUnmatchedTraces = false;
   if( param->exists("drop_traces") ) {
     std::string text;
@@ -350,38 +374,38 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       vars->dropUnmatchedTraces = false;
     }
     else {
-      log->error("Unknown option '%s'", text.c_str());
+      writer->error("Unknown option '%s'", text.c_str());
     }
   }
-//---------------------------------------------------------------
-// Check if specified headers exist. param->get header index & type
-//
+  //---------------------------------------------------------------
+  // Check if specified headers exist. param->get header index & type
+  //
   for( int i = 0; i < vars->numHeaders; i++ ) {
     std::string headerName = headerNameList.at(i);
-                bool headerExists = hdef->headerExists( headerName );
+    bool headerExists = hdef->headerExists( headerName );
     if( headerExists || csStandardHeaders::isStandardHeader(headerName) ) {
-                        if( !headerExists ) {
-                                hdef->addStandardHeader( headerName );
-                        }
+      if( !headerExists ) {
+        hdef->addStandardHeader( headerName );
+      }
       vars->headerIndexList->insertEnd( hdef->headerIndex(headerName.c_str()) );
       type_t type = hdef->headerType(headerName.c_str());
       if( type == TYPE_STRING ) {
-        log->error("String headers are currently not supported for this module: Trace header %s", headerName.c_str());
+        writer->error("String headers are currently not supported for this module: Trace header %s", headerName.c_str());
       }
       vars->headerTypeList->insertEnd( type );
     }
     else {
-      log->line("Trace header %s does not exist, and is not a standard header.", headerName.c_str());
+      writer->line("Trace header %s does not exist, and is not a standard header.", headerName.c_str());
       env->addError();
     }
   }
   for( int i = 0; i < vars->numKeys; i++ ) {
     std::string keyName = keyNameList.at(i);
-    if( edef->isDebug() ) log->line("Checking parameters for key %d (%s)", i+1, keyName.c_str());
+    if( edef->isDebug() ) writer->line("Checking parameters for key %d (%s)", i+1, keyName.c_str());
     if( hdef->headerExists( keyName ) ) {
       for( int k = 0; k < headerNameList.size(); k++ ) {
         if( !keyName.compare( headerNameList.at(k) ) ) {
-          log->line("Trace header %s specified both as header and as key.", headerName.c_str());
+          writer->line("Trace header %s specified both as header and as key.", headerName.c_str());
           env->addError();
         }
       }
@@ -389,7 +413,7 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       vars->keyTypeList->insertEnd( hdef->headerType(keyName.c_str()) );
     }
     else {
-      log->line("Trace header %s does not exist.", keyName.c_str());
+      writer->line("Trace header %s does not exist.", keyName.c_str());
       env->addError();
     }
   }
@@ -397,11 +421,11 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     return;
   }
 
-//---------------------------------------------------------------
-// Read in ASCII file
-//
+  //---------------------------------------------------------------
+  // Read in ASCII file
+  //
   if( (f_in = fopen( filename.c_str(), "r" )) == (FILE*) NULL ) {
-    log->error("Could not open file: '%s'", filename.c_str());
+    writer->error("Could not open file: '%s'", filename.c_str());
   }
 
   char buffer[1024];
@@ -453,11 +477,11 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       if( bufferLength <= 1 ) continue;  // Ignore empty lines (Allow 1 character for trailing newline)
       if( isIgnore && buffer[0] == vars->ignoreChar ) continue;
       if( isSelect && buffer[0] != vars->selectChar ) continue;
-      if( edef->isDebug() ) log->line("ASCII file, line #%3d: %s", counterLines, buffer);
+      if( edef->isDebug() ) writer->line("ASCII file, line #%3d: %s", counterLines, buffer);
       valueList.clear();
       tokenize( buffer, valueList );
       if( valueList.size() < maxNumColumn+1 ) {
-        log->line("Input file contains too few columns. Number of columns found: %d. Maximum column number for key/header: %d. First line:\n%s", valueList.size(), maxNumColumn+1, buffer);
+        writer->line("Input file contains too few columns. Number of columns found: %d. Maximum column number for key/header: %d. First line:\n%s", valueList.size(), maxNumColumn+1, buffer);
         env->addError();
         break;
       }
@@ -480,7 +504,7 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
           date.usec = atoi( dateString.substr(10,6).c_str() );
           vars->keyValues[1][counterLines] = (double)date.usec;
         }
-        if( edef->isDebug() ) log->line("Date: %s", date.getString() );
+        if( edef->isDebug() ) writer->line("Date: %s", date.getString() );
       }
       counterLines++;
     }
@@ -495,10 +519,10 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       valueList.clear();
       std::string bufferString = buffer;
       if( edef->isDebug() ) {
-        log->line("ASCII file, line #%3d: %s", counterLines, bufferString.c_str());
+        writer->line("ASCII file, line #%3d: %s", counterLines, bufferString.c_str());
       }
       if( bufferLength < maxPosition ) {
-        log->line("Input line contains too few characters. Expected, according to specified key/header positions: %d, found: %d\nLine: %s",
+        writer->line("Input line contains too few characters. Expected, according to specified key/header positions: %d, found: %d\nLine: %s",
                   maxPosition, bufferLength, bufferString.c_str() );
         env->addError();
         break;
@@ -506,7 +530,7 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       for( int i = 0; i < vars->numKeys; i++ ) {
         Pos pos = keyPosList.at(i);
         if( pos.start+pos.length > bufferLength ) {
-          log->line("Error: Key %s, ASCII file line #%d: Start position/length exceeds line length", keyNameList.at(i).c_str(), counterLines+1 );
+          writer->line("Error: Key %s, ASCII file line #%d: Start position/length exceeds line length", keyNameList.at(i).c_str(), counterLines+1 );
           env->addError();
         }
         vars->keyValues[i][counterLines] = atof(bufferString.substr(pos.start,pos.length).c_str());
@@ -514,14 +538,14 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       for( int ihdr = 0; ihdr < vars->numHeaders; ihdr++ ) {
         Pos pos = headerPosList.at(ihdr);
         if( pos.start+pos.length > bufferLength ) {
-          log->line("Error: Header %s, ASCII file line #%d: Start position/length exceeds line length", headerNameList.at(ihdr).c_str(), counterLines+1 );
+          writer->line("Error: Header %s, ASCII file line #%d: Start position/length exceeds line length", headerNameList.at(ihdr).c_str(), counterLines+1 );
           env->addError();
         }
         vars->headerValues[ihdr][counterLines] = atof(bufferString.substr(pos.start,pos.length).c_str());
       }
       if( vars->isTimeKey ) {
         if( timeKeyPos.start+timeKeyPos.length > bufferLength ) {
-          log->line("Error: Time key, ASCII file line #%d: Start position/length exceeds line length", counterLines+1 );
+          writer->line("Error: Time key, ASCII file line #%d: Start position/length exceeds line length", counterLines+1 );
           env->addError();
         }
         string dateString = bufferString.substr(timeKeyPos.start,timeKeyPos.length);
@@ -534,7 +558,7 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
           date.usec = atoi( dateString.substr(10,6).c_str() );
           vars->keyValues[1][counterLines] = (double)date.usec;
         }
-        if( edef->isDebug() ) log->line("Date: %s   %d", date.getString(), date.unixTime() );
+        if( edef->isDebug() ) writer->line("Date: %s   %d", date.getString(), date.unixTime() );
       }
       counterLines++;
     }
@@ -542,9 +566,9 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
 
   fclose( f_in );
 
-//-----------------------------------------------------------------------------
-// Set time key values
-//
+  //-----------------------------------------------------------------------------
+  // Set time key values
+  //
   if( vars->isTimeKey ) {
     vars->numKeys = 1;
     if( vars->isTimeKey_us ) vars->numKeys += 1;
@@ -552,59 +576,59 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     vars->keyIntBuffer    = new int[vars->numKeys];
   }
 
-//-----------------------------------------------------------------------------
-// Sort key values
-//
-        bool doSort = false;
-        if( param->exists("sort") ) {
-                string text;
-                param->getString("sort",&text);
+  //-----------------------------------------------------------------------------
+  // Sort key values
+  //
+  bool doSort = false;
+  if( param->exists("sort") ) {
+    string text;
+    param->getString("sort",&text);
+    
+    if( !text.compare("yes") ) {
+      doSort = true;
+    }
+    else if( !text.compare("no") ) {
+      doSort = false;
+    }
+    else {
+      writer->error("Option not recognised: %s", text.c_str());
+    }
+  }
 
-                if( !text.compare("yes") ) {
-                        doSort = true;
-                }
-                else if( !text.compare("no") ) {
-                        doSort = false;
-                }
-                else {
-                        log->error("Option not recognised: %s", text.c_str());
-                }
-        }
+  if( doSort ) {
 
-        if( doSort ) {
-
-                cseis_geolib::csSortManager sortManager( vars->numKeys, csSortManager::TREE_SORT );
-                sortManager.resetValues( vars->npos );
+    cseis_geolib::csSortManager sortManager( vars->numKeys, csSortManager::TREE_SORT );
+    sortManager.resetValues( vars->npos );
   
-                for( int ikey = 0; ikey < vars->numKeys; ikey++ ) {
-                        for( int ipos = 0; ipos < vars->npos; ipos++ ) {
-                                double value = vars->keyValues[ikey][ipos];
-                                sortManager.setValue( ipos, vars->numKeys-ikey-1, csFlexNumber(value) );
-                        }
-                }
+    for( int ikey = 0; ikey < vars->numKeys; ikey++ ) {
+      for( int ipos = 0; ipos < vars->npos; ipos++ ) {
+        double value = vars->keyValues[ikey][ipos];
+        sortManager.setValue( ipos, vars->numKeys-ikey-1, csFlexNumber(value) );
+      }
+    }
   
-                sortManager.sort();
+    sortManager.sort();
   
-                for( int ikey = 0; ikey < vars->numKeys; ikey++ ) {
-                        double* sortedValues = new double[vars->npos];
-                        for( int ipos = 0; ipos < vars->npos; ipos++ ) {
-                                sortedValues[ipos] = vars->keyValues[ikey][ sortManager.sortedIndex(ipos) ];
-                        }
-                        delete [] vars->keyValues[ikey];
-                        vars->keyValues[ikey] = sortedValues;
-                }
+    for( int ikey = 0; ikey < vars->numKeys; ikey++ ) {
+      double* sortedValues = new double[vars->npos];
+      for( int ipos = 0; ipos < vars->npos; ipos++ ) {
+        sortedValues[ipos] = vars->keyValues[ikey][ sortManager.sortedIndex(ipos) ];
+      }
+      delete [] vars->keyValues[ikey];
+      vars->keyValues[ikey] = sortedValues;
+    }
 
-                for( int ihdr = 0; ihdr < vars->numHeaders; ihdr++ ) {
-                        double* sortedValues = new double[vars->npos];
-                        for( int ipos = 0; ipos < vars->npos; ipos++ ) {
-                                sortedValues[ipos] = vars->headerValues[ihdr][ sortManager.sortedIndex(ipos) ];
-                        }
-                        delete [] vars->headerValues[ihdr];
-                        vars->headerValues[ihdr] = sortedValues;
-                }
-        }
-//-----------------------------------------------------------------------------
-//
+    for( int ihdr = 0; ihdr < vars->numHeaders; ihdr++ ) {
+      double* sortedValues = new double[vars->npos];
+      for( int ipos = 0; ipos < vars->npos; ipos++ ) {
+        sortedValues[ipos] = vars->headerValues[ihdr][ sortManager.sortedIndex(ipos) ];
+      }
+      delete [] vars->headerValues[ihdr];
+      vars->headerValues[ihdr] = sortedValues;
+    }
+  }
+  //-----------------------------------------------------------------------------
+  //
   if( checkConsistency ) {
     bool abort = false;
     for( int ipos = 1; ipos < vars->npos; ipos++ ) {
@@ -613,52 +637,52 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
         isSame = isSame && ( vars->keyValues[ikey][ipos] == vars->keyValues[ikey][ipos-1] );
       }
       if( isSame ) {
-        log->warning("Duplicate key(s) in input file:");
+        writer->warning("Duplicate key(s) in input file:");
         for( int ikey = 0; ikey < vars->numKeys; ikey++ ) {
-          log->write("Key #%d: %f  ", ikey+1, vars->keyValues[ikey][ipos] );
+          writer->write("Key #%d: %f  ", ikey+1, vars->keyValues[ikey][ipos] );
         }
-        log->write("\n");
+        writer->write("\n");
         abort = true;
       }
     }
     if( abort ) {
-      log->error("Inconsistencies found in input file.");
+      writer->error("Inconsistencies found in input file.");
     }
   }
 
-//-----------------------------------------------------------------------------
-// Debug dump
-//
+  //-----------------------------------------------------------------------------
+  // Debug dump
+  //
   if( edef->isDebug() ) {
     for( int i = 0; i < vars->keyIndexList->size(); i++ ) {
-      log->write( "%15s ", keyNameList.at(i).c_str() );
+      writer->write( "%15s ", keyNameList.at(i).c_str() );
     }
-    log->write(" ### ");
+    writer->write(" ### ");
     for( int i = 0; i < vars->headerIndexList->size(); i++ ) {
-      log->write( "%15s ", headerNameList.at(i).c_str() );
+      writer->write( "%15s ", headerNameList.at(i).c_str() );
     }
     if( vars->isTimeKey ) {
-      log->write( "%15s ", "Time key" );
+      writer->write( "%15s ", "Time key" );
     }
-    log->line("");
+    writer->line("");
     double value;
     for( int iPos = 0; iPos < vars->npos; iPos++ ) {
       for( int i = 0; i < vars->keyIndexList->size(); i++ ) {
         value = vars->keyValues[i][iPos];
-        log->write( "%15.3f ", value );
+        writer->write( "%15.3f ", value );
       }
-      log->write(" ### ");
+      writer->write(" ### ");
       for( int i = 0; i < vars->headerIndexList->size(); i++ ) {
         value = vars->headerValues[i][iPos];
-        log->write( "%15.3f ", value );
+        writer->write( "%15.3f ", value );
       }
       if( vars->isTimeKey ) {
-        log->write( "%12d %s ", (int)vars->keyValues[0][iPos], csGeolibUtils::UNIXsec2dateString((int)vars->keyValues[0][iPos]).c_str() );
+        writer->write( "%12d %s ", (int)vars->keyValues[0][iPos], csGeolibUtils::UNIXsec2dateString((int)vars->keyValues[0][iPos]).c_str() );
         if( vars->isTimeKey_us ) {
-          log->write( "(%6d) ", (int)vars->keyValues[1][iPos] );
+          writer->write( "(%6d) ", (int)vars->keyValues[1][iPos] );
         }
       }
-      log->line("");
+      writer->line("");
     }
   }
 
@@ -672,101 +696,89 @@ void init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
 //
 //
 //*************************************************************************************************
-bool exec_mod_read_ascii_(
-  csTrace* trace,
+void exec_mod_read_ascii_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
 
-  if( edef->isCleanup()){
+  csTrace* trace = traceGather->trace(0);
 
-    if( vars->keyIntBuffer ) {
-      delete [] vars->keyIntBuffer;
-      vars->keyIntBuffer = NULL;
-    }
-    if( vars->keyStringBuffer ) {
-      delete [] vars->keyStringBuffer;
-      vars->keyStringBuffer = NULL;
-    }
-    if( vars->keyDoubleBuffer ) {
-      delete [] vars->keyDoubleBuffer;
-      vars->keyDoubleBuffer = NULL;
-    }
-    if( vars->keyIndexList ) {
-      if( vars->keyValues ) {
-        for( int i = 0; i < vars->keyIndexList->size(); i++ ) {
-          delete [] vars->keyValues[i];
-        }
-        delete [] vars->keyValues;
-      }
-      delete vars->keyIndexList;
-    }
-    if( vars->headerIndexList ) {
-      if( vars->headerValues ) {
-        for( int i = 0; i < vars->headerIndexList->size(); i++ ) {
-          delete [] vars->headerValues[i];
-        }
-        delete [] vars->headerValues;
-      }
-      delete vars->headerIndexList;
-    }
-    if( vars->keyTypeList ) {
-      delete vars->keyTypeList;
-      vars->keyTypeList = NULL;
-    }
-    if( vars->headerTypeList ) {
-      delete vars->headerTypeList;
-      vars->headerTypeList = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
 
   csTraceHeader* trcHdr = trace->getTraceHeader();
-//------------------------------------------------------------------
-// Get key values from trace header
-//
+
+  if( vars->assignMode == mod_read_ascii::ASSIGN_CONSECUTIVE ) {
+    if( vars->traceCounter >= vars->npos ) {
+      if( vars->dropUnmatchedTraces ) {
+        traceGather->freeAllTraces();
+      }
+      return;
+    }
+
+    for( int i = 0; i < vars->numHeaders; i++ ) {
+      int type  = vars->headerTypeList->at(i);
+      int index = vars->headerIndexList->at(i);
+      if( type == TYPE_INT ) {
+        trcHdr->setIntValue( index, (int)vars->headerValues[i][vars->traceCounter] );
+      }
+      else if( type == TYPE_INT64 ) {
+        trcHdr->setInt64Value( index, (csInt64_t)vars->headerValues[i][vars->traceCounter] );
+      }
+      else {
+        trcHdr->setDoubleValue( index, vars->headerValues[i][vars->traceCounter] );
+      }
+    }
+    vars->traceCounter += 1;
+    
+    return;
+  }
+
+  //------------------------------------------------------------------
+  // Get key values from trace header
+  //
   for( int iKey = 0; iKey < vars->numKeys; iKey++ ) {
     int type = vars->keyTypeList->at(iKey);
     int keyIndex = vars->keyIndexList->at(iKey);
     switch( type ) {
-      case TYPE_FLOAT:
-      case TYPE_DOUBLE:
-        vars->keyDoubleBuffer[iKey] = trcHdr->doubleValue( keyIndex );
-        break;
-      case TYPE_INT:
-        vars->keyIntBuffer[iKey] = trcHdr->intValue( keyIndex );
-        break;
-      case TYPE_INT64:
-        vars->keyDoubleBuffer[iKey] = (double)trcHdr->int64Value( keyIndex );
-        break;
-      case TYPE_STRING:
-        vars->keyStringBuffer[iKey] = trcHdr->stringValue( keyIndex );
-        break;
-      default:
-        log->line("ERROR!!!");
+    case TYPE_FLOAT:
+    case TYPE_DOUBLE:
+      vars->keyDoubleBuffer[iKey] = trcHdr->doubleValue( keyIndex );
+      break;
+    case TYPE_INT:
+      vars->keyIntBuffer[iKey] = trcHdr->intValue( keyIndex );
+      break;
+    case TYPE_INT64:
+      vars->keyDoubleBuffer[iKey] = (double)trcHdr->int64Value( keyIndex );
+      break;
+    case TYPE_STRING:
+      vars->keyStringBuffer[iKey] = trcHdr->stringValue( keyIndex );
+      break;
+    default:
+      writer->line("ERROR!!!");
     }
   }
 
   if( edef->isDebug() ) {
-    log->write("Keys: ");
+    writer->write("Keys: ");
     for( int iKey = 0; iKey < vars->numKeys; iKey++ ) {
       switch( vars->keyTypeList->at(iKey) ) {
-        case TYPE_FLOAT:
-        case TYPE_DOUBLE:
-        case TYPE_INT64:
-          log->write("#%d,float: %f, ", iKey, vars->keyDoubleBuffer[iKey] );
+      case TYPE_FLOAT:
+      case TYPE_DOUBLE:
+      case TYPE_INT64:
+        writer->write("#%d,float: %f, ", iKey, vars->keyDoubleBuffer[iKey] );
         break;
       case TYPE_INT:
-          log->write("#%d,int: %d, ", iKey, vars->keyIntBuffer[iKey] );
+        writer->write("#%d,int: %d, ", iKey, vars->keyIntBuffer[iKey] );
         break;
       case TYPE_STRING:
-          log->write("#%d,string: %s , ", iKey, vars->keyStringBuffer[iKey].c_str() );
+        writer->write("#%d,string: %s , ", iKey, vars->keyStringBuffer[iKey].c_str() );
       }
     }
-    log->write("\n");
+    writer->write("\n");
   }
 
   int counterKey = 0;
@@ -788,25 +800,31 @@ bool exec_mod_read_ascii_(
       }
       if( vars->currentPos == vars->npos ) {
         if( vars->showWarnings ) {
-          log->write("Unable to find matching line in ASCII file for ");
+          writer->write("Unable to find matching line in ASCII file for ");
           for( int i = 0; i < vars->numKeys; i++ ) {
-            log->write("key #%d: %f  ", i+1, vars->keyDoubleBuffer[i] );
+            writer->write("key #%d: %f  ", i+1, vars->keyDoubleBuffer[i] );
           }
-          log->write("\n");
+          writer->write("\n");
         }
-        return !vars->dropUnmatchedTraces;
+        if( vars->dropUnmatchedTraces ) {
+          traceGather->freeAllTraces();
+        }
+        return;
       }
       else {
         for( int jKey = counterKey-1; jKey >= 0; jKey-- ) {
           if( vars->keyValues[jKey][vars->currentPos] != vars->keyDoubleBuffer[jKey] ) {
             if( vars->showWarnings ) {
-              log->write("Unable to find matching line in ASCII file for ");
+              writer->write("Unable to find matching line in ASCII file for ");
               for( int i = 0; i < vars->numKeys; i++ ) {
-                log->write("key #%d: %f  ", i+1, vars->keyDoubleBuffer[i] );
+                writer->write("key #%d: %f  ", i+1, vars->keyDoubleBuffer[i] );
               }
-              log->write("\n");
+              writer->write("\n");
             }
-            return !vars->dropUnmatchedTraces;
+            if( vars->dropUnmatchedTraces ) {
+              traceGather->freeAllTraces();
+            }
+            return;
           }
         }
       }
@@ -825,25 +843,31 @@ bool exec_mod_read_ascii_(
       }
       if( vars->currentPos == vars->npos ) {
         if( vars->showWarnings ) {
-          log->write("Unable to find matching line in ASCII file for ");
+          writer->write("Unable to find matching line in ASCII file for ");
           for( int i = 0; i < vars->numKeys; i++ ) {
-            log->write("key #%d: %d  ", i+1, vars->keyIntBuffer[i] );
+            writer->write("key #%d: %d  ", i+1, vars->keyIntBuffer[i] );
           }
-          log->write("\n");
+          writer->write("\n");
         }
-        return !vars->dropUnmatchedTraces;
+        if( vars->dropUnmatchedTraces ) {
+          traceGather->freeAllTraces();
+        }
+        return;
       }
       else {
         for( int jKey = counterKey-1; jKey >= 0; jKey-- ) {
           if( vars->keyValues[jKey][vars->currentPos] != (double)vars->keyIntBuffer[jKey] ) {
             if( vars->showWarnings ) {
-              log->write("Unable to find matching line in ASCII file for ");
+              writer->write("Unable to find matching line in ASCII file for ");
               for( int i = 0; i < vars->numKeys; i++ ) {
-                log->write("key #%d: %d  ", i+1, vars->keyIntBuffer[i] );
+                writer->write("key #%d: %d  ", i+1, vars->keyIntBuffer[i] );
               }
-              log->write("\n");
+              writer->write("\n");
             }
-            return !vars->dropUnmatchedTraces;
+            if( vars->dropUnmatchedTraces ) {
+              traceGather->freeAllTraces();
+            }
+            return;
           }
         }
       }
@@ -855,10 +879,10 @@ bool exec_mod_read_ascii_(
     }
     counterKey += 1;
   }
-//  if( vars->isTimeKey ) {
-//    int currentTime_s = trcHdr->intValue( vars->hdrId_time_key );
-//    if( currentTime_s
-//  }
+  //  if( vars->isTimeKey ) {
+  //    int currentTime_s = trcHdr->intValue( vars->hdrId_time_key );
+  //    if( currentTime_s
+  //  }
 
   for( int i = 0; i < vars->numHeaders; i++ ) {
     int type = vars->headerTypeList->at(i);
@@ -874,7 +898,7 @@ bool exec_mod_read_ascii_(
     }
   }
 
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -913,8 +937,8 @@ void params_mod_read_ascii_( csParamDef* pdef ) {
 
   pdef->addParam( "key_sps_time", "Use time (precision = 1s) as the key", NUM_VALUES_VARIABLE,
                   "Time in the ASCII file is expected in SPS format (dddhhmmss)" );
-        //  pdef->addValue( "jjjhhmmss", VALTYPE_STRING, "Time format expected in input file. Valid identifiers: j(Julian day, starting at 1 for first day of year), h(hour), m(minute), s(second)", "Example: jjjhhmmss (SPS format)" );
-        pdef->addValue( "", VALTYPE_STRING, "Trace header containing time in UNIX seconds [s] (for example time_samp1)" );
+  //  pdef->addValue( "jjjhhmmss", VALTYPE_STRING, "Time format expected in input file. Valid identifiers: j(Julian day, starting at 1 for first day of year), h(hour), m(minute), s(second)", "Example: jjjhhmmss (SPS format)" );
+  pdef->addValue( "", VALTYPE_STRING, "Trace header containing time in UNIX seconds [s] (for example time_samp1)" );
   pdef->addValue( "", VALTYPE_NUMBER, "Column number/Start position", "Depends on setting of user parameter METHOD" );
   pdef->addValue( "", VALTYPE_NUMBER, "Length", "Only used for method 'positions'");
 
@@ -944,15 +968,87 @@ void params_mod_read_ascii_( csParamDef* pdef ) {
   pdef->addValue( "no", VALTYPE_OPTION );
   pdef->addOption( "yes", "Drop traces for which no match could be found in input ASCII file");
   pdef->addOption( "no", "Do not drop unmatched traces" );
+  
+  pdef->addParam( "assign_mode", "Assign mode: Determines how ASCII data is assigned to input traces", NUM_VALUES_FIXED );
+  pdef->addValue( "normal", VALTYPE_OPTION );
+  pdef->addOption( "normal", "Normal mode: Assign data by given key values");
+  pdef->addOption( "consecutive", "Ignore key values; assign ASCII data values simply to consecutive input traces", "When last ASCII line has been reached, the 'drop_traces' criteria applies." );
+}
+
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_read_ascii_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_read_ascii::VariableStruct* vars = reinterpret_cast<mod_read_ascii::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_read_ascii_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_read_ascii::VariableStruct* vars = reinterpret_cast<mod_read_ascii::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+
+  if( vars->keyIntBuffer ) {
+    delete [] vars->keyIntBuffer;
+    vars->keyIntBuffer = NULL;
+  }
+  if( vars->keyStringBuffer ) {
+    delete [] vars->keyStringBuffer;
+    vars->keyStringBuffer = NULL;
+  }
+  if( vars->keyDoubleBuffer ) {
+    delete [] vars->keyDoubleBuffer;
+    vars->keyDoubleBuffer = NULL;
+  }
+  if( vars->keyIndexList ) {
+    if( vars->keyValues ) {
+      for( int i = 0; i < vars->keyIndexList->size(); i++ ) {
+        delete [] vars->keyValues[i];
+      }
+      delete [] vars->keyValues;
+    }
+    delete vars->keyIndexList;
+  }
+  if( vars->headerIndexList ) {
+    if( vars->headerValues ) {
+      for( int i = 0; i < vars->headerIndexList->size(); i++ ) {
+        delete [] vars->headerValues[i];
+      }
+      delete [] vars->headerValues;
+    }
+    delete vars->headerIndexList;
+  }
+  if( vars->keyTypeList ) {
+    delete vars->keyTypeList;
+    vars->keyTypeList = NULL;
+  }
+  if( vars->headerTypeList ) {
+    delete vars->headerTypeList;
+    vars->headerTypeList = NULL;
+  }
+  delete vars; vars = NULL;
 }
 
 extern "C" void _params_mod_read_ascii_( csParamDef* pdef ) {
   params_mod_read_ascii_( pdef );
 }
-extern "C" void _init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_read_ascii_( param, env, log );
+extern "C" void _init_mod_read_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_read_ascii_( param, env, writer );
 }
-extern "C" bool _exec_mod_read_ascii_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_read_ascii_( trace, port, env, log );
+extern "C" bool _start_exec_mod_read_ascii_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_read_ascii_( env, writer );
 }
-
+extern "C" void _exec_mod_read_ascii_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_read_ascii_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_read_ascii_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_read_ascii_( env, writer );
+}

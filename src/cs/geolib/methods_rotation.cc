@@ -16,13 +16,13 @@ void rotate_xyz_icv( float* xTrace,
          float* weight_c,
          float* weight_v,
          int nSamples,
-         int mode )
+         bool apply )
 {
   float xValue;
   float yValue;
   float zValue;
   
-  if( mode == REMOVE ) {
+  if( !apply ) {
     // Apply transposed rotation matrix
     for( int i = 0; i < nSamples; i++ ) {
       xValue = xTrace[i]*weight_i[0] + yTrace[i]*weight_i[1] + zTrace[i]*weight_i[2];
@@ -62,12 +62,12 @@ void rotate_xy_azim( float* xTrace,
          float* yTrace,
          float azim,
          int nSamples,
-         int mode )
+         bool apply )
 {
   float xValue;
   float yValue;
 
-  if( mode == REMOVE ) {
+  if( !apply ) {
     // Apply transposed rotation matrix
     for( int i = 0; i < nSamples; i++ ) {
       xValue = xTrace[i] * cos(azim) + yTrace[i] * sin(azim);
@@ -100,7 +100,7 @@ void rotate_xyz_roll_tilt( float* xTrace,
          float roll,
          float tilt,
          int nSamples,
-         int mode )
+         bool apply )
 {
   float xValue;
   float yValue;
@@ -119,7 +119,7 @@ void rotate_xyz_roll_tilt( float* xTrace,
   v4 = cos(tilt)*cos(roll);
   v5 = cos(tilt)*sin(roll);
 
-  if( mode == REMOVE ) {
+  if( !apply ) {
     // Apply transposed rotation matrix
     for( int i = 0; i < nSamples; i++ ) {
       xValue = xTrace[i] * i3 + yTrace[i] * i4 + zTrace[i] * i5;
@@ -153,7 +153,7 @@ void rotate_xyz_tiltxy( float* xTrace,
                         float tiltx,
                         float tilty,
                         int nSamples,
-                        int mode )
+                        bool apply )
 {
   double xValue;
   double yValue;
@@ -185,7 +185,7 @@ void rotate_xyz_tiltxy( float* xTrace,
   v4 = cos_tiltx*sinth;
   v5 = cos_tiltx*costh;
 
-  if( mode == REMOVE ) {
+  if( !apply ) {
     for( int i = 0; i < nSamples; i++ ) {
       xValue = xTrace[i] * i3 + yTrace[i] * i4 + zTrace[i] * i5;
       yValue = xTrace[i] * c3 + yTrace[i] * c4 + zTrace[i] * c5;
@@ -212,7 +212,7 @@ void rotate_xyz_tiltxy( float* xTrace,
 //
 //
 
-void rotate_galperin( float* xTrace, float* yTrace, float* zTrace, int nSamples, int mode )
+void rotate_galperin( float* xTrace, float* yTrace, float* zTrace, int nSamples, bool apply )
 {
   // float a = 35.2644; // [deg]
   // float b = 45.0;    // [deg]
@@ -229,7 +229,7 @@ void rotate_galperin( float* xTrace, float* yTrace, float* zTrace, int nSamples,
   float yValue;
   float zValue;
 
-  if( mode == REMOVE ) {
+  if( !apply ) {
     for( int i = 0; i < nSamples; i++ ) {
       xValue = xTrace[i] * R11 + yTrace[i] * R21 + zTrace[i] * R31;
       yValue =                   yTrace[i] * R22 + zTrace[i] * R32;
@@ -272,7 +272,7 @@ void rotate_to_galperin( float rx, float ry, float rz, float& sx, float& sy, flo
   sz = -cosb*sina*rx - sinb*ry + cosb*cosa*rz;
 }
 
-void rotate_general( float* xTrace, float* yTrace, float* zTrace, int nSamples, int mode,
+void rotate_general( float* xTrace, float* yTrace, float* zTrace, int nSamples, bool apply,
   float R11,
   float R12,
   float R13,
@@ -287,7 +287,7 @@ void rotate_general( float* xTrace, float* yTrace, float* zTrace, int nSamples, 
   float yValue;
   float zValue;
 
-  if( mode == REMOVE ) {
+  if( !apply ) {
     for( int i = 0; i < nSamples; i++ ) {
       xValue = xTrace[i] * R11 + yTrace[i] * R21 + zTrace[i] * R31;
       yValue = xTrace[i] * R12 + yTrace[i] * R22 + zTrace[i] * R32;

@@ -1,10 +1,13 @@
+/* Copyright (c) Colorado School of Mines, 2013.*/
+/* All rights reserved.                       */
+
 #ifndef CS_FX_DECON_H
 #define CS_FX_DECON_H
 
 #include <complex>
 
 namespace cseis_geolib {
-  class csFFTTools;
+  class csFFT;
 }
 
 namespace mod_fxdecon {
@@ -42,7 +45,7 @@ class csFXDecon {
   void freeMem( int numTraces );
 
  private:
-  cseis_geolib::csFFTTools* myFFT;
+  cseis_geolib::csFFT* myFFT;
   int myNumSamplesFFT;
   int myNumFreq;
   float myFreqStep_hz;

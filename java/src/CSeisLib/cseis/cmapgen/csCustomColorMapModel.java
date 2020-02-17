@@ -13,6 +13,7 @@ import java.util.ArrayList;
  * Extends csColorMapListModel for custom color maps.
  * @author 2013 Felipe Punto
  */
+@SuppressWarnings("serial")
 public class csCustomColorMapModel extends csColorMapListModel implements csIColorMapGeneratorListener {
   private ArrayList<csColorMapListItem> myDefaultMapList;
   

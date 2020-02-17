@@ -25,6 +25,7 @@ namespace mod_output_rsf {
     int hdrId_dim2;
     int hdrId_dim3;
     bool isFirstCall;
+    int numTraces_swapDim3;
   };
 }
 using namespace mod_output_rsf;
@@ -35,7 +36,7 @@ using namespace mod_output_rsf;
 //
 //
 //*************************************************************************************************
-void init_mod_output_rsf_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_output_rsf_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -43,14 +44,16 @@ void init_mod_output_rsf_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
 
-  vars->traceCounter = 0;
+
+ vars->traceCounter = 0;
   vars->rsfWriter   = NULL;
   vars->nTracesRead  = 0;
   vars->numSamplesOut = shdr->numSamples;
   vars->special = true;
   vars->isFirstCall = true;
+  vars->numTraces_swapDim3 = 0;
 //--------------------------------------------------
   std::string headerName;
   std::string yesno;
@@ -68,39 +71,23 @@ void init_mod_output_rsf_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       outputGrid = false;
     }
     else {
-      log->error("Unknown option: %s", text.c_str());
+      writer->error("Unknown option: %s", text.c_str());
     }
   }
-  bool swapDim3 = false;
-  /*
   if( param->exists("swap_dim3") ) {
-    string text;
-    param->getString("swap_dim3", &text);
-    if( !text.compare("yes") ) {
-      swapDim3 = true;
-    }
-    else if( !text.compare("no") ) {
-      swapDim3 = false;
-    }
-    else {
-      log->error("Unknown option: %s", text.c_str());
-    }
+    param->getInt("swap_dim3", &vars->numTraces_swapDim3);
   }
-  if( swapDim3 ) {
-    log->error("Swapping dimension 1 and 3 is not supported yet" );
-  }
-  */
   //--------------------------------------------------
   param->getString( "filename", &filename );
   if( filename.length() > 4 && !filename.substr(filename.length()-4,4).compare(".rsf") ) {
     filename = filename.substr(0,filename.length()-4);
-    log->line("RSF output filename stump = '%s'\n", filename.c_str());
+    writer->line("RSF output filename stump = '%s'\n", filename.c_str());
   }
 
   if( param->exists("nsamples" ) ) {
     param->getInt( "nsamples", &vars->numSamplesOut );
     if( vars->numSamplesOut <= 0 || vars->numSamplesOut > shdr->numSamples ) {
-      log->error("Inconsistent number of samples specified: %d. Actual number of samples in trace: %d", vars->numSamplesOut, shdr->numSamples);
+      writer->error("Inconsistent number of samples specified: %d. Actual number of samples in trace: %d", vars->numSamplesOut, shdr->numSamples);
     }
   }
 
@@ -123,7 +110,7 @@ void init_mod_output_rsf_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   if( param->exists( "ntraces_buffer" ) ) {
     param->getInt( "ntraces_buffer", &numTracesBuffer );
     if( numTracesBuffer <= 0 || numTracesBuffer > 999999 ) {
-      log->warning("Number of buffered traces out of range (=%d). Changed to 20.", numTracesBuffer);
+      writer->warning("Number of buffered traces out of range (=%d). Changed to 20.", numTracesBuffer);
       numTracesBuffer = 20;
     }
   }
@@ -140,36 +127,15 @@ void init_mod_output_rsf_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   vars->hdrId_dim3 = hdef->headerIndex( vars->hdrName_dim3 );
 
   if( hdef->headerType( vars->hdrId_dim2 ) == TYPE_STRING ) {
-    log->error("DIM2 trace header '%s' must be of numerical type", vars->hdrName_dim2.c_str());
+    writer->error("DIM2 trace header '%s' must be of numerical type", vars->hdrName_dim2.c_str());
   }
 
   cseis_io::csRSFHeader rsfHdr;
 
-  /*
-  param->getInt( "dim2", &rsfHdr.n2, 0 );
-  param->getDouble( "dim2", &rsfHdr.o2, 1 );
-  param->getDouble( "dim2", &rsfHdr.d2, 2 );
-  if( param->getNumValues( "dim2" ) > 3 ) {
-    param->getDouble( "dim2", &rsfHdr.e2, 3 );
-  }
-  else {
-    rsfHdr.e2 = rsfHdr.o2 + rsfHdr.d2 * (rsfHdr.n2-1);
-  }
-  param->getInt( "dim3", &rsfHdr.n3, 0 );
-  param->getDouble( "dim3", &rsfHdr.o3, 1 );
-  param->getDouble( "dim3", &rsfHdr.d3, 2 );
-  if( param->getNumValues( "dim3" ) > 3 ) {
-    param->getDouble( "dim3", &rsfHdr.e3, 3 );
-  }
-  else {
-    rsfHdr.e3 = rsfHdr.o3 + rsfHdr.d3 * (rsfHdr.n3-1);
-  }
-  */
-
   rsfHdr.n1 = shdr->numSamples;
   rsfHdr.o1 = 0;
   rsfHdr.d1 = shdr->sampleInt;
-  rsfHdr.e1 = (shdr->numSamples-1) * shdr->sampleInt;
+  rsfHdr.e1 = (float)(shdr->numSamples-1) * shdr->sampleInt;
 
   if( param->exists("world_p1") ) {
     param->getDouble( "world_p1", &rsfHdr.world_x1, 0 );
@@ -192,7 +158,7 @@ void init_mod_output_rsf_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     outputGrid = true;
   }
   else if( outputGrid ) {
-    log->error("User specified output of grid definition, but grid point 1 is not defined. Grid cannot be automatically defined.");
+    writer->error("User specified output of grid definition, but grid point 1 is not defined. Grid cannot be automatically defined.");
   }
 
   if( param->exists("data_format") ) {
@@ -203,7 +169,7 @@ void init_mod_output_rsf_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       rsfHdr.esize = 4;
     }
     else {
-      log->error("Unknown data sample format: '%s'", text.c_str());
+      writer->error("Unknown data sample format: '%s'", text.c_str());
     }
   }
   else {
@@ -216,7 +182,7 @@ void init_mod_output_rsf_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     param->getString( "filename_bin", &text );
   }
   else {
-    int length = filename.length();
+    int length = (int)filename.length();
     string binExt(".bin");
     if( length < 5 || filename.substr(length-5,4).compare(".rsf" ) ) {
       rsfHdr.filename_bin = filename;
@@ -234,11 +200,11 @@ void init_mod_output_rsf_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   //----------------------------------------------------
   //
   try {
-    vars->rsfWriter = new csRSFWriter( filename, numTracesBuffer, rev_byte_order, swapDim3, outputGrid, tolerance );
+    vars->rsfWriter = new csRSFWriter( filename, numTracesBuffer, rev_byte_order, vars->numTraces_swapDim3, outputGrid, tolerance );
   }
   catch( csException& e ) {
     vars->rsfWriter = NULL;
-    log->error("Error when creating RSF writer.\nSystem message: %s", filename.c_str(), e.getMessage() );
+    writer->error("Error when creating RSF writer.\nSystem message: %s", filename.c_str(), e.getMessage() );
   }
 
   //----------------------------------------------------
@@ -248,15 +214,15 @@ void init_mod_output_rsf_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   catch( csException& e ) {
     delete vars->rsfWriter;
     vars->rsfWriter = NULL;
-    log->error("Error when initializing RSF writer.\nSystem message: %s", e.getMessage() );
+    writer->error("Error when initializing RSF writer.\nSystem message: %s", e.getMessage() );
   }
 
-  log->line("");
-  log->line("  File name:            %s", filename.c_str());
-  log->line("  Sample interval [ms]: %f", shdr->sampleInt);
-  log->line("  Number of samples:    %d", shdr->numSamples );
-  log->line("  Sample data format:   %d", rsfHdr.data_format );
-  log->line("");
+  writer->line("");
+  writer->line("  File name:            %s", filename.c_str());
+  writer->line("  Sample interval [ms]: %f", shdr->sampleInt);
+  writer->line("  Number of samples:    %d", shdr->numSamples );
+  writer->line("  Sample data format:   %d", rsfHdr.data_format );
+  writer->line("");
 
   vars->traceCounter = 0;
 }
@@ -267,24 +233,18 @@ void init_mod_output_rsf_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
 //
 //
 //*************************************************************************************************
-bool exec_mod_output_rsf_(
-  csTrace* trace,
+void exec_mod_output_rsf_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
   //  csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup() ) {
-    if( vars->rsfWriter != NULL ) {
-      vars->rsfWriter->finalize();
-      delete vars->rsfWriter;
-      vars->rsfWriter = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
   
   if( vars->isFirstCall ) {
     vars->isFirstCall = false;
@@ -292,7 +252,7 @@ bool exec_mod_output_rsf_(
       vars->rsfWriter->openFile();
     }
     catch( csException& e ) {
-      log->error("Error when opening RSF output file.\nSystem message: %s", e.getMessage() );
+      writer->error("Error when opening RSF output file.\nSystem message: %s", e.getMessage() );
     }
   }
 
@@ -306,12 +266,12 @@ bool exec_mod_output_rsf_(
     vars->rsfWriter->writeNextTrace( (byte_t*)samples, vars->numSamplesOut, val_dim2, val_dim3 );
   }
   catch( csException& exc ) {
-    log->error( "System message: %s" ,exc.getMessage() );
+    writer->error( "System message: %s" ,exc.getMessage() );
   }
   
   vars->traceCounter++;
 
-  return true;
+  return;
 }
 //********************************************************************************
 // Parameter definition
@@ -383,25 +343,56 @@ void params_mod_output_rsf_( csParamDef* pdef ) {
   pdef->addParam( "tolerance", "Tolerance value", NUM_VALUES_FIXED, "The tolerance is used to check dimension 2 and 3 trace header values" );
   pdef->addValue( "1e-5", VALTYPE_NUMBER, "Any difference between nominal and actual header values above the given tolerance will terminate the program" );
 
-  //  pdef->addParam( "swap_dim3", "Swap dimension 3 and 1", NUM_VALUES_FIXED, "...create outputfile for Lysa modeling" );
-  //  pdef->addValue( "no", VALTYPE_OPTION );
-  //  pdef->addOption( "yes", "Swap dimension 1 and 3" );
-  //  pdef->addOption( "no", "Do not swap dimensions" );
-
   pdef->addParam( "output_grid", "Output grid definition?", NUM_VALUES_FIXED,
-		  "By default, grid definition is only output if three world points have been specified" );
+                  "By default, grid definition is only output if three world points have been specified" );
   pdef->addValue( "no", VALTYPE_OPTION );
   pdef->addOption( "yes", "Write grid definition to output file" );
   pdef->addOption( "no", "Do not output grid definition to output file" );  
+
+  pdef->addParam( "swap_dim3", "Swap dimension 3 and 1", NUM_VALUES_FIXED, "Note: This is memory intensive since the whole data set is read into memory" );
+  pdef->addValue( "0", VALTYPE_NUMBER, "Total number of traces in output file (0: Do not swap dimensions)" );
+}
+
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_output_rsf_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_output_rsf::VariableStruct* vars = reinterpret_cast<mod_output_rsf::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_output_rsf_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_output_rsf::VariableStruct* vars = reinterpret_cast<mod_output_rsf::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->rsfWriter != NULL ) {
+    vars->rsfWriter->finalize();
+    delete vars->rsfWriter;
+    vars->rsfWriter = NULL;
+  }
+  delete vars; vars = NULL;
 }
 
 extern "C" void _params_mod_output_rsf_( csParamDef* pdef ) {
   params_mod_output_rsf_( pdef );
 }
-extern "C" void _init_mod_output_rsf_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_output_rsf_( param, env, log );
+extern "C" void _init_mod_output_rsf_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_output_rsf_( param, env, writer );
 }
-extern "C" bool _exec_mod_output_rsf_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_output_rsf_( trace, port, env, log );
+extern "C" bool _start_exec_mod_output_rsf_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_output_rsf_( env, writer );
 }
-
+extern "C" void _exec_mod_output_rsf_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_output_rsf_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_output_rsf_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_output_rsf_( env, writer );
+}

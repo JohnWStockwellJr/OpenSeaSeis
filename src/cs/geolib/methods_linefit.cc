@@ -31,7 +31,7 @@
 
 namespace cseis_geolib {
 
-  int linefit_3d( float* xSamples,
+  bool linefit_3d( float* xSamples,
                   float* ySamples,
                   float* zSamples,
                   int firstSample,
@@ -55,7 +55,7 @@ namespace cseis_geolib {
     int max_col_index;
     int nSamples;
     int isamp, icol;
-    int ret;
+    bool ret = false;
 
     //------------------------------------------------------------
 
@@ -74,7 +74,7 @@ namespace cseis_geolib {
     vec_work = allocate_vector( nSamples );
 
     if( !mat_a || !mat_u || !mat_v || !vec_w || !vec_work) {
-      return ERROR;
+      return false;
     }
 
     //-------------------------------
@@ -106,8 +106,8 @@ namespace cseis_geolib {
     // Decompose 'inversion' matrix
     //
     ret = svd_decomposition( mat_u, nSamples, NCOLS, vec_w, mat_v, vec_work );
-    if( ret == ERROR ) {
-      return ERROR;
+    if( !ret ) {
+      return false;
     }
 
     // Find maximum singular value, corresponding singular vector is the unit direction vector
@@ -163,11 +163,11 @@ namespace cseis_geolib {
     free_matrix( mat_v );
     free_vector( vec_w );
     free_vector( vec_work );
-    return SUCCESS;
+    return true;
   }
 
 
-  int linefit_3d_all( float* xSamples,
+  bool linefit_3d_all( float* xSamples,
                       float* ySamples,
                       float* zSamples,
                       int firstSample,
@@ -192,7 +192,7 @@ namespace cseis_geolib {
     int max_col_index, min_col_index, med_col_index;
     int nSamples;
     int isamp, icol;
-    int ret;
+    bool ret = false;
 
     //------------------------------------------------------------
 
@@ -211,7 +211,7 @@ namespace cseis_geolib {
     vec_work = allocate_vector( nSamples );
 
     if( !mat_a || !mat_u || !mat_v || !vec_w || !vec_work) {
-      return ERROR;
+      return false;
     }
 
     //-------------------------------
@@ -243,8 +243,8 @@ namespace cseis_geolib {
     // Decompose 'inversion' matrix
     //
     ret = svd_decomposition( mat_u, nSamples, NCOLS, vec_w, mat_v, vec_work );
-    if( ret == ERROR ) {
-      return ERROR;
+    if( !ret ) {
+      return false;
     }
 
     // Find min/medium/maximum singular value, corresponding singular vector is the unit direction vector
@@ -324,12 +324,12 @@ namespace cseis_geolib {
     free_matrix( mat_v );
     free_vector( vec_w );
     free_vector( vec_work );
-    return SUCCESS;
+    return true;
   }
 
 //---------------------------------------------------------------------------------------------
-
-  int linefit_3d_all( float* xSamples,
+  
+  bool linefit_3d_all( float* xSamples,
                       float* ySamples,
                       float* zSamples,
                       int firstSample,
@@ -353,7 +353,7 @@ namespace cseis_geolib {
     int max_col_index, min_col_index, med_col_index;
     int nSamples;
     int isamp, icol;
-    int ret;
+    bool ret = false;
 
     //------------------------------------------------------------
 
@@ -372,7 +372,7 @@ namespace cseis_geolib {
     vec_work = allocate_vector( nSamples );
 
     if( !mat_a || !mat_u || !mat_v || !vec_w || !vec_work) {
-      return ERROR;
+      return false;
     }
 
     //-------------------------------
@@ -404,8 +404,8 @@ namespace cseis_geolib {
     // Decompose 'inversion' matrix
     //
     ret = svd_decomposition( mat_u, nSamples, NCOLS, vec_w, mat_v, vec_work );
-    if( ret == ERROR ) {
-      return ERROR;
+    if( !ret ) {
+      return false;
     }
 
     // Find min/medium/maximum singular value, corresponding singular vector is the unit direction vector
@@ -485,13 +485,13 @@ namespace cseis_geolib {
     free_matrix( mat_v );
     free_vector( vec_w );
     free_vector( vec_work );
-    return SUCCESS;
+    return true;
   }
 
   //---------------------------------------------------------------------------------------------
   //
   //
-  int linefit_3d_2step( float* xSamples,
+  bool linefit_3d_2step( float* xSamples,
                         float* ySamples,
                         float* zSamples,
                         int nSamples,
@@ -513,7 +513,7 @@ namespace cseis_geolib {
     float x_mean, y_mean, z_mean;
     int isamp, icol;
     float ssxx, ssxy, ssxy2;
-    int ret;
+    bool ret = false;
 
     //------------------------------------------------------------
 
@@ -527,7 +527,7 @@ namespace cseis_geolib {
     vec_x2   = allocate_vector( 2 );
 
     if( !mat_a || !mat_u || !mat_v || !vec_w || !vec_work || !vec_b || !vec_x1 || !vec_x2 ) {
-      return ERROR;
+      return false;
     }
 
     //-------------------------------
@@ -608,8 +608,8 @@ namespace cseis_geolib {
           mat_u[isamp][1] = 0.0;  // Force line to go through origin (y = a*x + b, b=0)
       }
       ret = svd_decomposition( mat_u, nSamples, 2, vec_w, mat_v, vec_work );
-      if( ret == ERROR ) {
-        return ERROR;
+      if( !ret ) {
+        return false;
       }
       //if( vec_w[0] > vec_w[1] ) {
       //  if( vec_w[1]/vec_w[0] < 0.0001 ) vec_w[1] = 0.0;
@@ -628,8 +628,8 @@ namespace cseis_geolib {
         if( force_origin )
           mat_u[isamp][1] = 0.0;  // Force line to go through origin (y = a*x + b, b=0)
       }
-      if( (ret = svd_decomposition( mat_u, nSamples, 2, vec_w, mat_v, vec_work )) == ERROR ) {
-        return ERROR;
+      if( !svd_decomposition( mat_u, nSamples, 2, vec_w, mat_v, vec_work ) ) {
+        return false;
       }
       svd_linsolve( mat_u, vec_w, mat_v, nSamples, 2, vec_b, vec_x1, vec_work );
       //--------------------------------------------------------------------------------
@@ -637,52 +637,6 @@ namespace cseis_geolib {
       vec_out[1] = vec_out[0] * vec_x1[0] + vec_x1[1];
       vec_out[2] = vec_out[0] * vec_x2[0] + vec_x2[1];
 
-      /*
-
-      //--------------------------------------------------------------------------------
-      // (2) Solve using SVD
-      //
-      // (a) Solve x(z) = ax + b
-      //
-      for( isamp = 0; isamp < nSamples; isamp++ ) {
-      vec_b[isamp] = xSamples[isamp] - x_mean;
-      }
-      for( isamp = 0; isamp < nSamples; isamp++ ) {
-      mat_u[isamp][0] = zSamples[isamp] - z_mean;
-      mat_u[isamp][1] = 1.0;
-      if( force_origin )
-      mat_u[isamp][1] = 0.0;  // Force line to go through origin (y = a*x + b, b=0)
-      }
-      ret = svd_decomposition( mat_u, nSamples, 2, vec_w, mat_v, vec_work );
-      if( ret == ERROR ) {
-      return ERROR;
-      }
-      //if( vec_w[0] > vec_w[1] ) {
-      //  if( vec_w[1]/vec_w[0] < 0.0001 ) vec_w[1] = 0.0;
-      // }
-      //else if( vec_w[0]/vec_w[1] < 0.0001 ) vec_w[0] = 0.0;
-      svd_linsolve( mat_u, vec_w, mat_v, nSamples, 2, vec_b, vec_x2, vec_work );
-      //--------------------------------------------------------------------------------
-      // (b) Solve y(z) = cz + d
-      //
-      for( isamp = 0; isamp < nSamples; isamp++ ) {
-      vec_b[isamp] = ySamples[isamp] - y_mean;
-      }
-      for( isamp = 0; isamp < nSamples; isamp++ ) {
-      mat_u[isamp][0] = zSamples[isamp] - z_mean;
-      mat_u[isamp][1] = 1.0;
-      if( force_origin )
-      mat_u[isamp][1] = 0.0;  // Force line to go through origin (y = a*x + b, b=0)
-      }
-      if( (ret = svd_decomposition( mat_u, nSamples, 2, vec_w, mat_v, vec_work )) == ERROR ) {
-      return ERROR;
-      }
-      svd_linsolve( mat_u, vec_w, mat_v, nSamples, 2, vec_b, vec_x1, vec_work );
-      //--------------------------------------------------------------------------------
-      vec_out[2] = 1.0;
-      vec_out[0] = vec_out[2] * vec_x1[0] + vec_x1[1];
-      vec_out[1] = vec_out[2] * vec_x2[0] + vec_x2[1];
-      */
     } // END solve by SVD
 
 
@@ -709,7 +663,7 @@ namespace cseis_geolib {
     free_vector( vec_x1 );
     free_vector( vec_x2 );
     free_vector( vec_b );
-    return SUCCESS;
+    return false;
   }
 
 

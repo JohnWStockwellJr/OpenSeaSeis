@@ -36,6 +36,7 @@ public:
   static int const SEGY_SU       = 1117;  // Special data format (Seismic Unix). Use this format to set Seaseis or SU standard header names (default)
   static int const SEGY_SU_ONLY  = 1118;  // Special data format (Seismic Unix). Use this format to set SU standard header names only
   static int const SEGY_SU_BOTH  = 1119;  // Special data format (Seismic Unix). Use this format to set Seaseis and SU standard header names (duplication)
+  static int const SEGY_DAS      = 1120;
 
   static type_t const SEGY_HDR_TYPE_6BYTE = 255;
 public:

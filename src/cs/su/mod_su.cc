@@ -306,19 +306,19 @@ void exec_mod_su_(
       int hdrIdOut = vars->hdrIndexSU[ihdr];
       if( hdrIdOut < 0 ) continue;
       if( vars->hdrTypeSU[ihdr] == TYPE_FLOAT ) {
-	vars->suTrcHdrWrite->setFloatValue( ihdr, trcHdr->floatValue( hdrIdOut )  );
+        vars->suTrcHdrWrite->setFloatValue( ihdr, trcHdr->floatValue( hdrIdOut )  );
       }
       else if( vars->hdrTypeSU[ihdr] == TYPE_DOUBLE ) {
-	vars->suTrcHdrWrite->setDoubleValue( ihdr, trcHdr->doubleValue(hdrIdOut) );
+        vars->suTrcHdrWrite->setDoubleValue( ihdr, trcHdr->doubleValue(hdrIdOut) );
       }
       else if( vars->hdrTypeSU[ihdr] == TYPE_INT ) {
-	vars->suTrcHdrWrite->setIntValue( ihdr, trcHdr->intValue(hdrIdOut) );
+        vars->suTrcHdrWrite->setIntValue( ihdr, trcHdr->intValue(hdrIdOut) );
       }
       else if( vars->hdrTypeSU[ihdr] == TYPE_INT64 ) {
-	vars->suTrcHdrWrite->setIntValue( ihdr, (int)trcHdr->int64Value(hdrIdOut) );
+        vars->suTrcHdrWrite->setIntValue( ihdr, (int)trcHdr->int64Value(hdrIdOut) );
       }
       else {
-	vars->suTrcHdrWrite->setStringValue( ihdr, trcHdr->stringValue(hdrIdOut) );
+        vars->suTrcHdrWrite->setStringValue( ihdr, trcHdr->stringValue(hdrIdOut) );
       }
     }
 

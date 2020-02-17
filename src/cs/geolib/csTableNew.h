@@ -125,7 +125,7 @@ public:
   virtual csTimeFunction<double> const* getFunction( double const* keyValues, bool dump = false ) const;
   virtual double getTimeValue( double const* keyValues, double time ) const;
   void interpolateTimeFunction( csTimeFunction<double> const* timeFuncLeft, csTimeFunction<double> const* timeFuncRight,
-				double weightLoc, csTimeFunction<double>* newTimeFunction ) const;
+                                double weightLoc, csTimeFunction<double>* newTimeFunction ) const;
 
   /**
    * @return true if exact key was found
@@ -134,11 +134,13 @@ public:
   void findInterpKeyLocation2D( double const* keyValues_in,
                                 int locStart, int locEnd,
                                 int& locLeftUp, int& locLeftDown,
-                                int& locRightUp, int& locRightDown ) const;
+                                int& locRightUp, int& locRightDown,
+                                double& weight1, double& weight2 ) const;
   void findInterpKeyLocation2D( double const* keyValues_in,
                                 int locStart, int locEnd,
                                 int& locLeftUp, int& locLeftDown,
                                 int& locRightUp, int& locRightDown,
+                                double& weight1, double& weight2,
                                 int keyIndex1, int keyIndex2 ) const;
   bool findExactKeyLocation( double const* keyValues_in, int& locStart, int& locEnd ) const;
   double interpolateStep2( double const* keyValues_in, int keyIndex1, int keyIndex2, int valueIndex,

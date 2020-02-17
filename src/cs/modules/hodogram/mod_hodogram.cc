@@ -77,13 +77,13 @@ namespace mod_hodogram {
 
 #define NO_VALUE -999
 
-  void checkHeader( std::string headerName, csTraceHeaderDef* hdef, csLogWriter* log ) {
+  void checkHeader( std::string headerName, csTraceHeaderDef* hdef, csLogWriter* writer ) {
     if( !hdef->headerExists(headerName) ){
-      log->error("Trace header '%s' not found.", headerName.c_str());
+      writer->error("Trace header '%s' not found.", headerName.c_str());
     }
     int type = hdef->headerType( headerName );
     if( type != TYPE_FLOAT &&  type != TYPE_DOUBLE ) {
-      log->error("Trace header '%s' has the wrong type. Should be FLOAT or DOUBLE", headerName.c_str());
+      writer->error("Trace header '%s' has the wrong type. Should be FLOAT or DOUBLE", headerName.c_str());
     }
   }
 
@@ -99,7 +99,7 @@ void polarity_correction_match( VariableStruct* vars, csTraceHeader* trcHdr, flo
 //
 //
 //*************************************************************************************************
-void init_mod_hodogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_hodogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -107,7 +107,6 @@ void init_mod_hodogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
 
   //-----------------------------------
   vars->input        = 0;
@@ -158,7 +157,7 @@ void init_mod_hodogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
       edef->setTraceSelectionMode( TRCMODE_ENSEMBLE );
     }
     else {
-      log->error("Unknown option: '%s'", text.c_str());
+      writer->error("Unknown option: '%s'", text.c_str());
     }
   }
   else {  // Default setting
@@ -176,7 +175,7 @@ void init_mod_hodogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
     vars->last_sample  = shdr->numSamples-1;
   }
   else if( startTime > endTime ) {
-    log->error("Specified start/end times are invalid. Please check input parameters.");
+    writer->error("Specified start/end times are invalid. Please check input parameters.");
   }
   else {
     vars->first_sample = (int)round(startTime / shdr->sampleInt);
@@ -184,7 +183,7 @@ void init_mod_hodogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
   }
 
   if( vars->first_sample < 0 || vars->last_sample < vars->first_sample || vars->last_sample >= shdr->numSamples) {
-    log->error("Specified start/end times are invalid. Please check input parameters.");
+    writer->error("Specified start/end times are invalid. Please check input parameters.");
   }
 
   vars->outputMajorAxis = true;
@@ -197,7 +196,7 @@ void init_mod_hodogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
       vars->outputMajorAxis = false;
     }
     else {
-      log->error("Unknown option '%s'", text.c_str());
+      writer->error("Unknown option '%s'", text.c_str());
     }
   }
 
@@ -211,7 +210,7 @@ void init_mod_hodogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
     vars->solve_polarity = false;
   }
   else {
-    log->error("Unknown option '%s'", text.c_str());
+    writer->error("Unknown option '%s'", text.c_str());
   }
   if( vars->solve_polarity ) {
     startTime = -1.0;
@@ -224,20 +223,20 @@ void init_mod_hodogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
       vars->pol_last_sample  = shdr->numSamples-1;
     }
     else if( startTime > endTime ) {
-      log->error("Specified start/end times for polarity analysis window are invalid. Please check input parameters.");
+      writer->error("Specified start/end times for polarity analysis window are invalid. Please check input parameters.");
     }
     else {
       vars->pol_first_sample = (int)round(startTime / shdr->sampleInt);
       vars->pol_last_sample  = (int)round(endTime / shdr->sampleInt);
     }
     if( vars->pol_first_sample < 0 || vars->pol_last_sample < vars->pol_first_sample || vars->pol_last_sample > shdr->numSamples ) {
-      log->error("Specified start/end times of polarity analysis window are invalid. Please check input parameters.");
+      writer->error("Specified start/end times of polarity analysis window are invalid. Please check input parameters.");
     }
     param->getString( "pol_method", &text );
     if( !text.compare("hydrophone") ) {
       vars->method_pol = POL_HYDROPHONE;
       if( vars->input != INPUT_XYZP ) {
-        log->error("The chosen polarity method '%s' requires input method 'xyzp', which means there 4 input traces: XYZ and P (hydrophone)",
+        writer->error("The chosen polarity method '%s' requires input method 'xyzp', which means there 4 input traces: XYZ and P (hydrophone)",
           text.c_str());
       }
     }
@@ -253,14 +252,14 @@ void init_mod_hodogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
       vars->method_pol = POL_MATCH_HEADER;
     }
     else {
-      log->error("Unknown option '%s'", text.c_str());
+      writer->error("Unknown option '%s'", text.c_str());
     }
 
     if( vars->method_pol == POL_MATCH_HEADER ) {
       csVector<string> valueList(3);
       param->getAll( "hdr_pol_match", &valueList );
       if( valueList.size() != 4 ) {
-        log->error("Incorrect number of values for parameter HDR_POL_MATCH. Expected 4, found %d. Example: HDR_POL_MATCH  DX  DY  DZ  10.0",
+        writer->error("Incorrect number of values for parameter HDR_POL_MATCH. Expected 4, found %d. Example: HDR_POL_MATCH  DX  DY  DZ  10.0",
           valueList.size() );
       }
       std::string match_hdr_x = valueList.at(0);
@@ -269,7 +268,7 @@ void init_mod_hodogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
       std::string textNumber = valueList.at(3);
       csFlexNumber number;
       if( !number.convertToNumber( textNumber ) ) {
-        log->error("Last value for user parameter HDR_POL_MATCH not a number: '%s'", textNumber.c_str());
+        writer->error("Last value for user parameter HDR_POL_MATCH not a number: '%s'", textNumber.c_str());
       }
       vars->minMatchValue = number.floatValue();
 
@@ -287,7 +286,7 @@ void init_mod_hodogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
           }
         }
         else {
-          log->error("Parameter HDR_POL_MATCH: Trace header %s not found.", match_hdr_x.c_str());
+          writer->error("Parameter HDR_POL_MATCH: Trace header %s not found.", match_hdr_x.c_str());
         }
       }
       else {
@@ -304,7 +303,7 @@ void init_mod_hodogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
           }
         }
         else {
-          log->error("Option MATCH_HDR: Trace header %s not found.", match_hdr_y.c_str());
+          writer->error("Option MATCH_HDR: Trace header %s not found.", match_hdr_y.c_str());
         }
       }
       else {
@@ -321,7 +320,7 @@ void init_mod_hodogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
           }
         }
         else {
-          log->error("Option MATCH_HDR: Trace header %s not found.", match_hdr_z.c_str());
+          writer->error("Option MATCH_HDR: Trace header %s not found.", match_hdr_z.c_str());
         }
       }
       else {
@@ -346,7 +345,7 @@ void init_mod_hodogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
         vars->method_linefit = LINEFIT_SVD;
       }
       else {
-        log->error("Unknown option '%s'", text.c_str());
+        writer->error("Unknown option '%s'", text.c_str());
       }
       
       param->getString( "force_origin", &text );
@@ -357,7 +356,7 @@ void init_mod_hodogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
         vars->force_origin = false;
       }
       else {
-        log->error("Unknown option '%s'", text.c_str());
+        writer->error("Unknown option '%s'", text.c_str());
       }
     }
     else if( !text.compare("no") ) {  // Use default options
@@ -365,7 +364,7 @@ void init_mod_hodogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
       vars->force_origin   = 0;  // NO
     }
     else {
-      log->error("Unknown option '%s'", text.c_str());
+      writer->error("Unknown option '%s'", text.c_str());
     }
   }
   else {
@@ -385,28 +384,28 @@ void init_mod_hodogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
   }
 
   if( hdef->headerType( "sensor" ) != TYPE_INT ) {
-    log->error("Trace header 'sensor' has the wrong type.");
+    writer->error("Trace header 'sensor' has the wrong type.");
   }
   vars->hdrId_sensor  = hdef->headerIndex( "sensor" );
 
 
 
   if( hdef->headerExists ("vec_x") ) {
-    checkHeader( "vec_x", hdef, log );
+    checkHeader( "vec_x", hdef, writer );
     vars->hdrId_vec_x = hdef->headerIndex("vec_x" );
   }
   else {
     vars->hdrId_vec_x = hdef->addHeader( TYPE_FLOAT, "vec_x", "Unit direction vector - X component" );
   }
   if( hdef->headerExists ("vec_y") ) {
-    checkHeader( "vec_y", hdef, log );
+    checkHeader( "vec_y", hdef, writer );
     vars->hdrId_vec_y = hdef->headerIndex("vec_y" );
   }
   else {
     vars->hdrId_vec_y = hdef->addHeader( TYPE_FLOAT, "vec_y", "Unit direction vector - Y component" );
   }
   if( hdef->headerExists ("vec_z") ) {
-    checkHeader( "vec_z", hdef, log );
+    checkHeader( "vec_z", hdef, writer );
     vars->hdrId_vec_z = hdef->headerIndex("vec_z" );
   }
   else {
@@ -426,23 +425,19 @@ void exec_mod_hodogram_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
 //  csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup()){
-    delete vars; vars = NULL;
-    return;
-  }
 
   float vec_unit[3];
   float vec_axes[3];
   float vec_minor[3];
 
 //  if(  != vars->nTraces ) {
-//    log->error("Wrong number of traces in ensemble.\nNumber of traces found: %d.\nNumber of traces expected: %d.\nUse 'ENSEMBLE REDEFINE' or similar tool to set correct ensemble sorting.",
+//    writer->error("Wrong number of traces in ensemble.\nNumber of traces found: %d.\nNumber of traces expected: %d.\nUse 'ENSEMBLE REDEFINE' or similar tool to set correct ensemble sorting.",
 //      traceGather->numTraces(), vars->nTraces);
  //   return;
  // }
@@ -461,7 +456,7 @@ void exec_mod_hodogram_(
         trace_index[sensor-3] = itrc;
       }
       else {
-        log->error("Input gather contains more than one trace for sensor %d.", sensor);
+        writer->error("Input gather contains more than one trace for sensor %d.", sensor);
         return;
       }
     }
@@ -470,7 +465,7 @@ void exec_mod_hodogram_(
         trace_index[3] = itrc;
       }
       else {
-        log->error("Input gather contains more than one trace for sensor %d.", sensor);
+        writer->error("Input gather contains more than one trace for sensor %d.", sensor);
         return;
       }
     }
@@ -480,14 +475,14 @@ void exec_mod_hodogram_(
   csTraceHeader* trcHdr[3];
   for( int idSensor = 0; idSensor < 3; idSensor++ ) {
     if( trace_index[idSensor] == NO_VALUE ) {
-      log->error("Input gather is missing a sensor %d trace.", SENSOR_INDEX[idSensor]);
+      writer->error("Input gather is missing a sensor %d trace.", SENSOR_INDEX[idSensor]);
     }
     else {
       trcHdr[idSensor] = traceGather->trace(trace_index[idSensor])->getTraceHeader();
     }
   }
   if( vars->method_pol == POL_HYDROPHONE && trace_index[3] == NO_VALUE ) {
-    log->error("Ensemble is missing a sensor 1 trace (= hydrophone).");
+    writer->error("Ensemble is missing a sensor 1 trace (= hydrophone).");
     return;
   }
 
@@ -495,7 +490,7 @@ void exec_mod_hodogram_(
 // Compute unit vector in specified data window
 //
 
-  int ret  = 0;
+  bool ret  = false;
   if( vars->method_linefit == LINEFIT_3D ) {
     ret = linefit_3d_all(
               traceGather->trace(trace_index[ID_X])->getTraceSamples(),
@@ -519,18 +514,18 @@ void exec_mod_hodogram_(
               vec_unit );
   }
 
-  if( ret == ERROR ) {
+  if( !ret ) {
     vec_unit[0] = 0.0;
     vec_unit[1] = 0.0;
     vec_unit[2] = 1.0;
     vec_minor[0] = 0.0;
     vec_minor[1] = 0.0;
     vec_minor[2] = 1.0;
-    log->warning("Hodogram analysis failed.. Bad/noisy/zero input data?");
+    writer->warning("Hodogram analysis failed.. Bad/noisy/zero input data?");
   }
 
   if( edef->isDebug() ) {
-    log->line("Unit vector = %12.6f %12.6f %12.6f\n", vec_unit[0], vec_unit[1], vec_unit[2] );
+    writer->line("Unit vector = %12.6f %12.6f %12.6f\n", vec_unit[0], vec_unit[1], vec_unit[2] );
   }
 
 //
@@ -718,13 +713,41 @@ void polarity_correction_match( VariableStruct* vars, csTraceHeader* trcHdr, flo
   }
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_hodogram_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_hodogram::VariableStruct* vars = reinterpret_cast<mod_hodogram::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_hodogram_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_hodogram::VariableStruct* vars = reinterpret_cast<mod_hodogram::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_hodogram_( csParamDef* pdef ) {
   params_mod_hodogram_( pdef );
 }
-extern "C" void _init_mod_hodogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_hodogram_( param, env, log );
+extern "C" void _init_mod_hodogram_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_hodogram_( param, env, writer );
 }
-extern "C" void _exec_mod_hodogram_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_hodogram_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_hodogram_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_hodogram_( env, writer );
 }
-
+extern "C" void _exec_mod_hodogram_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_hodogram_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_hodogram_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_hodogram_( env, writer );
+}

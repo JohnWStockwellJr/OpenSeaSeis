@@ -1,6 +1,5 @@
 /* Copyright (c) Colorado School of Mines, 2013.*/
 /* All rights reserved.                       */
-
 #include "cseis_defines.h"
 #include "csTraceHeaderDef.h"
 #include "csTraceHeaderInfo.h"
@@ -8,8 +7,10 @@
 #include "csGeolibUtils.h"
 #include "csStandardHeaders.h"
 #include "csMemoryPoolManager.h"
-#include <string>
 #include "csVector.h"
+#include "csException.h"
+#include <string>
+#include <cstring>
 
 using namespace cseis_system;
 
@@ -39,21 +40,148 @@ csTraceHeaderDef::csTraceHeaderDef( int numInputPorts, csTraceHeaderDef const** 
     addHeader_internal( cseis_geolib::HDR_TIME_SAMP1_US.type, cseis_geolib::HDR_TIME_SAMP1_US.name, cseis_geolib::HDR_TIME_SAMP1_US.description, 1 );
   }
 }
+
+int csTraceHeaderDef::mpi_getByteSize() const {
+  char* dataBuffer = new char[10000];
+  int byteSize = mpi_compress( dataBuffer );
+  delete [] dataBuffer;
+  return byteSize;
+}
+int csTraceHeaderDef::mpi_compress( char* data ) const {
+  int byteLoc = 0;
+  int nHeaders = numHeaders();  
+  memcpy( &data[byteLoc], &nHeaders, sizeof(int) );
+  byteLoc += sizeof(int);
+  memcpy( &data[byteLoc], &myTotalNumBytes, sizeof(int) );
+  byteLoc += sizeof(int);
+
+  //  fprintf(stderr,"SEND numHeaders: %d, numToAdd[0]: %d\n", numHeaders(), myTraceHeadersToAdd[0].size() );
+  for( int inPort = 0; inPort < myNumInputPorts; inPort++ ) {
+    int numToAdd = myTraceHeadersToAdd[inPort].size();
+    memcpy( &data[byteLoc], &numToAdd, sizeof(int) );
+    byteLoc += sizeof(int);
+    for( int ihdr = 0; ihdr < numToAdd; ihdr++ ) {
+      csTraceHeaderInfo const* info = myTraceHeadersToAdd[inPort].at(ihdr);
+      memcpy( &data[byteLoc], &info->type, sizeof(char) );
+      byteLoc += sizeof(char);
+      memcpy( &data[byteLoc], &info->nElements, sizeof(short) );
+      byteLoc += sizeof(short);
+      int nameLen = info->name.length();
+      int descLen = info->description.length();
+      //      fprintf(stderr,"Send name/desc length: %d %d\n", nameLen, descLen );
+      memcpy( &data[byteLoc], &nameLen, sizeof(int) );
+      byteLoc += sizeof(int);
+      memcpy( &data[byteLoc], &descLen, sizeof(int) );
+      byteLoc += sizeof(int);
+      if( nameLen > 0 ) {
+        memcpy( &data[byteLoc], info->name.c_str(), nameLen*sizeof(char) );
+        byteLoc += nameLen*sizeof(char);
+      }
+      if( descLen > 0 ) {
+        memcpy( &data[byteLoc], info->description.c_str(), descLen*sizeof(char) );
+        byteLoc += descLen*sizeof(char);
+      }
+    }
+  }
+
+  int numDel = myIndexOfHeadersToDel->size();
+  memcpy( &data[byteLoc], &numDel, sizeof(int) );
+  byteLoc += sizeof(int);
+  for( int i = 0; i < numDel; i++ ) {
+    memcpy( &data[byteLoc], &myIndexOfHeadersToDel->at(i), sizeof(int) );
+    byteLoc += sizeof(int);
+  }
+
+  memcpy( &data[byteLoc], myByteLocation, nHeaders*sizeof(int) );
+  byteLoc += nHeaders*sizeof(int);
+  return byteLoc;
+}
+
+void csTraceHeaderDef::mpi_decompress( char const* data ) {
+  int byteLoc = 0;
+  int nHeadersCurrent = numHeaders();
+  int nHeaders = 0;
+  memcpy( &nHeaders, &data[byteLoc], sizeof(int) );
+  byteLoc += sizeof(int);
+  int nHeadersDiff = nHeaders - nHeadersCurrent;
+  if( nHeadersDiff < 0 ) throw( cseis_geolib::csException("mpi_decompress(): More trace headers in recipient than sending MPI proc: %d > %d", nHeadersCurrent, nHeaders) );
+  
+  memcpy( &myTotalNumBytes, &data[byteLoc], sizeof(int) );
+  byteLoc += sizeof(int);
+
+  for( int inPort = 0; inPort < myNumInputPorts; inPort++ ) {
+    myTraceHeadersToAdd[inPort].clear();
+    int numToAdd;
+    memcpy( &numToAdd, &data[byteLoc], sizeof(int) );
+    byteLoc += sizeof(int);
+    for( int ihdr = 0; ihdr < numToAdd; ihdr++ ) {
+      csTraceHeaderInfo info(0,"","");
+      memcpy( &info.type, &data[byteLoc], sizeof(char) );
+      byteLoc += sizeof(char);
+      memcpy( &info.nElements, &data[byteLoc], sizeof(short) );
+      byteLoc += sizeof(short);
+      int nameLen = 0;
+      int descLen = 0;
+      memcpy( &nameLen, &data[byteLoc], sizeof(int) );
+      byteLoc += sizeof(int);
+      memcpy( &descLen, &data[byteLoc], sizeof(int) );
+      byteLoc += sizeof(int);
+      //      fprintf(stderr,"RECV name/desc length: %d %d\n", nameLen, descLen );
+      char* textStr = new char[std::max(nameLen,descLen)+1];
+      if( nameLen > 0 ) {
+        memcpy( textStr, &data[byteLoc], nameLen*sizeof(char) );
+        textStr[nameLen] = '\0';
+        info.name = textStr;
+        byteLoc += nameLen*sizeof(char);
+      }
+      if( descLen > 0 ) {
+        memcpy( textStr, &data[byteLoc], descLen*sizeof(char) );
+        textStr[descLen] = '\0';
+        info.description = textStr;
+        byteLoc += descLen*sizeof(char);
+      }
+      delete [] textStr;
+      csTraceHeaderInfo const* infoPtr = myMemoryManager->getNewTraceHeaderInfo( info.type, info.nElements, info.name, info.description );
+      myTraceHeadersToAdd[inPort].insertEnd( infoPtr );
+      // Add trace headers to main list only if not existing yet. For example, INPUT modules have time_samp1 and time_samp1_us already set by default.
+      if( numToAdd-ihdr <= nHeadersDiff ) myTraceHeaderInfoList->insertEnd( infoPtr );
+    }
+  }
+
+  int numDel = 0;
+  memcpy( &numDel, &data[byteLoc], sizeof(int) );
+  byteLoc += sizeof(int);
+  myIndexOfHeadersToDel->clear();
+  for( int i = 0; i < numDel; i++ ) {
+    int value;
+    memcpy( &value, &data[byteLoc], sizeof(int) );
+    myIndexOfHeadersToDel->insertEnd(value);
+    byteLoc += sizeof(int);
+  }
+
+  if( myByteLocation != NULL ) delete [] myByteLocation;
+  myByteLocation = new int[nHeaders];
+  memcpy( myByteLocation, &data[byteLoc], nHeaders*sizeof(int) );
+  byteLoc += nHeaders*sizeof(int);
+
+  if( nHeaders != numHeaders() ) {
+    for( int ihdr = 0; ihdr < numHeaders(); ihdr++ ) {
+      csTraceHeaderInfo const* info = myTraceHeaderInfoList->at(ihdr);
+      fprintf(stderr," Header #%d: %d  %s  %s\n", ihdr, info->type, info->name.c_str(), info->description.c_str());
+    }
+    throw( cseis_geolib::csException("mpi_decompress(): Inconsistent number of trace headers: %d != %d", nHeaders, numHeaders()) );
+  }
+}
+
 void csTraceHeaderDef::init( int numInputPorts, csMemoryPoolManager* memManager ) {
   myMemoryManager = memManager;
+  myNumInputPorts = numInputPorts;
 
   myTraceHeaderInfoList = new cseis_geolib::csVector<csTraceHeaderInfo const*>;
   myTotalNumBytes = 0;
-
   myByteLocation = NULL;
-
   myIndexOfHeadersToDel = new cseis_geolib::csVector<int>(0);
-
-  myNumInputPorts = numInputPorts;
-
-  myIndexOfHeadersToAdd    = new cseis_geolib::csVector<int>[myNumInputPorts];
-  myNumBytesOfHeadersToAdd = new int[myNumInputPorts];
-  myNumBytesOfHeadersToAdd[0] = 0;
+  myTraceHeadersToAdd = new cseis_geolib::csVector<csTraceHeaderInfo const*>[numInputPorts];
 }
 csMemoryPoolManager* csTraceHeaderDef::getMemoryManager() {
   return myMemoryManager;
@@ -79,7 +207,6 @@ void csTraceHeaderDef::initInputPorts( csTraceHeaderDef const** hdefPrev ) {
     }
   }
   myTotalNumBytes = hdefPrev[0]->myTotalNumBytes;
-  myNumBytesOfHeadersToAdd[0] = 0;
 
   if( myNumInputPorts > 1 ) {
     // Copy all new headers from input ports 1,2,..N
@@ -115,23 +242,21 @@ void csTraceHeaderDef::initInputPorts( csTraceHeaderDef const** hdefPrev ) {
     nHeaders = numHeaders();
     for( int inPort = 0; inPort < myNumInputPorts; inPort++ ) {
       hdef = hdefPrev[inPort];
-      myIndexOfHeadersToAdd[inPort].clear();
-      myNumBytesOfHeadersToAdd[inPort] = 0;
+      myTraceHeadersToAdd[inPort].clear();
       int ihead = 0;
       while( ihead < nHeaders && hdef->headerName(ihead) == headerName(ihead) ) { ihead++; }
       for( ; ihead < nHeaders; ihead++ ) {
         csTraceHeaderInfo const* info = myTraceHeaderInfoList->at(ihead);
         int indexDummy = 0;
         if( !hdef->getIndex( info->name, indexDummy ) ) {
-          myIndexOfHeadersToAdd[inPort].insertEnd( ihead );
-          myNumBytesOfHeadersToAdd[inPort] += info->nElements * cseis_geolib::csGeolibUtils::numBytes( info->type );
+          myTraceHeadersToAdd[inPort].insertEnd( info );
         }
         else {
 //          bool comp = (hdef->headerName(ihead) == headerName(ihead));
 //          bool comp2 = hdef->headerName(ihead).compare(headerName(ihead));
 //          fprintf(stdout,"CHECK-X Header %d %d: %s  .. %d .. %d ..\n", inPort, ihead, hdef->headerName(ihead).c_str(), comp, comp2);
           // !CHANGE! Add capability to merge input ports with chaotic differences in trace headers, by reshuffling trace headers when merging
-          throw( cseis_geolib::csException("Trace headers from different input ports of this module do not match well, or have different order. Merge not possible.") );
+          throw( cseis_geolib::csException("Trace headers from different input ports of this module do not match, or have different order. Trace header not found: %s. Make sure this trace header exists in all input streams. Merge not possible.", info->name.c_str()) );
         }
       } // END for ihead
     } // END for inPort
@@ -144,26 +269,14 @@ csTraceHeaderDef::~csTraceHeaderDef() {
     delete myTraceHeaderInfoList;
     myTraceHeaderInfoList = NULL;
   }
-  if( myIndexOfHeadersToAdd != NULL ) {
-    delete [] myIndexOfHeadersToAdd;
-    myIndexOfHeadersToAdd = NULL;
-  }
-  if( myNumBytesOfHeadersToAdd != NULL ) {
-    delete [] myNumBytesOfHeadersToAdd;
-    myNumBytesOfHeadersToAdd = NULL;
+  if( myTraceHeadersToAdd != NULL ) {
+    delete [] myTraceHeadersToAdd;
+    myTraceHeadersToAdd = NULL;
   }
   if( myIndexOfHeadersToDel != NULL ) {
     delete myIndexOfHeadersToDel;
     myIndexOfHeadersToDel = NULL;
   }
-//  if( myNumBytesOfHeadersToDel != NULL ) {
-//    delete myNumBytesOfHeadersToDel;
-//    myNumBytesOfHeadersToDel = NULL;
-//  }
-//  if( myByteLocOfHeadersToDel != NULL ) {
-//    delete myByteLocOfHeadersToDel;
-//    myByteLocOfHeadersToDel = NULL;
-//  }
   if( myByteLocation != NULL ) {
     delete [] myByteLocation;
     myByteLocation = NULL;
@@ -187,11 +300,32 @@ bool csTraceHeaderDef::equals( csTraceHeaderDef const* hdef ) const {
   return true;
 }
 
+/*
+  int index = 0;
+  if( !getIndex( name, index ) ) {
+    throw( cseis_geolib::csException("Trace header not found: '%s'\n", name.c_str() ) );
+  }
+  return index;
+*/
 //----------------------------------------------------------------
 int csTraceHeaderDef::headerIndex( std::string const& name ) const {
   int index = 0;
   if( !getIndex( name, index ) ) {
-    throw( cseis_geolib::csException("Trace header not found: '%s'\n", name.c_str() ) );
+    // Test if this is a vector header:
+    int pos = name.find_first_of('.');
+    if( pos != (int)std::string::npos ) {
+      std::string nameVec = name.substr(0,pos);
+      //      fprintf(stderr,"Vec name %s\n", nameVec.c_str());
+      if( !getIndex( nameVec, index ) ) {
+        throw( cseis_geolib::csException("Trace header not found: '%s'\n", name.c_str() ) );
+      }
+    }
+    else {
+    // Test if this is a vector header:
+    //    std::string nameVecX = name + ".x";
+    // if( !getIndex( nameVecX, index ) ) {
+      throw( cseis_geolib::csException("Trace header not found: '%s'\n", name.c_str() ) );
+    }
   }
   return index;
 }
@@ -220,7 +354,22 @@ cseis_geolib::type_t csTraceHeaderDef::headerType( int index ) const {
 //
 cseis_geolib::type_t csTraceHeaderDef::headerType( std::string const& name ) const {
   int index = 0;
-  getIndex( name, index );
+  if( !getIndex( name, index ) ) {
+    // Test if this is a vector header:
+    int pos = name.find_first_of('.');
+    if( pos != (int)std::string::npos ) {
+      std::string nameVec = name.substr(0,pos);
+      //      fprintf(stderr,"Vec name %s\n", nameVec.c_str());
+      if( getIndex( nameVec, index ) ) {
+        std::string letter = name.substr(pos+1);
+        //        fprintf(stderr,"Vec letter %s\n", letter.c_str());
+        if( letter.compare("x") == 0 ) return cseis_geolib::TYPE_VECTOR_X;
+        else if( letter.compare("y") == 0 ) return cseis_geolib::TYPE_VECTOR_Y;
+        else if( letter.compare("z") == 0 ) return cseis_geolib::TYPE_VECTOR_Z;
+      }
+    }
+    return cseis_geolib::TYPE_UNKNOWN;
+  }
   return headerType( index );
 }
 //----------------------------------------------------------------
@@ -245,12 +394,26 @@ std::string csTraceHeaderDef::headerDesc( int index ) const {
 //
 bool csTraceHeaderDef::headerExists( std::string const& name ) const {
   int index = 0;
-  return( getIndex( name, index ) );
+  if( getIndex( name, index ) ) {
+    return true;
+  }
+  else {
+    //    fprintf(stderr,"headerexists %s\n", name.c_str() );
+    // Test if this is a vector header XYZ:
+    int pos = name.find_first_of('.');
+    if( pos != (int)std::string::npos ) {
+      std::string nameVec = name.substr(0,pos);
+      //      fprintf(stderr,"Vec name %s\n", nameVec.c_str());
+      return( getIndex( nameVec, index ) );
+    }
+    return false;
+  }
 }
 //----------------------------------------------------------------
 //
 bool csTraceHeaderDef::getIndex( std::string const& name, int& index ) const {
   for( index = 0; index < myTraceHeaderInfoList->size(); index++ ) {
+    //    if( name.compare("plane_p1") == 0 ) fprintf(stderr,"%d %s\n", index, myTraceHeaderInfoList->at(index)->name.c_str() );
     if( myTraceHeaderInfoList->at(index)->name == name ) {
       return true;
     }
@@ -311,8 +474,8 @@ int csTraceHeaderDef::addHeader( cseis_geolib::type_t type, std::string const& n
 }
 int csTraceHeaderDef::addHeader_internal( cseis_geolib::type_t type, std::string const& name, std::string const& description, int nElements ) {
 #ifdef CS_DEBUG
-  if( type == TYPE_STRING && nElements <= 1 ) {
-    throw csException("csTraceHeaderDef::addHeader: Attempted to add STRING header of length = %d. Must specify length of string (argument nElements). This is a program bug in the calling function.", nElements);
+  if( type == cseis_geolib::TYPE_STRING && nElements <= 1 ) {
+    throw cseis_geolib::csException("csTraceHeaderDef::addHeader: Attempted to add STRING header of length = %d. Must specify length of string (argument nElements). This is a program bug in the calling function.", nElements);
   }
 #endif
   int index = 0;
@@ -320,17 +483,16 @@ int csTraceHeaderDef::addHeader_internal( cseis_geolib::type_t type, std::string
     csTraceHeaderInfo const* info = myMemoryManager->getNewTraceHeaderInfo( type, nElements, name, description );
     myTraceHeaderInfoList->insertEnd( info );
     index = numHeaders()-1;
-    for( int iport = 0; iport < myNumInputPorts; iport++ ) {
-      myIndexOfHeadersToAdd[iport].insertEnd( index );
-      myNumBytesOfHeadersToAdd[iport] += info->nElements * cseis_geolib::csGeolibUtils::numBytes( info->type );
+  for( int iport = 0; iport < myNumInputPorts; iport++ ) {
+      myTraceHeadersToAdd[iport].insertEnd( info );
     }
     myTotalNumBytes += cseis_geolib::csGeolibUtils::numBytes( type ) * nElements;
-    //    printf("New total num bytes: %d (header %s) %d %d\n", myTotalNumBytes, info->name.c_str(), type, nElements);
+    // fprintf(stderr,"New total num bytes: %d (header %s) %d %d\n", myTotalNumBytes, info->name.c_str(), type, nElements);
     return( index );
   }
   else if( type == myTraceHeaderInfoList->at(index)->type ) {
     if( nElements == myTraceHeaderInfoList->at(index)->nElements ) {
-      return index;
+      return( index );
     }
     else {
       throw( cseis_geolib::csException("csTraceHeaderDef::addHeader(): Trace header already exists but has different number of elements") );
@@ -345,7 +507,7 @@ int csTraceHeaderDef::addHeader_internal( cseis_geolib::type_t type, std::string
 int csTraceHeaderDef::getByteLocation( int index ) const {
 #ifdef CS_DEBUG
   if( index < 0 || index >= myTraceHeaderInfoList->size() ) {
-    throw( csException("csTraceHeaderDef::getByteLocation: Wrong header index passed to function") );
+    throw( cseis_geolib::csException("csTraceHeaderDef::getByteLocation: Wrong header index passed to function") );
   }
 #endif
   return myByteLocation[index];  
@@ -389,21 +551,14 @@ void csTraceHeaderDef::deleteHeader( int index ) {
   }
   myIndexOfHeadersToDel->insert( index, insertAt );
 }
-
-cseis_geolib::csVector<int> const* csTraceHeaderDef::getIndexOfHeadersToAdd( int inPort ) const {
-  return &myIndexOfHeadersToAdd[inPort];
-}
 cseis_geolib::csVector<int> const* csTraceHeaderDef::getIndexOfHeadersToDel() const {
   return myIndexOfHeadersToDel;
 }
-int csTraceHeaderDef::getNumBytesOfHeadersToAdd( int inPort ) const {
-  return myNumBytesOfHeadersToAdd[inPort];
-}
-void csTraceHeaderDef::dump() const {
-  fprintf(stdout,"********* csTraceHeaderDef::dump(), total num bytes: %d *********\n", myTotalNumBytes);
+void csTraceHeaderDef::dump( FILE* fout ) const {
+  fprintf(fout,"********* csTraceHeaderDef::dump(), total num bytes: %d *********\n", myTotalNumBytes);
   for( int i = 0; i < myTraceHeaderInfoList->size(); i++ ) {
     csTraceHeaderInfo const* info = myTraceHeaderInfoList->at( i );
-    fprintf(stdout,"Info %2d, type %8s, byte %d: '%-20s', Desc: '%s'\n", i, cseis_geolib::csGeolibUtils::typeText(info->type),
+    fprintf(fout,"Info %2d, type %8s, byte %d: '%-20s', Desc: '%s'\n", i, cseis_geolib::csGeolibUtils::typeText(info->type),
             getByteLocation(i), info->name.c_str(), info->description.c_str() );
   }
 }
@@ -421,7 +576,7 @@ void csTraceHeaderDef::resetByteLocation() {
     if( info->type != cseis_geolib::TYPE_STRING ) {
       numBytes += cseis_geolib::csGeolibUtils::numBytes( info->type );
     }
-    else { // if( type == TYPE_STRING ) {
+    else { // if( type == cseis_geolib::TYPE_STRING ) {
       // BUGFIX 080704: Number of bytes for string headers were previously computed as length of description string. This was preliminary code
       numBytes += info->nElements;
     }

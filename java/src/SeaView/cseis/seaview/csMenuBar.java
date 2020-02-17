@@ -45,6 +45,7 @@ import cseis.swing.csRecentFileMenu;
  * Defines all menu items and provides all functionality related to the menu bar.
  * @author 2007 Bjorn Olofsson
  */
+@SuppressWarnings("serial")
 public class csMenuBar extends JMenuBar {
   private final static int MAX_RECENT_FILES = 10;
   
@@ -64,6 +65,8 @@ public class csMenuBar extends JMenuBar {
   private JMenuItem menuOpenCseis;
   private JMenuItem menuOpenSU;
   private JMenuItem menuOpenASCII;
+  private JMenuItem menuOpenJPG;
+  private JMenuItem menuOpenBackground;
 
   private JMenuItem menuExit;
   private JMenuItem menuPreferences;
@@ -90,6 +93,8 @@ public class csMenuBar extends JMenuBar {
   
   private JMenuItem menuCombineData;
   private JMenuItem menuColorMaps;
+  private JMenuItem menuVelocityAnalysis;
+  private JMenuItem menuWellPaths;
 
   private JCheckBoxMenuItem menuShowColorbar;
   private JCheckBoxMenuItem menuShowAbsoluteTime;
@@ -134,28 +139,30 @@ public class csMenuBar extends JMenuBar {
     menuHelp  = new JMenu("Help");
 
     menuOpen    = new JMenuItem("Open...");
-    menuOpen.setAccelerator( KeyStroke.getKeyStroke(KeyEvent.VK_O, InputEvent.CTRL_MASK) );
+    menuOpen.setAccelerator( KeyStroke.getKeyStroke(KeyEvent.VK_O, InputEvent.CTRL_DOWN_MASK) );
     menuImageAs   = new JMenuItem("Export as...");
-    menuImageAs.setAccelerator( KeyStroke.getKeyStroke(KeyEvent.VK_E, InputEvent.SHIFT_MASK | InputEvent.CTRL_MASK) );
+    menuImageAs.setAccelerator( KeyStroke.getKeyStroke(KeyEvent.VK_E, InputEvent.SHIFT_DOWN_MASK | InputEvent.CTRL_DOWN_MASK) );
     menuImage   = new JMenuItem("Export");
-    menuImage.setAccelerator( KeyStroke.getKeyStroke(KeyEvent.VK_E, InputEvent.CTRL_MASK) );
+    menuImage.setAccelerator( KeyStroke.getKeyStroke(KeyEvent.VK_E, InputEvent.CTRL_DOWN_MASK) );
     menuExit    = new JMenuItem("Exit");
-    menuExit.setAccelerator( KeyStroke.getKeyStroke(KeyEvent.VK_Q, InputEvent.CTRL_MASK) );
+    menuExit.setAccelerator( KeyStroke.getKeyStroke(KeyEvent.VK_Q, InputEvent.CTRL_DOWN_MASK) );
     menuPreferences = new JMenuItem("Preferences...");
     menuPreferences.setToolTipText("Set SeaView preferences");
     
     menuSelection = new JMenuItem("Trace selection...");
-    menuSelection.setAccelerator( KeyStroke.getKeyStroke(KeyEvent.VK_T, InputEvent.CTRL_MASK) );
+    menuSelection.setAccelerator( KeyStroke.getKeyStroke(KeyEvent.VK_T, InputEvent.CTRL_DOWN_MASK) );
 
     menuRefresh   = new JMenuItem("Refresh");
-    menuRefresh.setAccelerator( KeyStroke.getKeyStroke(KeyEvent.VK_R, InputEvent.CTRL_MASK) );
+    menuRefresh.setAccelerator( KeyStroke.getKeyStroke(KeyEvent.VK_R, InputEvent.CTRL_DOWN_MASK) );
     menuRefresh.setToolTipText("Refresh/Re-read selected data set");
 
     menuCombineData = new JMenuItem("Combine data sets...");
     menuCombineData.setToolTipText("Perform operation on two data sets, create new data set");
     menuColorMaps = new JMenuItem("Manage color maps...");
     menuColorMaps.setToolTipText("Create/modify custom color maps...");
-    
+    menuWellPaths = new JMenuItem("Manage well paths...");
+    menuWellPaths.setToolTipText("Display well paths on seismic sections");
+
     menuOpenFiletype  = new JMenu("Open file");
     menuOpenSegy    = new JMenuItem("Open SEG-Y file...check SEGY/SU-Setup options on menubar to make sure endian is correct!");
     menuOpenSegy.setToolTipText("Open SEG-Y file");
@@ -171,7 +178,14 @@ public class csMenuBar extends JMenuBar {
     menuOpenASCII.setToolTipText("<html>Open ASCII text file containing a table of sample values.<br>" +
       "Each line contains a space-separated list of values.<br>" +
       "Each column is one trace, each line is one sample time.</html>");
-    
+    menuOpenJPG    = new JMenuItem("Open JPEG file...");
+    menuOpenJPG.setToolTipText("Open JPEG image file as seismic");
+    menuOpenBackground    = new JMenuItem("Open background...");
+    menuOpenBackground.setToolTipText("Open background seismic/image/velocity for active pane");
+    menuVelocityAnalysis    = new JMenuItem("Velocity analysis...");
+    menuVelocityAnalysis.setToolTipText("<html>Velocity picking on semblance plot.<br>" +
+            "<i>Note: A semblance plot must have been opened previously, consisting of one or several 1D/2D/3D CDP gathers.</i></html>");
+
     menuGraphSelection = new JMenuItem( csSeaViewActions.ACTION_TITLE[csSeaViewActions.ShowGraphAction], csSeaViewActions.getIcon(csSeaViewActions.ShowGraphAction) );
     menuGraphSelection.setToolTipText( csSeaViewActions.ACTION_DESC[csSeaViewActions.ShowGraphAction] );
 
@@ -185,10 +199,10 @@ public class csMenuBar extends JMenuBar {
 
     menuLoadDispSettings = new JMenuItem("Load settings...");
     menuLoadDispSettings.setToolTipText("Load seismic display settings from external file");
-    menuLoadDispSettings.setAccelerator( KeyStroke.getKeyStroke(KeyEvent.VK_L, InputEvent.CTRL_MASK) );
+    menuLoadDispSettings.setAccelerator( KeyStroke.getKeyStroke(KeyEvent.VK_L, InputEvent.CTRL_DOWN_MASK) );
     menuSaveDispSettings = new JMenuItem("Save settings...");
     menuSaveDispSettings.setToolTipText("Save seismic display settings to external file");
-    menuSaveDispSettings.setAccelerator( KeyStroke.getKeyStroke(KeyEvent.VK_S, InputEvent.CTRL_MASK) );
+    menuSaveDispSettings.setAccelerator( KeyStroke.getKeyStroke(KeyEvent.VK_S, InputEvent.CTRL_DOWN_MASK) );
 
     menuLoadDefaultDispSettings = new JMenuItem("Load settings (standard)");
     menuLoadDefaultDispSettings.setToolTipText("Load seismic display settings from standard file in home directory");
@@ -215,6 +229,8 @@ public class csMenuBar extends JMenuBar {
     group2.add(menuColors32bit);
     group2.add(menuColors8bit);
     menuColors32bit.setSelected( true );
+    menuColors8bit.setToolTipText("8-bit color display: Use for example to speed up a slow remote connection");
+    menuColors32bit.setToolTipText("Full 32-bit color display");
     
     menuHdrMonitor   = new JMenuItem("Monitor header values...");
     menuTrcMonitor   = new JMenuItem("Monitor sample values...");
@@ -250,6 +266,7 @@ public class csMenuBar extends JMenuBar {
 
     menuFile.add(menuOpen);
     menuFile.add(menuOpenFiletype);
+//    menuFile.add(menuOpenBackground);
     menuFile.addSeparator();
     menuFile.add(menuRefresh);
     menuFile.addSeparator();
@@ -269,6 +286,7 @@ public class csMenuBar extends JMenuBar {
     menuOpenFiletype.add(menuOpenSU);
     menuOpenFiletype.add(menuOpenRSF);
     menuOpenFiletype.add(menuOpenASCII);
+    menuOpenFiletype.add(menuOpenJPG);
     
     menuView.add(menuHighlight);
     menuView.add(menuCrosshairOn);
@@ -301,6 +319,10 @@ public class csMenuBar extends JMenuBar {
     menuTools.add(menuCombineData);
     menuTools.addSeparator();
     menuTools.add(menuColorMaps);
+    menuTools.addSeparator();
+    menuTools.add(menuWellPaths);
+    menuTools.addSeparator();
+    menuTools.add(menuVelocityAnalysis);
 
     menuSEGY.add(menuSEGYSetup);
     menuSEGY.add(menuSEGYTrcHdrMaps);
@@ -495,7 +517,13 @@ public class csMenuBar extends JMenuBar {
         mySeaView.combineTwoSeismicBundles();
       }
     });
-    menuColorMaps.addActionListener( new ActionListener() {
+    menuWellPaths.addActionListener( new ActionListener() {
+      @Override
+      public void actionPerformed( ActionEvent e ) {
+        mySeaView.manageWellPaths();
+      }
+     });
+     menuColorMaps.addActionListener( new ActionListener() {
       @Override
       public void actionPerformed( ActionEvent e ) {
         mySeaView.manageCustomColorMaps();
@@ -553,6 +581,18 @@ public class csMenuBar extends JMenuBar {
         }
       }
     });
+    menuOpenBackground.addActionListener( new ActionListener() {
+      @Override
+      public void actionPerformed( ActionEvent e ) {
+//        mySeaView.openBackgroundFile();
+      }
+    });
+    menuVelocityAnalysis.addActionListener( new ActionListener() {
+      @Override
+      public void actionPerformed( ActionEvent e ) {
+        mySeaView.openVelocityAnalysis(false);
+      }
+    });
     menuRefresh.addActionListener( new ActionListener() {
       @Override
       public void actionPerformed( ActionEvent e ) {
@@ -593,6 +633,12 @@ public class csMenuBar extends JMenuBar {
       @Override
       public void actionPerformed( ActionEvent e ) {
         mySeaView.openFile(SeaView.FORMAT_ASCII);
+      }
+    });
+    menuOpenJPG.addActionListener( new ActionListener() {
+      @Override
+      public void actionPerformed( ActionEvent e ) {
+        mySeaView.openFile(SeaView.FORMAT_JPG);
       }
     });
 
@@ -733,11 +779,11 @@ public class csMenuBar extends JMenuBar {
     menuLogScaleY.setToolTipText("<html>Plot Y axis in log scale<br>" +
             "<i>Minimum time/frequency is set automatically depending on zoom level.</i></html>");
   }
-  public void removeRecentFile( String filename ) {
-    myMenuRecentFiles.removeFile( filename );
+  public void removeRecentFile( String filenameFullPath ) {
+    myMenuRecentFiles.removeFile( filenameFullPath );
   }
-  public void addRecentFile( String filename ) {
-    myMenuRecentFiles.addFile( filename );
+  public void addRecentFile( String filenameFullPath ) {
+    myMenuRecentFiles.addFile( filenameFullPath );
   }
   public java.util.List<String> getRecentFileList() {
     return myMenuRecentFiles.getFileList();

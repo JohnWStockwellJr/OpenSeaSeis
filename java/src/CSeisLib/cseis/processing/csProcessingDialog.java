@@ -35,6 +35,7 @@ import javax.swing.JProgressBar;
  * is complete.
  * @author 2013 Felipe Punto
  */
+@SuppressWarnings("serial")
 public class csProcessingDialog extends JDialog {
   private JPanel myMainPanel;
   private JButton myButtonApply;

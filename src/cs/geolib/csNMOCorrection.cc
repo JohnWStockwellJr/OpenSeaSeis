@@ -16,10 +16,10 @@ namespace cseis_geolib {
 }
 
 csNMOCorrection::csNMOCorrection( double sampleInt_ms, int numSamples, int method_nmo ) {
-  myNMOMethod = method_nmo;
+  myNMOMethod          = method_nmo;
   mySampleInt_sec      = sampleInt_ms/1000.0;
-  myNumSamples          = numSamples;
-  myTimeOfLastSample    = (myNumSamples-1)*mySampleInt_sec;
+  myNumSamples         = numSamples;
+  myTimeOfLastSample   = (myNumSamples-1)*mySampleInt_sec;
 
   myBuffer = new float[myNumSamples];
   myModeOfApplication = csNMOCorrection::NMO_APPLY;
@@ -71,7 +71,7 @@ csNMOCorrection::~csNMOCorrection() {
 //
 void csNMOCorrection::setTimeSample1( float timeSample1_ms ) {
   if( timeSample1_ms > 0 ) throw( csException("Inconsistent time of first sample provided: %f. Must be <= 0\n", timeSample1_ms) );
-  myTimeSample1_s = timeSample1_ms / 1000.0;
+  myTimeSample1_s = timeSample1_ms / 1000.0f;
 }
 //--------------------------------------------------------------------------------
 //
@@ -152,10 +152,10 @@ void csNMOCorrection::perform_nmo( csTimeFunction<double> const* velTimeFunc, do
 
   if( myIsHorizonBasedNMO ) {
     t0[0]      = 0;
-    vel_rms[0] = velTimeFunc->valueAtIndex(0);
+    vel_rms[0] = (float)velTimeFunc->valueAtIndex(0);
     for( int i = 0; i < numVelocities_in; i++ ) {
-      t0[i+1]      = velTimeFunc->timeAtIndex(i)/1000.0;  // Convert to seconds
-      vel_rms[i+1] = velTimeFunc->valueAtIndex(i);
+      t0[i+1]      = (float)(velTimeFunc->timeAtIndex(i)/1000.0);  // Convert to seconds
+      vel_rms[i+1] = (float)velTimeFunc->valueAtIndex(i);
     }
     t0[numVelocities-1]      = myTimeOfLastSample;
     vel_rms[numVelocities-1] = vel_rms[numVelocities-2];
@@ -164,8 +164,8 @@ void csNMOCorrection::perform_nmo( csTimeFunction<double> const* velTimeFunc, do
   }
   else {
     for( int i = 0; i < numVelocities_in; i++ ) {
-      t0[i]      = velTimeFunc->timeAtIndex(i)/1000.0;  // Convert to seconds
-      vel_rms[i] = velTimeFunc->valueAtIndex(i);
+      t0[i]      = (float)velTimeFunc->timeAtIndex(i)/1000.0;  // Convert to seconds
+      vel_rms[i] = (float)velTimeFunc->valueAtIndex(i);
     }
     if( myNMOMethod != csNMOCorrection::PP_NMO_VTI ) {
       perform_nmo_internal( numVelocities_in, t0, vel_rms, offset, samplesOut, NULL );
@@ -195,10 +195,9 @@ void csNMOCorrection::perform_nmo_internal( int numVels, float const* times, flo
 
   memcpy( myBuffer, samplesOut, myNumSamples*sizeof(float) );
   double offset_sq = offset*offset;
-
+  double tmp;
   int isampTimeZero = (int)round( -myTimeSample1_s / mySampleInt_sec );
   for( int isamp = isampTimeZero; isamp < myNumSamples; isamp++ ) {
-    //  for( int isamp = 0; isamp < myNumSamples; isamp++ ) {
     double timeOut = (double)isamp*mySampleInt_sec + myTimeSample1_s;
     double timeOut_sq = timeOut * timeOut;
     int isampVel = isamp - isampTimeZero;
@@ -215,7 +214,9 @@ void csNMOCorrection::perform_nmo_internal( int numVels, float const* times, flo
       myTimeTrace[isamp] = 0.5 * sqrt( timeOut_sq ) + 0.5 * sqrt( timeOut_sq + 2.0 * offset_sq / (vel*vel) );
       break;
     case csNMOCorrection::PP_NMO_VTI:
-      myTimeTrace[isamp] = sqrt( timeOut_sq + offset_sq/(vel*vel) - (2*myETATrace[isampVel]*offset_sq*offset_sq) / (vel*vel * (timeOut_sq*vel*vel + (1+2*myETATrace[isampVel])*offset_sq) ) );
+      tmp = vel*vel * (timeOut_sq*vel*vel + (1+2*myETATrace[isampVel])*offset_sq);
+      if( tmp != 0 ) myTimeTrace[isamp] = sqrt( timeOut_sq + offset_sq/(vel*vel) - (2*myETATrace[isampVel]*offset_sq*offset_sq) / tmp );
+      else myTimeTrace[isamp] = 0;
       break;
     case csNMOCorrection::EMPIRICAL_NMO:
       myTimeTrace[isamp] = timeOut + ( ( vel * ( pow( (offset-myOffsetApex)/1000,2) - pow(myOffsetApex/1000,2) ) -  (vel/(vel+0.1)) * myZeroOffsetDamping * exp(-0.5*pow(offset/1000,2)) ) / 1000);
@@ -613,7 +614,7 @@ void csNMOCorrection::perform_differential_nmo_internal_ORIG( int numVels, float
       break;
     case csNMOCorrection::EMPIRICAL_NMO:
       myTimeTrace[isamp] = timeOut + ( ( vel * ( pow( (offsetIn-myOffsetApex)/1000,2) - pow(myOffsetApex/1000,2) ) -  (vel/(vel+0.1)) * myZeroOffsetDamping * exp(-0.5*pow(offsetIn/1000,2)) ) / 1000) -
-	(( ( vel * ( pow( (offsetOut-myOffsetApex)/1000,2) - pow(myOffsetApex/1000,2) ) -  (vel/(vel+0.1)) * myZeroOffsetDamping * exp(-0.5*pow(offsetOut/1000,2)) ) / 1000));
+        (( ( vel * ( pow( (offsetOut-myOffsetApex)/1000,2) - pow(myOffsetApex/1000,2) ) -  (vel/(vel+0.1)) * myZeroOffsetDamping * exp(-0.5*pow(offsetOut/1000,2)) ) / 1000));
       break;
     }
     //    fprintf(stdout,"%f %f %f\n", timeOut, myTimeTrace[isamp], myVelocityTrace[isamp]);

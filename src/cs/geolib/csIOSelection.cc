@@ -2,27 +2,32 @@
 /* All rights reserved.                       */
 
 #include <cstdio>
+#include <set>
 #include "csIOSelection.h"
 #include "csFlexHeader.h"
 #include "csFlexNumber.h"
 #include "csIReader.h"
 #include "csException.h"
 #include "csSelection.h"
-#include "csSortManager.h"
 #include "csVector.h"
 
 using namespace std;
 using namespace cseis_geolib;
 
+namespace cseis_geolib {
+  bool sortItemCompare( csIOSortItem* item1, csIOSortItem* item2 ) {
+    return( item1->flexNum->intValue() < item2->flexNum->intValue() );
+  }
+}
+
 csIOSelection::csIOSelection( std::string const& headerName, int sortOrder, int sortMethod ) {
   myHdrName   = headerName;
   mySortOrder = sortOrder;
   myNumSelectedTraces = 0;
-  mySortManager = NULL;
   mySelectedTraceIndexList = new cseis_geolib::csVector<int>();
-
+  mySortList = NULL;
   if( mySortOrder != csIOSelection::SORT_NONE ) {
-    mySortManager = new csSortManager( 1, sortMethod );
+    mySortList    = new std::vector<csIOSortItem*>();
   }
   myCurrentSelectedIndex = -1;
   mySelectedValueList = new cseis_geolib::csVector<csFlexNumber*>();
@@ -39,9 +44,9 @@ csIOSelection::~csIOSelection() {
     }
     delete mySelectedValueList;
   }
-  if( mySortManager != NULL ) {
-    delete mySortManager;
-    mySortManager = NULL;
+  if( mySortList != NULL ) {
+    delete mySortList;
+    mySortList = NULL;
   }
   if( mySelectedTraceIndexList != NULL ) {
     delete mySelectedTraceIndexList;
@@ -76,7 +81,6 @@ bool csIOSelection::step2( cseis_geolib::csIReader* reader, int& numTracesToRead
       csFlexNumber value(&flexHdr);
       if( mySTEPSelection->contains( &value ) ) {
         mySelectedTraceIndexList->insertEnd(itrc);
-        // if( mySortOrder != csIOSelection::SORT_NONE ) 
         mySelectedValueList->insertEnd( new csFlexNumber(&value,mySortOrder == SORT_DECREASING) );
         // Trick to flip polarity of value for sorting in decreasing direction
       }
@@ -103,37 +107,50 @@ bool csIOSelection::step3( cseis_geolib::csIReader* reader ) {
   }
 
   if( mySortOrder != csIOSelection::SORT_NONE ) {
-    mySortManager->resetValues( myNumSelectedTraces );
     for( int is = 0; is < myNumSelectedTraces; is++ ) {
       csFlexNumber* flexNum = mySelectedValueList->at( is );
-      //      fprintf(stdout,"Value #%d   %d    %d, trace %d\n", is, flexNum->intValue(), myNumSelectedTraces, mySelectedTraceIndexList->at(is) );
-      mySortManager->setValue( is, 0, *flexNum, mySelectedTraceIndexList->at(is) );
+      mySortList->push_back( new csIOSortItem(mySelectedTraceIndexList->at(is),flexNum) );
     }
+
+    //for( int i = 0; i < mySortList->size(); i++ ) {
+    //  csIOSortItem* item = mySortList->at(i);
+    //  fprintf(stdout,"IN  %d  %d   %d\n", i, item->traceIndex, (*item->flexNum).intValue() );
+    // }
+
+    std::sort( mySortList->begin(), mySortList->end(), sortItemCompare );
+
     mySelectedTraceIndexList->clear();
-    mySortManager->sort();
     if( mySortOrder == SORT_DECREASING ) {
       // Revert polarity flip in sorted values:
-      mySortManager->flipPolarity();
+      flipSortOrder();
     }
+
+    //for( int i = 0; i < mySortList->size(); i++ ) {
+    //  csIOSortItem* item = mySortList->at(i);
+    //  fprintf(stdout,"OUT %d  %d   %d\n", i, item->traceIndex, (*item->flexNum).intValue() );
+    // }
   }
-  //  else {
-  //  for( int is = 0; is < myNumSelectedTraces; is++ ) {
-  //    fprintf(stdout,"Value #%d    %d, trace %d\n", is, myNumSelectedTraces, mySelectedTraceIndexList->at(is) );
-  //  }
-  //}
+
   myCurrentSelectedIndex = -1;
 
   return true;
 }
 
-
+void csIOSelection::flipSortOrder() {
+  std::vector<csIOSortItem*>* newSortList = new std::vector<csIOSortItem*>();
+  for( int i = 0; i < (int)mySortList->size(); i++ ) {
+    newSortList->push_back( mySortList->at(i) );
+  }
+  delete mySortList;
+  mySortList = newSortList;
+}
 
 int csIOSelection::getCurrentTraceIndex() {
   if( mySortOrder == SORT_NONE ) {
     return mySelectedTraceIndexList->at(myCurrentSelectedIndex);
   }
   else {
-    return mySortManager->sortedIndex(myCurrentSelectedIndex);
+    return mySortList->at(myCurrentSelectedIndex)->traceIndex;
   }
 }
 int csIOSelection::getNextTraceIndex() {
@@ -150,13 +167,13 @@ int csIOSelection::getNumSelectedTraces() const {
     return mySelectedValueList->size();
   }
   else {
-    return mySortManager->numValues();
+    return (int)mySortList->size();
   }
 }
 
 int csIOSelection::getSelectedIndex( int traceIndex ) const {
   if( mySortOrder != SORT_NONE ) {
-    return mySortManager->sortedIndex( traceIndex );
+    return mySortList->at(traceIndex)->traceIndex;
   }
   else {
     return traceIndex;
@@ -172,6 +189,6 @@ cseis_geolib::csFlexNumber const* csIOSelection::getSelectedValue( int traceInde
     return mySelectedValueList->at( traceIndex );
   }
   else {
-    return mySortManager->sortedValue( traceIndex );
+    return mySortList->at(traceIndex)->flexNum;
   }
 }

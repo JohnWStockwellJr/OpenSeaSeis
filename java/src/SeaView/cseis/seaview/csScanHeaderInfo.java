@@ -53,7 +53,7 @@ public class csScanHeaderInfo {
     }
     Number valuePrev = (Number)bundle.hdrValues[0].value();
     ensValueList.add( valuePrev );
-    ensFirstTraceIndexList.add( new Integer( bundle.traceIndexList[0]) );
+    ensFirstTraceIndexList.add( bundle.traceIndexList[0] );
     uniqueValueList.add( valuePrev );
     for( int i = 1; i < numTraces; i++ ) {
       Number value = (Number)bundle.hdrValues[i].value();
@@ -62,7 +62,7 @@ public class csScanHeaderInfo {
       }
       if( !value.equals(valuePrev) ) {
         ensValueList.add( value );
-        ensFirstTraceIndexList.add( new Integer(bundle.traceIndexList[i]) );
+        ensFirstTraceIndexList.add( bundle.traceIndexList[i] );
         valuePrev = value;
       }
     }
@@ -114,19 +114,19 @@ public class csScanHeaderInfo {
     myCurrentMoveForwards = moveForwards;
     switch( myHeaderDef.type ) {
       case csHeaderDef.TYPE_INT:
-        numberValue = new Integer( (int)hdrValue );
+        numberValue = (int)hdrValue;
         break;
       case csHeaderDef.TYPE_DOUBLE:
-        numberValue = new Double(hdrValue);
+        numberValue = hdrValue;
         break;
       case csHeaderDef.TYPE_FLOAT:
-        numberValue = new Float(hdrValue);
+        numberValue = hdrValue;
         break;
       case csHeaderDef.TYPE_LONG:
-        numberValue = new Long( (long)hdrValue );
+        numberValue = (long)hdrValue;
         break;
       default:
-        numberValue = new Integer( (int)hdrValue );
+        numberValue = (int)hdrValue;
         break;
     }
     int sortedHdrIndex = java.util.Arrays.binarySearch(mySortedHdrValues, numberValue );

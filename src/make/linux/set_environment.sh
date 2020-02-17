@@ -21,4 +21,6 @@ export LIBDIR=${CSEISDIR}/lib
 export BINDIR=${CSEISDIR}/bin
 export OBJDIR=${CSEISDIR}/obj
 export DOCDIR=${CSEISDIR}/doc
+export INCDIR=${LIBDIR}/include
 mkdir -p ${CSEISDIR}
+mkdir -p ${INCDIR}

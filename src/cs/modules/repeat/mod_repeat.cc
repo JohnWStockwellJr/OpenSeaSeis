@@ -36,14 +36,13 @@ using namespace mod_repeat;
 //
 //*******************************************************************
 
-void init_mod_repeat_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_repeat_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
 
   vars->hdrId_repeat = -1;
   vars->repeat       = 0;
@@ -64,27 +63,27 @@ void init_mod_repeat_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
     else if( !text.compare( "trace" ) ) {
       vars->mode = MODE_TRACE;
       env->execPhaseDef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
-//      log->line("Mode option not supported yet in this version: '%s'.", text.c_str());
+//      writer->line("Mode option not supported yet in this version: '%s'.", text.c_str());
 //      env->addError();
     }
     else if( !text.compare( "all" ) ) {
       vars->mode = MODE_ALL;
-      log->line("Mode option not supported yet in this version: '%s'.", text.c_str());
+      writer->line("Mode option not supported yet in this version: '%s'.", text.c_str());
       env->addError();
     }
     else {
-      log->line("Unknown argument for user parameter 'mode': '%s'.", text.c_str());
+      writer->line("Unknown argument for user parameter 'mode': '%s'.", text.c_str());
       env->addError();
     }
   }
   else {
-    vars->mode = MODE_ENSEMBLE;
-    env->execPhaseDef->setTraceSelectionMode( TRCMODE_ENSEMBLE );
+    vars->mode = MODE_TRACE;
+    env->execPhaseDef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
   }
 
   param->getInt( "repeat", &vars->repeat );
   if( vars->repeat <= 1 ) {
-    log->line("Wrong entry. Number of repeats must be larger than 1. Number specified: %d.", vars->repeat);
+    writer->line("Wrong entry. Number of repeats must be larger than 1. Number specified: %d.", vars->repeat);
     env->addError();
   }
   if( !hdef->headerExists( "repeat" ) ) {
@@ -92,7 +91,7 @@ void init_mod_repeat_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
   }
   else {
     if( hdef->headerType("repeat") != TYPE_INT ) {
-      log->line("Trace header 'repeat' exists but has wrong header type. Must be INT.");
+      writer->line("Trace header 'repeat' exists but has wrong header type. Must be INT.");
       env->addError();
     }
     else {
@@ -102,7 +101,7 @@ void init_mod_repeat_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
   vars->traceCounter = 0;
 
   if( edef->isDebug() ) {
-    log->line("Mode: %d", vars->mode );
+    writer->line("Mode: %d", vars->mode );
   }
 }
 
@@ -117,17 +116,13 @@ void exec_mod_repeat_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
+  //  csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
   csTraceHeaderDef const* hdef = env->headerDef;
 
-  if( edef->isCleanup()){
-    delete vars; vars = NULL;
-    return;
-  }
 
   if( vars->newTraceCountdown > 0 ) {
     // Do nothing
@@ -184,11 +179,11 @@ void exec_mod_repeat_(
   int numTracesNew  = numTracesOrig * ( vars->repeat - 1);
 
   if( edef->isDebug() ) {
-    log->line("-----------------------------\n");
-    log->line("numTraces (orig,new): %6d %6d", numTracesOrig, numTracesNew );
+    writer->line("-----------------------------\n");
+    writer->line("numTraces (orig,new): %6d %6d", numTracesOrig, numTracesNew );
     for( int i = 0; i < numTracesOrig; i++ ) {
       csTraceHeader* trcHdrOrig = traceGather->trace(i)->getTraceHeader();
-      log->line("   sensor %5d, source %5d,  trace: %d ",
+      writer->line("   sensor %5d, source %5d,  trace: %d ",
         trcHdrOrig->intValue( hdef->headerIndex("sensor") ),
         trcHdrOrig->intValue( hdef->headerIndex("source") ), ++vars->traceCounter );
     }
@@ -218,7 +213,7 @@ void exec_mod_repeat_(
   if( edef->isDebug() ) {
     for( int i = 0; i < numTracesNew; i++ ) {
       csTraceHeader* trcHdrNew = traceGather->trace(i+numTracesOrig)->getTraceHeader();
-      log->line("NEW sensor %5d, source %5d,  trace: %d ",
+      writer->line("NEW sensor %5d, source %5d,  trace: %d ",
         trcHdrNew->intValue( hdef->headerIndex("sensor") ),
         trcHdrNew->intValue( hdef->headerIndex("source") ), ++vars->traceCounter );
     }
@@ -235,22 +230,50 @@ void params_mod_repeat_( csParamDef* pdef ) {
   pdef->setModule( "REPEAT", "Repeat/duplicate traces", "Copy traces and all trace headers. Set new trace header called 'repeat'" );
 
   pdef->addParam( "mode", "Mode of operation", NUM_VALUES_FIXED );
-  pdef->addValue( "", VALTYPE_OPTION );
-  pdef->addOption( "ensemble", "Repeat whole ensemble" );
-  pdef->addOption( "trace", "Repeat individual trace" );
-  pdef->addOption( "all", "Repeat all traces" );
+  pdef->addValue( "trace", VALTYPE_OPTION );
+  pdef->addOption( "trace", "Repeat individual trace, trace-by-trace" );
+  pdef->addOption( "ensemble", "Repeat whole ensemble, ensemble-by-ensemble" );
+  pdef->addOption( "all", "Repeat all traces: Collect all traces as one ensemble, then repeat" );
 
-  pdef->addParam( "repeat", "Total number of output traces", NUM_VALUES_FIXED );
+  pdef->addParam( "repeat", "Total number of output traces per input trace", NUM_VALUES_FIXED, "repeat = 2 --> Output input trace and one copy" );
   pdef->addValue( "2", VALTYPE_NUMBER );
+}
+
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_repeat_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_repeat::VariableStruct* vars = reinterpret_cast<mod_repeat::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_repeat_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_repeat::VariableStruct* vars = reinterpret_cast<mod_repeat::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  delete vars; vars = NULL;
 }
 
 extern "C" void _params_mod_repeat_( csParamDef* pdef ) {
   params_mod_repeat_( pdef );
 }
-extern "C" void _init_mod_repeat_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_repeat_( param, env, log );
+extern "C" void _init_mod_repeat_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_repeat_( param, env, writer );
 }
-extern "C" void _exec_mod_repeat_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_repeat_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_repeat_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_repeat_( env, writer );
 }
-
+extern "C" void _exec_mod_repeat_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_repeat_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_repeat_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_repeat_( env, writer );
+}

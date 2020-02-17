@@ -2,7 +2,7 @@
 /* All rights reserved.                       */
 
 #include "cseis_includes.h"
-#include "csFFTTools.h"
+#include "csFFT.h"
 #include <cmath>
 
 using namespace cseis_system;
@@ -23,8 +23,8 @@ namespace mod_trc_interpol {
     int hdrID_in;
     int hdrID_out;
     double value;
-    cseis_geolib::csFFTTools* fftTool1;
-    cseis_geolib::csFFTTools* fftTool2;
+    cseis_geolib::csFFT* fftTool1;
+    cseis_geolib::csFFT* fftTool2;
     float* buffer;
   };
   static int const METHOD_SIMPLE_AVERAGE = 1;
@@ -43,7 +43,7 @@ using namespace mod_trc_interpol;
 //
 //*******************************************************************
 
-void init_mod_trc_interpol_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_trc_interpol_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csSuperHeader*    shdr = env->superHeader;
@@ -76,7 +76,7 @@ void init_mod_trc_interpol_( csParamManager* param, csInitPhaseEnv* env, csLogWr
       vars->hdrID_in = hdef->headerIndex( text.c_str() );
     }
     else {
-      log->error("Unknown option: %s", text.c_str() );
+      writer->error("Unknown option: %s", text.c_str() );
     }
   }
 
@@ -89,11 +89,10 @@ void init_mod_trc_interpol_( csParamManager* param, csInitPhaseEnv* env, csLogWr
       vars->method = METHOD_FX_AVERAGE;
     }
     else {
-      log->error("Unknown option: %s", text.c_str() );
+      writer->error("Unknown option: %s", text.c_str() );
     }
   }
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
   if( vars->mode == MODE_ENSEMBLE ) {
     edef->setTraceSelectionMode( TRCMODE_ENSEMBLE );
   }
@@ -110,8 +109,8 @@ void init_mod_trc_interpol_( csParamManager* param, csInitPhaseEnv* env, csLogWr
   vars->hdrID_out = hdef->headerIndex("interpolated");
 
   if( vars->method == METHOD_FX_AVERAGE ) {
-    vars->fftTool1 = new cseis_geolib::csFFTTools( shdr->numSamples );
-    vars->fftTool2 = new cseis_geolib::csFFTTools( shdr->numSamples );
+    vars->fftTool1 = new cseis_geolib::csFFT( shdr->numSamples );
+    vars->fftTool2 = new cseis_geolib::csFFT( shdr->numSamples );
     vars->buffer = new float[shdr->numSamples];
   }
 }
@@ -128,27 +127,15 @@ void exec_mod_trc_interpol_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
   csTraceHeaderDef const* hdef = env->headerDef;
 
-  if( edef->isCleanup()){
-    if( vars->fftTool1 != NULL ) {
-      delete vars->fftTool1;
-      vars->fftTool1 = NULL;
-    }
-    if( vars->fftTool2 != NULL ) {
-      delete vars->fftTool2;
-      vars->fftTool2 = NULL;
-    }
-    delete vars; vars = NULL;
-    return;
-  }
 
-  if( edef->isDebug() ) log->line("Number of input traces: %d, num trc to keep: %d", traceGather->numTraces(), *numTrcToKeep);
+  if( edef->isDebug() ) writer->line("Number of input traces: %d, num trc to keep: %d", traceGather->numTraces(), *numTrcToKeep);
 
   int numTraces = traceGather->numTraces();
   if( numTraces < 2 ) {  // This must be the last trace of the data set. Simply return, do nothing
@@ -167,7 +154,7 @@ void exec_mod_trc_interpol_(
   
     if( vars->method == METHOD_SIMPLE_AVERAGE ) {
       for( int isamp = 0; isamp < nSamples; isamp++ ) {
-	samplesNew[isamp] = (samples1[isamp] + samples2[isamp])*0.5;
+        samplesNew[isamp] = (samples1[isamp] + samples2[isamp])*0.5;
       }
     }
 
@@ -195,7 +182,7 @@ void exec_mod_trc_interpol_(
         trcHdrNew->setStringValue( ihdr, trcHdr1->stringValue(ihdr) );
         break;
       default:
-        log->error("mod_trc_interpol: Unknown trace header type, code: %d", type);
+        writer->error("mod_trc_interpol: Unknown trace header type, code: %d", type);
       }
     }
     trcHdrNew->setIntValue( vars->hdrID_out, 1 );
@@ -215,38 +202,23 @@ void exec_mod_trc_interpol_(
       float* samplesNew = traceGather->trace(itrc)->getTraceSamples();
   
       if( vars->method == METHOD_SIMPLE_AVERAGE ) {
-	for( int isamp = 0; isamp < nSamples; isamp++ ) {
-	  samplesNew[isamp] = (samples1[isamp] + samples2[isamp])*0.5;
-	}
+        for( int isamp = 0; isamp < nSamples; isamp++ ) {
+          samplesNew[isamp] = (samples1[isamp] + samples2[isamp])*0.5;
+        }
       }
       else {
-        bool success = vars->fftTool1->fft_forward( samples1 );
-        if( !success ) {
-          log->error("Error occurred in fft forward transform");
+        int fftDataType = cseis_geolib::FX_REAL_IMAG;
+        vars->fftTool1->forwardTransform( samples1, samples1, fftDataType );
+        vars->fftTool2->forwardTransform( samples2, samples2, fftDataType );
+        float* real1Ptr = &samples1[0];
+        float* imag1Ptr = &samples1[vars->fftTool1->numFreqValues()];
+        float const* real2Ptr = &samples2[0];
+        float const* imag2Ptr = &samples2[vars->fftTool1->numFreqValues()];
+        for( int ifreq = 0; ifreq < vars->fftTool1->numFreqValues(); ifreq++ ) {
+          real1Ptr[ifreq] = (real1Ptr[ifreq] + real2Ptr[ifreq])*0.5f;
+          imag1Ptr[ifreq] = (imag1Ptr[ifreq] + imag2Ptr[ifreq])*0.5f;
         }
-        success = vars->fftTool2->fft_forward( samples2 );
-        double* real1 = vars->fftTool1->getRealDataPointer();
-        double* imag1 = vars->fftTool1->getImagDataPointer();
-        double const* real2 = vars->fftTool2->realData();
-        double const* imag2 = vars->fftTool2->imagData();
-	for( int isamp = 0; isamp < vars->fftTool1->numFFTSamples(); isamp++ ) {
-          real1[isamp] = (real1[isamp] + real2[isamp])*0.5;
-          imag1[isamp] = (imag1[isamp] + imag2[isamp])*0.5;
-          /*          float amp1 = 2.0 * sqrt(real1[isamp]*real1[isamp] + imag1[isamp]*imag1[isamp]);
-          float amp2 = 2.0 * sqrt(real2[isamp]*real2[isamp] + imag2[isamp]*imag2[isamp]);
-          float amp = 0.5 * ( amp1 + amp2 );
-          float phase1 = atan2(-imag1[isamp],real1[isamp]);
-          float phase2 = atan2(-imag2[isamp],real2[isamp]);
-          float phase = atan2( sin(phase1)+sin(phase2), cos(phase1)+cos(phase2) );
-          real1[isamp] = 0.5*amp * cos(phase);
-          imag1[isamp] = -0.5*amp * sin(phase); */
-        }
-        success = vars->fftTool1->fft_inverse( );
-        real1 = vars->fftTool1->getRealDataPointer();
-	for( int isamp = 0; isamp < shdr->numSamples; isamp++ ) {
-	  samplesNew[isamp] = real1[isamp];
-	}
-
+        vars->fftTool1->inverseTransform( samples1, samplesNew, fftDataType );
       }
 
       // 2) Interpolate trace header values
@@ -255,26 +227,26 @@ void exec_mod_trc_interpol_(
       csTraceHeader* trcHdrNew = traceGather->trace(itrc)->getTraceHeader();
 
       for( int ihdr = 0; ihdr < hdef->numHeaders(); ihdr++ ) {
-	char type = hdef->headerType(ihdr);
-	switch( type ) {
-	case TYPE_INT:
-	  trcHdrNew->setIntValue( ihdr, (trcHdr1->intValue(ihdr)+trcHdr2->intValue(ihdr))/2 );
-	  break;
-	case TYPE_FLOAT:
-	  trcHdrNew->setFloatValue( ihdr, (trcHdr1->floatValue(ihdr)+trcHdr2->floatValue(ihdr))/2 );
-	  break;
-	case TYPE_DOUBLE:
-	  trcHdrNew->setDoubleValue( ihdr, (trcHdr1->doubleValue(ihdr)+trcHdr2->doubleValue(ihdr))/2 );
-	  break;
-	case TYPE_INT64:
-	  trcHdrNew->setInt64Value( ihdr, (trcHdr1->int64Value(ihdr)+trcHdr2->int64Value(ihdr))/2 );
-	  break;
-	case TYPE_STRING:
-	  trcHdrNew->setStringValue( ihdr, trcHdr1->stringValue(ihdr) );
-	  break;
-	default:
-	  log->error("mod_trc_interpol: Unknown trace header type, code: %d", type);
-	}
+        char type = hdef->headerType(ihdr);
+        switch( type ) {
+        case TYPE_INT:
+          trcHdrNew->setIntValue( ihdr, (trcHdr1->intValue(ihdr)+trcHdr2->intValue(ihdr))/2 );
+          break;
+        case TYPE_FLOAT:
+          trcHdrNew->setFloatValue( ihdr, (trcHdr1->floatValue(ihdr)+trcHdr2->floatValue(ihdr))/2 );
+          break;
+        case TYPE_DOUBLE:
+          trcHdrNew->setDoubleValue( ihdr, (trcHdr1->doubleValue(ihdr)+trcHdr2->doubleValue(ihdr))/2 );
+          break;
+        case TYPE_INT64:
+          trcHdrNew->setInt64Value( ihdr, (trcHdr1->int64Value(ihdr)+trcHdr2->int64Value(ihdr))/2 );
+          break;
+        case TYPE_STRING:
+          trcHdrNew->setStringValue( ihdr, trcHdr1->stringValue(ihdr) );
+          break;
+        default:
+          writer->error("mod_trc_interpol: Unknown trace header type, code: %d", type);
+        }
       }
       trcHdrNew->setIntValue( vars->hdrID_out, 1 );
 
@@ -293,9 +265,9 @@ void exec_mod_trc_interpol_(
       float* samplesMid = traceGather->trace(1)->getTraceSamples();
   
       if( vars->method == METHOD_SIMPLE_AVERAGE ) {
-	for( int isamp = 0; isamp < nSamples; isamp++ ) {
-	  samplesMid[isamp] = (samples1[isamp] + samples2[isamp])*0.5;
-	}
+        for( int isamp = 0; isamp < nSamples; isamp++ ) {
+          samplesMid[isamp] = (samples1[isamp] + samples2[isamp])*0.5;
+        }
       }
       traceGather->trace(1)->getTraceHeader()->setIntValue( vars->hdrID_out, 1 );
     }
@@ -333,13 +305,49 @@ void params_mod_trc_interpol_( csParamDef* pdef ) {
   pdef->addValue( "1", VALTYPE_NUMBER, "Value indicating this trace shall be replaced/interpolated" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_trc_interpol_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_trc_interpol::VariableStruct* vars = reinterpret_cast<mod_trc_interpol::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_trc_interpol_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_trc_interpol::VariableStruct* vars = reinterpret_cast<mod_trc_interpol::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->fftTool1 != NULL ) {
+    delete vars->fftTool1;
+    vars->fftTool1 = NULL;
+  }
+  if( vars->fftTool2 != NULL ) {
+    delete vars->fftTool2;
+    vars->fftTool2 = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_trc_interpol_( csParamDef* pdef ) {
   params_mod_trc_interpol_( pdef );
 }
-extern "C" void _init_mod_trc_interpol_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_trc_interpol_( param, env, log );
+extern "C" void _init_mod_trc_interpol_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_trc_interpol_( param, env, writer );
 }
-extern "C" void _exec_mod_trc_interpol_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_trc_interpol_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_trc_interpol_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_trc_interpol_( env, writer );
 }
-
+extern "C" void _exec_mod_trc_interpol_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_trc_interpol_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_trc_interpol_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_trc_interpol_( env, writer );
+}

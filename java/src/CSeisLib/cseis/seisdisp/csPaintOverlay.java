@@ -32,8 +32,8 @@ public class csPaintOverlay implements csISeisOverlay, MouseMotionListener, Mous
 
   public csPaintOverlay( csSeisView seisView ) {
     mySeisView   = seisView;
-    myLinePoints = new ArrayList();
-    myPoints     = new ArrayList();
+    myLinePoints = new ArrayList<Point2D.Float>();
+    myPoints     = new ArrayList<Point2D.Float>();
     mySizeLine   = 6;
     mySizePoint  = 11;
     myColorLine  = Color.red;

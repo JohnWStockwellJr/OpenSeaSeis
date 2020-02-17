@@ -4,7 +4,8 @@
 package cseis.xcseis;
 
 public interface csIFlowViewListener {
-  public void moduleChanged( int moduleIndex, String moduleName );
+  public void selectModuleInFlow( int moduleIndex, String moduleName );
+  public void deleteModuleInFlow( int moduleIndex, String moduleName );
 }
 
 

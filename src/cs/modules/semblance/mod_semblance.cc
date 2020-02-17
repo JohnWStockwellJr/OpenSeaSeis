@@ -59,7 +59,7 @@ using namespace mod_semblance;
 //
 //
 //*************************************************************************************************
-void init_mod_semblance_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_semblance_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -67,7 +67,6 @@ void init_mod_semblance_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
   edef->setTraceSelectionMode( TRCMODE_ENSEMBLE );
 
   vars->nmo            = NULL;
@@ -103,7 +102,7 @@ void init_mod_semblance_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
     }
     else if( !text.compare("p_direct") ) {
       vars->isNMO = false;
-      log->line("Linear moveout correction is performed. Source/receiver depths are read in from trace headers 'rec_z' and 'sou_z'");
+      writer->line("Linear moveout correction is performed. Source/receiver depths are read in from trace headers 'rec_z' and 'sou_z'");
       if( param->exists("lmo_refvel") ) {
         param->getFloat("lmo_refvel", &vars->lmoRefVel );
       }
@@ -112,7 +111,7 @@ void init_mod_semblance_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
       }
     }
     else {
-      log->error("Output option not recognized: %s.", text.c_str());
+      writer->error("Output option not recognized: %s.", text.c_str());
     }
   }
 
@@ -124,7 +123,7 @@ void init_mod_semblance_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
 
   int numVelTimes = param->getNumLines( "vel_range" );
   if( numVelTimes < 1 ) {
-    log->error("User parameter 'vel_range' missing." );
+    writer->error("User parameter 'vel_range' missing." );
   }
   float* velTime  = new float[numVelTimes];
   float* velStart = new float[numVelTimes];
@@ -136,7 +135,7 @@ void init_mod_semblance_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
     param->getFloat( "vel_range", &velStart[i], 1 );
     param->getFloat( "vel_range", &velEnd[i], 2 );
     if( velEnd[i] <= velStart[i] || vars->velInc > (velEnd[i]-velStart[i]) ) {
-      log->error("Inconsistent velocity range specified at time %f: Start/End/Inc   %f/%f/%f",
+      writer->error("Inconsistent velocity range specified at time %f: Start/End/Inc   %f/%f/%f",
         velTime[i], velStart[i], velEnd[i], vars->velInc );
     }
     if( velStart[i] < velMin ) velMin = velStart[i];
@@ -181,16 +180,16 @@ void init_mod_semblance_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
     try {
       vars->tableManager = new csTableManagerNew( text, csTableAll::TABLE_TYPE_UNIQUE_KEYS, hdef );
       if( vars->tableManager->valueName().compare("time") ) {
-        log->error("Mute table must contain 'value' column labelled 'time', for example: '@%s time'. Value label found: '%s'",
+        writer->error("Mute table must contain 'value' column labelled 'time', for example: '@%s time'. Value label found: '%s'",
                    vars->tableManager->numKeys() > 0 ? vars->tableManager->keyName(0).c_str() : "offset",
                    vars->tableManager->valueName().c_str() );
       }
     }
     catch( csException& exc ) {
-      log->error("Error when initializing input table '%s': %s\n", text.c_str(), exc.getMessage() );
+      writer->error("Error when initializing input table '%s': %s\n", text.c_str(), exc.getMessage() );
     }
     if( vars->tableManager->numKeys() < 1 ) {
-      log->error("Number of table keys = %d. Specify table key by placing the character '%c' in front of the key name. Example: %csource time vel  (source is a table key)",
+      writer->error("Number of table keys = %d. Specify table key by placing the character '%c' in front of the key name. Example: %csource time vel  (source is a table key)",
                  csTableAll::KEY_CHAR, csTableAll::KEY_CHAR);
     }
 
@@ -209,11 +208,11 @@ void init_mod_semblance_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
       vars->outputOption = OUTPUT_LAST;
     }
     else if( !text.compare("average") ) {
-      log->error("Option AVERAGE is not supported yet...");
+      writer->error("Option AVERAGE is not supported yet...");
       vars->outputOption = OUTPUT_AVERAGE;
     }
     else {
-      log->line("Unknown option: '%s'", text.c_str());
+      writer->line("Unknown option: '%s'", text.c_str());
     }
   }
   else {
@@ -233,10 +232,10 @@ void init_mod_semblance_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
   }
 
   if( !hdef->headerExists( "offset" ) ) {
-    log->error("Trace header 'offset' does not exist. Cannot perform NMO correction.");
+    writer->error("Trace header 'offset' does not exist. Cannot perform NMO correction.");
   }
   else if( hdef->headerType( "offset" ) != TYPE_FLOAT && hdef->headerType( "offset" ) != TYPE_DOUBLE ) {
-    log->error("Trace header 'offset' exists but has the wrong number type. Should be FLOAT.");
+    writer->error("Trace header 'offset' exists but has the wrong number type. Should be FLOAT.");
   }
   vars->hdrId_offset = hdef->headerIndex( "offset" );
   if( !hdef->headerExists( "vel_rms" ) ) {
@@ -247,8 +246,8 @@ void init_mod_semblance_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
   vars->bufferSemblance = new float[vars->numVels*shdr->numSamples];
 
   if( edef->isDebug() ) {
-    log->line("Number of velocities: %d   %f %f %f", vars->numVels, vars->velMin, vars->velMax, vars->velInc );
-    log->line("Number of samples in window: %d", vars->windowLengthSamples );
+    writer->line("Number of velocities: %d   %f %f %f", vars->numVels, vars->velMin, vars->velMax, vars->velInc );
+    writer->line("Number of samples in window: %d", vars->windowLengthSamples );
   }
 }
 
@@ -263,40 +262,12 @@ void exec_mod_semblance_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup()){
-    if( vars->bufferSemblance ) {
-      delete [] vars->bufferSemblance;
-      vars->bufferSemblance = NULL;
-    }
-    if( vars->tableManager != NULL ) {
-      delete vars->tableManager;
-      vars->tableManager = NULL;
-    }
-    if( vars->velStart != NULL ) {
-      delete [] vars->velStart;
-      vars->velStart = NULL;
-    }
-    if( vars->velEnd != NULL ) {
-      delete [] vars->velEnd;
-      vars->velEnd = NULL;
-    }
-    if( vars->nmo != NULL ) {
-      delete vars->nmo;
-      vars->nmo = NULL;
-    }
-    if( vars->lmoInterpol != NULL ) {
-      delete vars->lmoInterpol;
-      vars->lmoInterpol = NULL;
-    }
-    delete vars; vars = NULL;
-    return;
-  }
 
   int nTracesIn = traceGather->numTraces();
 
@@ -310,14 +281,14 @@ void exec_mod_semblance_(
     }
     for( int itrc = nTracesIn-1; itrc >= 0; itrc-- ) {
       int muteSample = muteList.at(itrc);
-      if( edef->isDebug() ) log->line(" Trace #%d: mute sample index : %d  (Num samples: %d)", itrc, muteSample, shdr->numSamples );
+      if( edef->isDebug() ) writer->line(" Trace #%d: mute sample index : %d  (Num samples: %d)", itrc, muteSample, shdr->numSamples );
       if( muteSample >= shdr->numSamples-2 ) {
-        if( edef->isDebug() ) log->line("    ...remove trace");
+        if( edef->isDebug() ) writer->line("    ...remove trace");
         muteList.remove(itrc);
         traceGather->freeTrace(itrc);
       }
     }
-    if( edef->isDebug() ) log->line("\nReduced input data from %d traces to %d traces\n", nTracesIn, traceGather->numTraces());
+    if( edef->isDebug() ) writer->line("\nReduced input data from %d traces to %d traces\n", nTracesIn, traceGather->numTraces());
     nTracesIn = traceGather->numTraces();
   }
   int* sampleMuteEnd = new int[nTracesIn];
@@ -382,7 +353,7 @@ void exec_mod_semblance_(
   float time = 0.0;
   for( int ivel = 0; ivel < vars->numVels; ivel++ ) {
     float velocity  = vars->velMin + (float)ivel * vars->velInc;
-    if( edef->isDebug() ) log->line("Compute semblance for velocity #%d: %f", ivel, velocity);
+    if( edef->isDebug() ) writer->line("Compute semblance for velocity #%d: %f", ivel, velocity);
     for( int itrc = 0; itrc < nTracesIn; itrc++ ) {
       float const* samplesIn = traceGather->trace(itrc)->getTraceSamples();
       //      double offset          = traceGather->trace(itrc)->getTraceHeader()->doubleValue( vars->hdrId_offset );
@@ -486,13 +457,65 @@ void params_mod_semblance_( csParamDef* pdef ) {
 }
 
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_semblance_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_semblance::VariableStruct* vars = reinterpret_cast<mod_semblance::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_semblance_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_semblance::VariableStruct* vars = reinterpret_cast<mod_semblance::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->bufferSemblance ) {
+    delete [] vars->bufferSemblance;
+    vars->bufferSemblance = NULL;
+  }
+  if( vars->tableManager != NULL ) {
+    delete vars->tableManager;
+    vars->tableManager = NULL;
+  }
+  if( vars->velStart != NULL ) {
+    delete [] vars->velStart;
+    vars->velStart = NULL;
+  }
+  if( vars->velEnd != NULL ) {
+    delete [] vars->velEnd;
+    vars->velEnd = NULL;
+  }
+  if( vars->nmo != NULL ) {
+    delete vars->nmo;
+    vars->nmo = NULL;
+  }
+  if( vars->lmoInterpol != NULL ) {
+    delete vars->lmoInterpol;
+    vars->lmoInterpol = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_semblance_( csParamDef* pdef ) {
   params_mod_semblance_( pdef );
 }
-extern "C" void _init_mod_semblance_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_semblance_( param, env, log );
+extern "C" void _init_mod_semblance_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_semblance_( param, env, writer );
 }
-extern "C" void _exec_mod_semblance_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_semblance_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_semblance_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_semblance_( env, writer );
 }
-
+extern "C" void _exec_mod_semblance_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_semblance_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_semblance_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_semblance_( env, writer );
+}

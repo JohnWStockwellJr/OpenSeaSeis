@@ -13,6 +13,11 @@
 #include "csFileUtils.h"
 #include <cmath>
 #include <cstring>
+#include "csSegyWriter.h"
+#include "csSegyDefines.h"
+#include "csSegyHdrMap.h"
+#include "csSegyBinHeader.h"
+#include "csSegyTraceHeader.h"
 
 using namespace cseis_system;
 using namespace cseis_geolib;using namespace std;
@@ -31,6 +36,7 @@ namespace mod_ray2d {
     int hdrId_sou_x;
     int hdrId_sou_z;
     int* hdrId_rayTime;
+    int* hdrId_rayAngle;
     int* hdrId_ccpx;
     int* hdrId_ccpz;
     float rec_x;
@@ -40,6 +46,7 @@ namespace mod_ray2d {
     int gatherType;
     int nmoMethod;
     bool applyBinning;
+    int modelType;
 
     // Model definition
     int numInterfaces; // Number of model interfaces
@@ -104,7 +111,7 @@ namespace mod_ray2d {
     std::string filename_timeout;
     std::string filename_intout;
     bool isFirstCall;
-  };
+ };
   static int const MODEL_1D        = 1;
   static int const MODEL_2D_SIMPLE = 2;
   static int const MODEL_2D_GRID   = 3;
@@ -120,7 +127,16 @@ namespace mod_ray2d {
   static int const SEISMOGRAM_NONE      = 44;
   static int const SEISMOGRAM_DYNAMIC   = 45;
   static int const SEISMOGRAM_KINEMATIC = 46;
+
+  static int const VELOUT_VP      = 51;
+  static int const VELOUT_VS      = 52;
+  static int const VELOUT_VPVS    = 53;
+  static int const VELOUT_RHO     = 54;
+  static int const VELOUT_INT     = 55;
 }
+
+void compute_z( mod_ray2d::VariableStruct* vars, float xvalue, int intIndex, float* zout, int* pointIndex_out );
+void exportVelocityModel( mod_ray2d::VariableStruct* vars, cseis_geolib::csSegyWriter* segyWriter, double dx, double dz, float xMin, float xMax, float zMin, float zMax, int velout_flag );
 
 //*************************************************************************************************
 // Init phase
@@ -128,15 +144,14 @@ namespace mod_ray2d {
 //
 //
 //*************************************************************************************************
-void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
-  //  csSuperHeader*    shdr = env->superHeader;
+  csSuperHeader*    shdr = env->superHeader;
   mod_ray2d::VariableStruct* vars = new mod_ray2d::VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
   edef->setTraceSelectionMode( TRCMODE_ENSEMBLE );
 
   vars->hdrId_rec_x = -1;
@@ -211,6 +226,9 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   vars->filename_intout = "";
   vars->isFirstCall = true;
 
+  vars->modelType = -1;
+
+
   float EPSILON = 0.00001f;
 
 
@@ -218,6 +236,21 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   //
   // Read in misc parameters
   //
+
+  std::string text;
+  int flag_duplicate_raycodes = 0;
+  if( param->exists( "duplicate_raycodes" ) ) {
+    param->getString("duplicate_raycodes", &text);
+    if( !text.compare("no") ) {
+      flag_duplicate_raycodes = 0;
+    }
+    else if( !text.compare("yes") ) {
+      flag_duplicate_raycodes = 1;
+    }
+    else  {
+      writer->error("Unknown option: %s", text.c_str() );
+    }
+  }
 
   if( param->exists( "flags" ) ) {
     int numFlags = param->getNumValues("flags");
@@ -237,7 +270,7 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   if( param->exists( "dump_times" ) ) {
     param->getString( "dump_times", &vars->filename_timeout );
     if( !csFileUtils::createDoNotOverwrite( vars->filename_timeout ) ) {
-      log->error("Error opening output file %s\n", vars->filename_timeout.c_str() );
+      writer->error("Error opening output file %s\n", vars->filename_timeout.c_str() );
     }
   }
 
@@ -269,7 +302,6 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   // Read in gather type
   //
 
-  std::string text;
   if( param->exists( "gather" ) ) {
     param->getString( "gather", &text );
     if( !text.compare("receiver") ) {
@@ -279,7 +311,7 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       vars->gatherType = mod_ray2d::SOURCE_GATHER;
     }
     else  {
-      log->error("Unknown option: %s", text.c_str() );
+      writer->error("Unknown option: %s", text.c_str() );
     }
   }
 
@@ -293,55 +325,55 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   param->getString( "rec_x", &text );
   if( !number.convertToNumber( text ) ) {
     if( !hdef->headerExists(text) ) {
-      log->error("Specified trace header name containing receiver X coordinate does not exist: '%s'", text.c_str());
+      writer->error("Specified trace header name containing receiver X coordinate does not exist: '%s'", text.c_str());
     }
     vars->hdrId_rec_x = hdef->headerIndex(text);
   }
   else { // User specified a constant value
     vars->rec_x = number.floatValue();
     if( vars->gatherType == mod_ray2d::SOURCE_GATHER ) {
-      log->error("For source gathers, the receiver X coordinate cannot be constant (%f). Please specify a trace header name containing the receiver X coordinate", vars->rec_x);
+      writer->error("For source gathers, the receiver X coordinate cannot be constant (%f). Please specify a trace header name containing the receiver X coordinate", vars->rec_x);
     }
-    log->line("Constant receiver X coordinate = %.2f", vars->rec_x);
+    writer->line("Constant receiver X coordinate = %.2f", vars->rec_x);
   }
 
   param->getString( "rec_z", &text );
   if( !number.convertToNumber( text ) ) {
     if( !hdef->headerExists(text) ) {
-      log->error("Specified trace header name containing receiver Z coordinate does not exist: '%s'", text.c_str());
+      writer->error("Specified trace header name containing receiver Z coordinate does not exist: '%s'", text.c_str());
     }
     vars->hdrId_rec_z = hdef->headerIndex(text);
   }
   else { // User specified a constant value
     vars->rec_z = number.floatValue();
-    log->line("Constant receiver Z coordinate = %.2f", vars->rec_z);
+    writer->line("Constant receiver Z coordinate = %.2f", vars->rec_z);
   }
 
   param->getString( "sou_x", &text );
   if( !number.convertToNumber( text ) ) {
     if( !hdef->headerExists(text) ) {
-      log->error("Specified trace header name containing source X coordinate does not exist: '%s'", text.c_str());
+      writer->error("Specified trace header name containing source X coordinate does not exist: '%s'", text.c_str());
     }
     vars->hdrId_sou_x = hdef->headerIndex(text);
   }
   else { // User specified a constant value
     vars->sou_x = number.floatValue();
     if( vars->gatherType == mod_ray2d::RECEIVER_GATHER ) {
-      log->error("For receiver gathers, the source X coordinate cannot be constant (%f). Please specify a trace header name containing the source X coordinate", vars->sou_x);
+      writer->error("For receiver gathers, the source X coordinate cannot be constant (%f). Please specify a trace header name containing the source X coordinate", vars->sou_x);
     }
-    log->line("Constant source X coordinate = %.2f", vars->sou_x);
+    writer->line("Constant source X coordinate = %.2f", vars->sou_x);
   }
 
   param->getString( "sou_z", &text );
   if( !number.convertToNumber( text ) ) {
     if( !hdef->headerExists(text) ) {
-      log->error("Specified trace header name containing source Z coordinate does not exist: '%s'", text.c_str());
+      writer->error("Specified trace header name containing source Z coordinate does not exist: '%s'", text.c_str());
     }
     vars->hdrId_sou_z = hdef->headerIndex(text);
   }
   else { // User specified a constant value
     vars->sou_z = number.floatValue();
-    log->line("Constant source Z coordinate = %.2f", vars->sou_z);
+    writer->line("Constant source Z coordinate = %.2f", vars->sou_z);
   }
 
   vars->rec_x /= 1000.0f; // Convert from [m] to [km]
@@ -364,9 +396,10 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
     }
     else if( !text.compare("depth") ) {
       vars->nmoMethod = mod_ray2d::NMO_DEPTH;
+      shdr->domain = cseis_geolib::DOMAIN_XD;
     }
     else  {
-      log->error("Unknown option: %s", text.c_str() );
+      writer->error("Unknown option: %s", text.c_str() );
     }
   }
 
@@ -379,7 +412,7 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       vars->applyBinning = false;
     }
     else  {
-      log->error("Unknown option: %s", text.c_str() );
+      writer->error("Unknown option: %s", text.c_str() );
     }
   }
 
@@ -392,7 +425,7 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       vars->seismogramType = mod_ray2d::SEISMOGRAM_KINEMATIC;
     }
     else  {
-      log->error("Unknown option: %s", text.c_str() );
+      writer->error("Unknown option: %s", text.c_str() );
     }
     param->getFloat( "seismogram", &vars->rickerPeakFrequency, 0 );
   }
@@ -442,23 +475,21 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
     maxOffset1DModel /= 1000.0f; // Convert to [km]
   }
 
-  int modelType = -1;
-
 
   if( param->exists("model_type") ) {
     param->getString("model_type", &text, 0);
     if( !text.compare("1d") ) {
-      modelType = mod_ray2d::MODEL_1D;
+      vars->modelType = mod_ray2d::MODEL_1D;
     }
     else if( !text.compare("2d") ) {
-      modelType = mod_ray2d::MODEL_2D_SIMPLE;
+      vars->modelType = mod_ray2d::MODEL_2D_SIMPLE;
     }
     else if( !text.compare("2d_grid") ) {
-      modelType = mod_ray2d::MODEL_2D_GRID;
-      log->error("Model type not supported yet: 2D grid");
+      vars->modelType = mod_ray2d::MODEL_2D_GRID;
+      writer->error("Model type not supported yet: 2D grid");
     }
     else {
-      log->error("Unknown option: '%s'", text.c_str());
+      writer->error("Unknown option: '%s'", text.c_str());
     }
     param->getString("model_type", &text, 1);
     if( !text.compare("vpvs") ) {
@@ -468,36 +499,36 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       shearParam = mod_ray2d::SHEAR_PARAM_VS;
     }
     else {
-      log->error("Unknown option: '%s'", text.c_str());
+      writer->error("Unknown option: '%s'", text.c_str());
     }
   }
   //  else {
-  //    log->error("No 1D model defined (user parameter 'model1d'), and no 2D model defined (user parameters 'int2d' and 'layer')");
+  //    writer->error("No 1D model defined (user parameter 'model1d'), and no 2D model defined (user parameters 'int2d' and 'layer')");
   //  }
 
   int numLines = 0;
-  if( modelType == mod_ray2d::MODEL_1D ) {
+  if( vars->modelType == mod_ray2d::MODEL_1D ) {
     if( !param->exists("int1d") ) {
-      log->error("No 1D model interface defined (user parameter 'int1d')");
+      writer->error("No 1D model interface defined (user parameter 'int1d')");
     }
     numLines = param->getNumLines("int1d");
     vars->numInterfaces = numLines;
   }
-  else if( modelType == mod_ray2d::MODEL_2D_SIMPLE ) {
+  else if( vars->modelType == mod_ray2d::MODEL_2D_SIMPLE ) {
     if( !param->exists("int2d") ) {
-      log->error("No 2D model interface defined (user parameter 'int2d')");
+      writer->error("No 2D model interface defined (user parameter 'int2d')");
     }
     else if( !param->exists("layer") ) {
-      log->error("No local 1D layer properties defined for 2D model (user parameter 'layer')");
+      writer->error("No local 1D layer properties defined for 2D model (user parameter 'layer')");
     }
     numLines = param->getNumLines("int2d");
     param->getIntAtLine( "int2d", &vars->numInterfaces, numLines-1 );
   }
   else { // 2D grid model
-    log->error("Error");
+    writer->error("Error");
   }
   if( vars->numInterfaces < 2 ) {
-    log->error("Please specify at least two model interfaces. Only %d has been defined", vars->numInterfaces);
+    writer->error("Please specify at least two model interfaces. Only %d has been defined", vars->numInterfaces);
   }
 
   vars->numInterfacesAll = vars->numInterfaces + numBoreholes;  // Number of all model "interfaces"
@@ -507,7 +538,7 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   csVector<float> zList;
   csVector<int> iiiList;
 
-  if( modelType == mod_ray2d::MODEL_1D ) {
+  if( vars->modelType == mod_ray2d::MODEL_1D ) {
     for( int inter = 0; inter < vars->numInterfaces; inter++ ) {
       vars->numPointsInt[inter] = 2;
     }
@@ -531,13 +562,13 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       int inter;
       param->getIntAtLine("int2d", &inter, iline, 0);
       if( inter < 1 ) {
-        log->error("Inconsistent 2D model definition: Interface number = %d (<1)", inter);
+        writer->error("Inconsistent 2D model definition: Interface number = %d (<1)", inter);
       }
       else if( inter < interCurrent ) {
-        log->error("Inconsistent 2D model definition: Point #%d in model specified for previous interface (#%d)", iline, inter);
+        writer->error("Inconsistent 2D model definition: Point #%d in model specified for previous interface (#%d)", iline, inter);
       }
       else if( inter > interCurrent+1 ) {
-      log->error("Inconsistent 2D model definition: Interface #%d follows interface #%d. Model interface numbers must be consecutive.", interCurrent, inter);
+      writer->error("Inconsistent 2D model definition: Interface #%d follows interface #%d. Model interface numbers must be consecutive.", interCurrent, inter);
       }
       if( inter != interCurrent ) {
         vars->numPointsInt[interCurrent-1] = pointCounter;
@@ -560,11 +591,11 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
     vars->numPointsInt[interCurrent-1] = pointCounter;
     int numCheckLayers = param->getNumLines("layer");
     if( numCheckLayers < vars->numInterfaces-1 ) {
-      log->error("Too few layers defined for 2D model, user parameter 'layer'. Specified layers: %d, actual number of layers: %d (=#interfaces-1)",
+      writer->error("Too few layers defined for 2D model, user parameter 'layer'. Specified layers: %d, actual number of layers: %d (=#interfaces-1)",
                  numCheckLayers, vars->numInterfaces-1);
     }
     else if( numCheckLayers > vars->numInterfaces-1 ) {
-      log->error("Too many layers defined for 2D model, user parameter 'layer'. Specified layers: %d, actual number of layers: %d (=#interfaces-1)",
+      writer->error("Too many layers defined for 2D model, user parameter 'layer'. Specified layers: %d, actual number of layers: %d (=#interfaces-1)",
                  numCheckLayers, vars->numInterfaces-1);
     }
   } // END: Read in 2D model
@@ -581,13 +612,18 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   int counter = 0;
   float xMin = xList.at(0);
   float xMax = xMin;
+  float zMin = zList.at(0);
+  float zMax = zMin;
 
-  log->line("Number of interfaces: %d, max number of points per interface: %d\n", vars->numInterfaces, vars->maxPointsInt);
+  writer->line("Number of interfaces: %d, max number of points per interface: %d\n", vars->numInterfaces, vars->maxPointsInt);
   for( int ip = 0; ip < xList.size(); ip++ ) {
     float xtmp = xList.at(ip);
+    float ztmp = zList.at(ip);
     if( xtmp < xMin ) xMin = xtmp;
     if( xtmp > xMax ) xMax = xtmp;
-    log->line("Model point #%-2d :   %12.3f %12.3f", ip, xList.at(ip), zList.at(ip));
+    if( ztmp < zMin ) zMin = ztmp;
+    if( ztmp > zMax ) zMax = ztmp;
+    writer->line("Model point #%-2d :   %12.3f %12.3f", ip, xList.at(ip), zList.at(ip));
   }
 
   for( int kInt = 0; kInt < vars->numInterfaces; kInt++ ) {
@@ -595,6 +631,7 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       vars->x_int(ip,kInt) = xList.at(counter);
       vars->z_int(ip,kInt) = zList.at(counter);
       vars->iii(ip,kInt)   = iiiList.at(counter);
+      //      fprintf(stdout,"%d %d %d\n", ip, kInt, vars->iii(ip,kInt));
       counter += 1;
     }
     if( vars->iii(0,kInt) != -1 ) {
@@ -604,11 +641,11 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       vars->iii(vars->numPointsInt[kInt]-1,kInt) = -1;
     }
     if( vars->x_int(0,kInt) != xMin ) {
-      log->error("First point X coordinate (=%f) of interface #%d not at left model boundary (=%f)",
+      writer->error("First point X coordinate (=%f) of interface #%d not at left model boundary (=%f)",
                  vars->x_int(0,kInt), kInt+1, xMin);
     }
     else if( vars->x_int(vars->numPointsInt[kInt]-1,kInt) != xMax ) {
-      log->error("Last point X coordinate (=%f) of interface #%d not at right model boundary (=%f)",
+      writer->error("Last point X coordinate (=%f) of interface #%d not at right model boundary (=%f)",
                  vars->x_int(vars->numPointsInt[kInt]-1,kInt), kInt+1, xMax);
     }
   }
@@ -644,8 +681,8 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   vars->v_grid.resize( 4, vars->maxPointsZGrid, vars->maxPointsXGrid, vars->numInterfaces );
 
   if( edef->isDebug() ) {
-    log->line("Size: %d %d %d\n", vars->x_grid.size(), vars->z_grid.size(), vars->v_grid.size());
-    log->line("Dimensions: %d %d %d %d\n", 4, vars->maxPointsZGrid, vars->maxPointsXGrid, vars->numInterfaces );
+    writer->line("Size: %d %d %d\n", vars->x_grid.size(), vars->z_grid.size(), vars->v_grid.size());
+    writer->line("Dimensions: %d %d %d %d\n", 4, vars->maxPointsZGrid, vars->maxPointsXGrid, vars->numInterfaces );
   }
 
   /*
@@ -657,21 +694,21 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
     }
     else if( !text.compare("2d") ) {
       isVelocity1D = false;
-      log->error("Option not supported yet: 2D velocity field");
+      writer->error("Option not supported yet: 2D velocity field");
     }
     else {
-      log->error("Unknown option: '%s'", text.c_str());
+      writer->error("Unknown option: '%s'", text.c_str());
     }
   }
   */
 
   int numLayers = vars->numInterfaces - 1;
-  if( modelType == mod_ray2d::MODEL_1D || modelType == mod_ray2d::MODEL_2D_SIMPLE ) {
+  if( vars->modelType == mod_ray2d::MODEL_1D || vars->modelType == mod_ray2d::MODEL_2D_SIMPLE ) {
     vp_top      = new float[vars->numInterfaces];  // Velocity at top of layer
     vp_bottom   = new float[vars->numInterfaces];  // Velocity at bottom of layer
   }
   /*
-  if( modelType == mod_ray2d::MODEL_1D ) {
+  if( vars->modelType == mod_ray2d::MODEL_1D ) {
     for( int ilay = 0; ilay < numLayers; ilay++ ) {
       int numValues = param->getNumValues("model1d", ilay);
       param->getFloatAtLine("model1d", &vp_top[ilay], ilay, 1);
@@ -704,7 +741,7 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
     int layerIndex;
     param->getIntAtLine("layer", &layerIndex, ilay, 0);
     if( layerIndex != ilay+1 ) {
-      log->error("Inconsistent layer numbering for layer #%d (user parameter 'layer'). User specified index: #%d",ilay+1,layerIndex);
+      writer->error("Inconsistent layer numbering for layer #%d (user parameter 'layer'). User specified index: #%d",ilay+1,layerIndex);
     }
     param->getFloatAtLine("layer", &vp_top[ilay], ilay, 1);
     param->getFloatAtLine("layer", &vars->vpvs_ratio[ilay], ilay, 2);
@@ -729,7 +766,7 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
     index_grid[ilay] = 1;  // Flag specifying that this layer is defined by top/bottom velocity, not a grid
   }
 
-  if( modelType == mod_ray2d::MODEL_1D || modelType == mod_ray2d::MODEL_2D_SIMPLE ) {
+  if( vars->modelType == mod_ray2d::MODEL_1D || vars->modelType == mod_ray2d::MODEL_2D_SIMPLE ) {
     for( int ilay = 0; ilay < numLayers; ilay++ ) {
       vp_top[ilay]    /= 1000.0f; // Convert from [m/s] to [km/s]
       vp_bottom[ilay] /= 1000.0f;
@@ -785,45 +822,67 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   if( param->exists("dump_model") ) {
     param->getString("dump_model",&vars->filename_intout);
     if( !csFileUtils::createDoNotOverwrite( vars->filename_intout ) ) {
-      log->error("Error opening output file %s\n", vars->filename_intout.c_str() );
+      writer->error("Error opening output file %s\n", vars->filename_intout.c_str() );
     }
   }
 
-  /*  
-  // TEST:
-  int veltype = 1; // veltype = -1(vs), +1(vp)
-  float* velout = new float[6];
-  float velonly;
-  float ptos = 2.0;
-
-  float x0 = 0.0;
-
-  fprintf(stderr,"--------------------------------------------\n");
-  fprintf(stderr,"VEL: %f\n", ptos);
-  for( int ilay = 0; ilay < numLayers; ilay++ ) {
-    for( int ix = 0; ix < vars->nx_grid[ilay]; ix++ ) {
-      for( int iz = 0; iz < vars->nz_grid[ilay]; iz++ ) {
-        fprintf(stderr,"VEL #%d: %6.2f %6.2f   %7.2f\n", ilay, vars->x_grid(ix,ilay), vars->z_grid(iz,ilay), vars->v_grid(0, iz, ix, ilay));
-      }
+  if( param->exists( "dump_vel" ) ) {
+    double velout_dx;
+    double velout_dz;
+    param->getString( "dump_vel", &text, 0 );
+    param->getDouble( "dump_vel", &velout_dx, 1 );
+    param->getDouble( "dump_vel", &velout_dz, 2 );
+    std::string text2;
+    param->getString( "dump_vel", &text2, 3 );
+    int velout_flag = mod_ray2d::VELOUT_VP;
+    if( !text2.compare("vp") ) {
+      velout_flag = mod_ray2d::VELOUT_VP;
     }
-  }
+    else if( !text2.compare("vs") ) {
+      velout_flag = mod_ray2d::VELOUT_VS;
+    }
+    else if( !text2.compare("vpvs") ) {
+      velout_flag = mod_ray2d::VELOUT_VPVS;
+    }
+    else if( !text2.compare("rho") ) {
+      velout_flag = mod_ray2d::VELOUT_RHO;
+    }
+    else if( !text2.compare("int") ) {
+      velout_flag = mod_ray2d::VELOUT_INT;
+    }
 
-  int actlayer = 1;
-  for( int iz = 0; iz < 20; iz++ ) {
-    float z0 = 1.0f + (float)iz*0.2f;
-    velocity_( x0, z0, vars->nx_grid[actlayer-1], vars->nz_grid[actlayer-1],
-               &vars->x_grid(0,actlayer-1), &vars->z_grid(0,actlayer-1), &vars->v_grid( 0, 0, 0, actlayer-1 ),
-               veltype, ptos, actlayer,
-               velout,
-               vars->maxPointsXGrid, vars->maxPointsZGrid );
-    velonly_( x0, z0, vars->nx_grid[actlayer-1], vars->nz_grid[actlayer-1],
-              &vars->x_grid(0,actlayer-1), &vars->z_grid(0,actlayer-1), &vars->v_grid( 0, 0, 0, actlayer-1 ),
-              veltype, ptos, actlayer,
-              velonly,
-              vars->maxPointsXGrid, vars->maxPointsZGrid );
-    fprintf(stderr,"Z0 = %7.2f, VEL = %f  (%f)\n", z0, velout[0], velonly);
+    csSegyWriter* segyWriter;
+    int numTracesBuffer = 20;
+    bool rev_byte_order = false;
+    bool isSUFormat = false;
+    bool autoscale_hdrs = true;
+    char* charHdr = new char[cseis_segy::SIZE_CHARHDR+1];
+    csSegyHdrMap hdrMap( csSegyHdrMap::SEGY_STANDARD, false );
+
+    try {
+      int nz_velout = (int)round( 1000*(zMax-zMin)/(velout_dz) ) + 1;
+
+      segyWriter = new csSegyWriter( text, numTracesBuffer, rev_byte_order, autoscale_hdrs, isSUFormat );
+      cseis_geolib::csSegyBinHeader* binHdr = segyWriter->binHdr();
+      binHdr->numAuxTraces     = 0;
+      binHdr->sampleIntUS     = (unsigned short)(velout_dz*1000);
+      binHdr->sampleIntOrigUS = (unsigned short)(velout_dz*1000);
+      binHdr->numSamples       = nz_velout;
+      binHdr->numSamplesOrig   = nz_velout;
+      binHdr->dataSampleFormat = cseis_segy::DATA_FORMAT_IEEE;
+
+      segyWriter->initialize( &hdrMap, charHdr );
+      segyWriter->openFile();
+      segyWriter->freeCharBinHdr();  // Don't need these headers anymore -> free memory
+    }
+    catch( csException& e ) {
+      segyWriter = NULL;
+      writer->error("Error when generating SEGY writer object.\nSystem message: %s", e.getMessage() );
+    }
+    delete [] charHdr;
+    exportVelocityModel( vars, segyWriter, velout_dx/1000, velout_dz/1000, xMin, xMax, zMin, zMax, velout_flag );
+    delete segyWriter;
   }
-  */
 
   //********************************************************************************
   //********************************************************************************
@@ -831,8 +890,10 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   // Read in ray codes
   //
   vars->numCodes = param->getNumLines("ray_code");
+  int numCodeStepPlots = 0;
+  if( param->exists("plot_code_step") ) numCodeStepPlots = param->getNumValues("plot_code_step");
   if( vars->numCodes == 0 ) {
-    log->line("Error: No ray code specified (user parameter 'ray_code')");
+    writer->line("Error: No ray code specified (user parameter 'ray_code')");
     env->addError();
   }
   vars->numCodeSteps = new int[vars->numCodes];
@@ -841,10 +902,15 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
   for( int icode = 0; icode < vars->numCodes; icode++ ) {
     vars->numCodeSteps[icode] = param->getNumValues("ray_code",icode) - 1;
     if( vars->numCodeSteps[icode] <= 0 ) {
-      log->line("Error: User parameter 'ray_code' (#%d) specified without value/ray code", icode+1);
+      writer->line("Error: User parameter 'ray_code' (#%d) specified without value/ray code", icode+1);
       env->addError();
     }
-    vars->codeStepPlot[icode] = 0;
+    if( icode < numCodeStepPlots ) {
+      param->getInt( "plot_code_step", &vars->codeStepPlot[icode], icode );
+    }
+    else {
+      vars->codeStepPlot[icode] = 0;
+    }
     if( vars->numCodeSteps[icode] > vars->maxNumCodeSteps ) {
       vars->maxNumCodeSteps = vars->numCodeSteps[icode];
     }
@@ -861,7 +927,7 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
       vars->rayCode(0,icode) = -1;  // Set up/down flag: First ray goes upwards from source
     }
     else {
-      log->error("Unrecognized option for ray code direction: %s. Specify either 'up' or 'down'", text.c_str());
+      writer->error("Unrecognized option for ray code direction: %s. Specify either 'up' or 'down'", text.c_str());
     }
     if( vars->gatherType == mod_ray2d::SOURCE_GATHER ) {
       for( int istep = 0; istep < vars->numCodeSteps[icode]; istep++ ) {
@@ -916,19 +982,31 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
 
   error = 0;
 
+  if( edef->isDebug() ) {
+    writer->write("\n *** Ray codes BEFORE sorting ***");
+    for( int i = 0; i < vars->numCodes; i++ ) {
+      writer->write("\nRay code #%d: ", i+1);
+      for( int istep = 0; istep <= vars->numCodeSteps[i]; istep++ ) {
+        writer->write("%d  ", vars->rayCode(istep,i) );
+      }
+    }
+    writer->line("\n *** Ray codes AFTER sorting ***");
+  }
+
   // Sort ray codes
   sortraycode_( vars->numCodeSteps, vars->numCodes, vars->codeStepPlot, f_out,
                 vars->sou_interface, vars->sou_layer, vars->rayCode.getPointer(), vars->rayHold.getPointer(),
-                error, vars->maxNumCodeSteps );
-
+                flag_duplicate_raycodes, error, vars->maxNumCodeSteps );
 
   if( error != 0 ) {
-    log->error("Unknown error occurred in subroutine sortraycode. Error code: %d\n", error);
+    writer->error("Unknown error occurred in subroutine sortraycode. Error code: %d\n", error);
   }
 
   char name[11];
   char name2[7];
-  vars->hdrId_rayTime = new int[vars->numCodes];
+  char name3[12];
+  vars->hdrId_rayTime  = new int[vars->numCodes];
+  vars->hdrId_rayAngle = new int[vars->numCodes];
   vars->hdrId_ccpx = new int[vars->numCodes];
   vars->hdrId_ccpz = new int[vars->numCodes];
   for( int i = 0; i < vars->numCodes; i++ ) {
@@ -936,12 +1014,23 @@ void init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
     name[10] = '\0';
     vars->hdrId_rayTime[i] = hdef->addHeader(TYPE_FLOAT,name);
 
+    sprintf(name3,"ray_angle%02d",i+1);
+    name3[11] = '\0';
+    vars->hdrId_rayAngle[i] = hdef->addHeader(TYPE_FLOAT,name3);
+
     sprintf(name2,"ccpx%02d",i+1);
     name[6] = '\0';
     vars->hdrId_ccpx[i] = hdef->addHeader(TYPE_FLOAT,name2);
     sprintf(name2,"ccpz%02d",i+1);
     name[6] = '\0';
     vars->hdrId_ccpz[i] = hdef->addHeader(TYPE_FLOAT,name2);
+    if( edef->isDebug() ) {
+      writer->write("Ray code #%d: ", i+1);
+      for( int istep = 0; istep <= vars->numCodeSteps[i]; istep++ ) {
+        writer->write("%d  ", vars->rayCode(istep,i) );
+      }
+      writer->write("\n");
+    }
   }
 
 }
@@ -957,78 +1046,25 @@ void exec_mod_ray2d_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   mod_ray2d::VariableStruct* vars = reinterpret_cast<mod_ray2d::VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
   //  csTraceHeaderDef const* hdef = env->headerDef;
 
-  if( edef->isCleanup() ) {
-    if( vars->file_timeout != 0 ) {
-      fclose( vars->file_timeout );
-      vars->file_timeout = NULL;
-    }
-    if( vars->hdrId_rayTime != NULL ) {
-      delete [] vars->hdrId_rayTime;
-      vars->hdrId_rayTime = NULL;
-    }
-    if( vars->hdrId_ccpx != NULL ) {
-      delete [] vars->hdrId_ccpx;
-      vars->hdrId_ccpx = NULL;
-    }
-    if( vars->hdrId_ccpz != NULL ) {
-      delete [] vars->hdrId_ccpz;
-      vars->hdrId_ccpz = NULL;
-    }
-    if( vars->numPointsInt != NULL ) {
-      delete [] vars->numPointsInt;
-      vars->numPointsInt = NULL;
-    }
-    if( vars->rho1 != NULL ) {
-      delete [] vars->rho1;
-      vars->rho1 = NULL;
-    }
-    if( vars->rho2 != NULL ) {
-      delete [] vars->rho2;
-      vars->rho2 = NULL;
-    }
-    if( vars->nx_grid != NULL ) {
-      delete [] vars->nx_grid;
-      vars->nx_grid = NULL;
-    }
-    if( vars->nz_grid != NULL ) {
-      delete [] vars->nz_grid;
-      vars->nz_grid = NULL;
-    }
-    if( vars->codeStepPlot != NULL ) {
-      delete [] vars->codeStepPlot;
-      vars->codeStepPlot = NULL;
-    }
-    if( vars->numCodeSteps != NULL ) {
-      delete [] vars->numCodeSteps;
-      vars->numCodeSteps = NULL;
-    }
-    if( vars->vpvs_ratio != NULL ) {
-      delete [] vars->vpvs_ratio;
-      vars->vpvs_ratio = NULL;
-    }
-    delete vars; vars = NULL;
-    return;
-  }
-
   if( vars->isFirstCall ) {
     vars->isFirstCall = false;
     if( vars->filename_timeout.size() > 0 ) {
       vars->file_timeout = fopen(vars->filename_timeout.c_str(),"w");
       if( vars->file_timeout == NULL ) {
-        log->error("Error opening output file %s\n", vars->filename_timeout.c_str() );
+        writer->error("Error opening output file %s\n", vars->filename_timeout.c_str() );
       }
     }
     if( vars->filename_intout.size() > 0 ) {
       FILE* file_intout = fopen(vars->filename_intout.c_str(),"w");
       if( file_intout == NULL ) {
-        log->error("Error opening model output file %s\n", vars->filename_intout.c_str() );
+        writer->error("Error opening model output file %s\n", vars->filename_intout.c_str() );
       }
       int npoints_intout = 50;
       float dx = (vars->x_int(vars->numPointsInt[0]-1,0) - vars->x_int(0,0)) / float(npoints_intout-1);
@@ -1055,10 +1091,10 @@ void exec_mod_ray2d_(
 
   // Set source & receiver geometry
   // Add one trace in order to coompute zero offset (in case of option NMO_TIME)
-  //  int numTracesInternal = numTraces;
-  //  if( vars->nmoMethod == mod_ray2d::NMO_TIME ) {
-  //    numTracesInternal = numTraces + 1;
-  //  }
+  /*  int numTracesInternal = numTraces;
+  if( vars->nmoMethod == mod_ray2d::NMO_TIME ) {
+    numTracesInternal = numTraces + 1;
+    } */
   csMatrixFStyle<float> xz_rec(numTraces,2);
   float sou_x;
   float sou_z;
@@ -1066,7 +1102,7 @@ void exec_mod_ray2d_(
     // Input is receiver gather
     // --> Flip receiver/source coordinates to ray-trace the whole gather in one go (ray tracer assumes shot gather geometry)
     if( vars->hdrId_sou_x == -1 ) {
-      log->error("Program bug: Source X coordinate cannot be constant for receiver gather");
+      writer->error("Program bug: Source X coordinate cannot be constant for receiver gather");
     }
     for( int itrc = 0; itrc < numTraces; itrc++ ) {
       xz_rec(itrc,0) = (float)traceGather->trace(itrc)->getTraceHeader()->doubleValue(vars->hdrId_sou_x) / 1000.0f;
@@ -1096,7 +1132,7 @@ void exec_mod_ray2d_(
   }
   else { // Source gather
     if( vars->hdrId_rec_x == -1 ) {
-      log->error("Program bug: Receiver X coordinate cannot be constant for source gather");
+      writer->error("Program bug: Receiver X coordinate cannot be constant for source gather");
     }
     for( int itrc = 0; itrc < numTraces; itrc++ ) {
       xz_rec(itrc,0) = (float)traceGather->trace(itrc)->getTraceHeader()->doubleValue(vars->hdrId_rec_x) / 1000.0f;
@@ -1136,7 +1172,7 @@ void exec_mod_ray2d_(
                   error, f_out, vars->numInterfaces, vars->maxPointsInt );
 
   if( error != 0 ) {
-    log->error("Unknown error occurred when checking source location (X= %f, Z= %f).", sou_x, sou_z);
+    writer->error("Unknown error occurred when checking source location (X= %f, Z= %f).", sou_x, sou_z);
   }
 
   //--------------------------------------------------------------------------------
@@ -1152,13 +1188,21 @@ void exec_mod_ray2d_(
   }
   int numReclines = 1;
   int numReceivers = numTraces;
-  log->line("numTraces: %d, nrec: %d %d  %f %f %f\n",
+  writer->line("numTraces: %d, nrec: %d %d  %f %f %f\n",
             numTraces, numReceivers, vars->maxNumCodeSteps, vars->dtray, vars->spread_dist, vars->spread_angle_rad);
 
   if( vars->nmoMethod != mod_ray2d::NMO_NONE ) {
     numReceivers = numTraces + 1;
-    xz_rec(numTraces,0) = sou_x;
-    xz_rec(numTraces,1) = sou_z;
+    csMatrixFStyle<float> xz_rec_new(numReceivers,2);
+    for( int itrc = 0; itrc < numTraces; itrc++ ) {
+      xz_rec_new(itrc,0) = xz_rec(itrc,0);
+      xz_rec_new(itrc,1) = xz_rec(itrc,1);
+    }
+    xz_rec.resize(numReceivers,2);
+    for( int itrc = 0; itrc < numReceivers; itrc++ ) {
+      xz_rec(itrc,0) = xz_rec_new(itrc,0);
+      xz_rec(itrc,1) = xz_rec_new(itrc,1);
+    }
   }
   int maxNumReceivers = numReceivers;
   float sou_time  = 0.0;
@@ -1181,9 +1225,9 @@ void exec_mod_ray2d_(
   }
 
   /*
-  log->line("SOU_XZ  %f %f", sou_x, sou_z);
+  writer->line("SOU_XZ  %f %f", sou_x, sou_z);
   for( int itrc = 0; itrc < numTraces; itrc++ ) {
-    log->line("REC_XZ  %d %f %f", itrc, xz_rec_sorted(itrc,0), xz_rec_sorted(itrc,1));
+    writer->line("REC_XZ  %d %f %f", itrc, xz_rec_sorted(itrc,0), xz_rec_sorted(itrc,1));
   }
   */
 
@@ -1193,14 +1237,17 @@ void exec_mod_ray2d_(
   csMatrixFStyle<float> time;
   csMatrixFStyle<float> amplitude;
   csMatrixFStyle<float> phase;
+  csMatrixFStyle<float> angle;
   time.resize( maxNumReceivers, maxNumArrivals, numTimeCodes );
   amplitude.resize( maxNumReceivers, maxNumArrivals, numTimeCodes );
   phase.resize( maxNumReceivers, maxNumArrivals, numTimeCodes );
+  angle.resize( maxNumReceivers, maxNumArrivals, numTimeCodes );
   for( int i = 0; i < maxNumReceivers; i++ ) {
     for( int j = 0; j < maxNumArrivals; j++ ) {
       for( int k = 0; k < numTimeCodes; k++ ) {
         time(i,j,k) = 0.0;
         phase(i,j,k) = 0.0;
+        angle(i,j,k) = 0.0;
       }
     }
   }
@@ -1219,7 +1266,7 @@ void exec_mod_ray2d_(
   //  fprintf(stdout,"%d %d %d %d\n", vars->numInterfacesAll, vars->maxPointsInt, maxNumArrivals, numTimeCodes );
 
   if( edef->isDebug() ) {
-    log->line("RAY2D: Number of input traces: %d, Number of receivers/sources: %d\n", numTraces, numReceivers );
+    writer->line("RAY2D: Number of input traces: %d, Number of receivers/sources: %d\n", numTraces, numReceivers );
   }
 
   int componentOut = 3; // 3: Z, 2: X component
@@ -1241,17 +1288,24 @@ void exec_mod_ray2d_(
           maxNumReceivers, vars->maxNumCodeSteps,
           vars->maxPointsXGrid, vars->maxPointsZGrid, maxAngles2Point,
           vars->numInterfacesAll, vars->maxPointsInt, maxNumArrivals,
-          time.getPointer(), amplitude.getPointer(), phase.getPointer(), componentOut, numTimeCodes, ccp.getPointer() );
-
+          time.getPointer(), amplitude.getPointer(), phase.getPointer(), angle.getPointer(), componentOut, numTimeCodes, ccp.getPointer() );
+  /*
+  for( int icode = 0; icode < numTimeCodes; icode++ ) {
+    for( int iarr = 0; iarr < maxNumArrivals; iarr++ ) {
+      for( int irec = 0; irec < maxNumReceivers; irec++ ) {
+        angle(irec,iarr,icode) = fmod( 360 + angle(irec,iarr,icode)*180.0/M_PI - 270, 180 );
+      }
+    }
+  } */
   if( vars->file_timeout != 0 ) {
     for( int icode = 0; icode < numTimeCodes; icode++ ) {
       for( int iarr = 0; iarr < maxNumArrivals; iarr++ ) {
-	for( int irec = 0; irec < maxNumReceivers; irec++ ) {
-	  if( time(irec,iarr,icode) != 0.0 ) {
-	    fprintf( vars->file_timeout, "%f %f %f %f  %d\n",
-		     xz_rec_sorted(irec,0), time(irec,iarr,icode), amplitude(irec,iarr,icode), phase(irec,iarr,icode), iarr );
-	  }
-	}
+        for( int irec = 0; irec < maxNumReceivers; irec++ ) {
+          if( time(irec,iarr,icode) != 0.0 ) {
+            fprintf( vars->file_timeout, "%f %f %f %f %f %d\n",
+                     xz_rec_sorted(irec,0), time(irec,iarr,icode), amplitude(irec,iarr,icode), phase(irec,iarr,icode), angle(irec,iarr,icode), iarr );
+          }
+        }
       }
     }
   }
@@ -1270,21 +1324,56 @@ void exec_mod_ray2d_(
     }
   }
 
-  log->line("Number of computed ray path arrivals: %d   (may include direct arrival path and/or secondary arrivals)", numTimeCodes);
+  writer->line("Number of computed ray path arrivals: %d   (may include direct arrival path and/or secondary arrivals)", numTimeCodes);
+
+
+  if( vars->seismogramType != mod_ray2d::SEISMOGRAM_NONE ) {
+    float dampingFactor = 0.0;
+    float phaseShift_rad = 0.0;
+    float sampleInt_s = shdr->sampleInt / 1000.0f;
+    float timeSamp1_s = 0.0;
+    for( int itrc = 0; itrc < numTraces; itrc++ ) {
+      // Make sure to match sorted time array with unsorted input tracegather
+      int sortedIndex = sortManager.sortedIndex(itrc);
+      float* samples  = traceGather->trace(sortedIndex)->getTraceSamples();
+
+      for( int icode = 0; icode < numTimeCodes; icode++ ) {
+        for( int iarr = 0; iarr < maxNumArrivals; iarr++ ) {      
+          float eventTime_s    = time(itrc,iarr,icode);
+          if( eventTime_s == 0.0 ) continue;
+          //      fprintf(stderr,"Event time: %f   %d\n", eventTime_s, iarr);
+          float eventAmplitude = 1.0f;
+          float eventPhase_rad = 0.0f;
+          if( vars->seismogramType == mod_ray2d::SEISMOGRAM_DYNAMIC ) {
+            eventPhase_rad = phase(itrc,0,icode);
+            eventAmplitude = amplitude(itrc,0,icode);
+          }
+          bool success = addRickerWavelet( vars->rickerPeakFrequency, dampingFactor, phaseShift_rad, sampleInt_s, timeSamp1_s,
+                                           eventTime_s, eventPhase_rad, eventAmplitude, samples, shdr->numSamples );
+          if( !success ) {
+            // Nothing..
+          }
+        } // for iarr
+      }
+    }
+  }
 
   for( int icode = 0; icode < numTimeCodes; icode++ ) {
     int irec = 0;
     while( irec < maxNumReceivers ) {
+     //   TEMP   if( time(irec,iarr,icode) != 0.0 ) {
       if( time(irec,0,icode) == 0.0 ) {
         float dx = 0.0;
         float dt = 0.0;
         float da = 0.0;
         float dp = 0.0;
+        float dangle = 0.0;
         if( irec > 1 ) {
           dx = xz_rec_sorted(irec-1,0) - xz_rec_sorted(irec-2,0);
           dt = time(irec-1,0,icode) - time(irec-2,0,icode);
           da = amplitude(irec-1,0,icode) - amplitude(irec-2,0,icode);
           dp = phase(irec-1,0,icode) - phase(irec-2,0,icode);
+          dangle = angle(irec-1,0,icode) - angle(irec-2,0,icode);
           float ratio = 0.0;
           if( abs(dx) > 0.00001 ) {
             ratio = (xz_rec_sorted(irec,0) - xz_rec_sorted(irec-1,0) ) / dx;
@@ -1292,6 +1381,8 @@ void exec_mod_ray2d_(
           time(irec,0,icode) = time(irec-1,0,icode) + dt*ratio;
           amplitude(irec,0,icode) = amplitude(irec-1,0,icode) + da*ratio;
           phase(irec,0,icode) = phase(irec-1,0,icode) + dp*ratio;
+
+          angle(irec,0,icode) = angle(irec-1,0,icode) + dangle*ratio;
 
           float dccpx = ccp(0,irec-1,icode) - ccp(0,irec-2,icode);
           float dccpz = ccp(1,irec-1,icode) - ccp(1,irec-2,icode);
@@ -1311,11 +1402,13 @@ void exec_mod_ray2d_(
         float dt = 0.0;
         float da = 0.0;
         float dp = 0.0;
+        float dangle = 0.0;
         if( irec < numReceivers-2 ) {
           dx = xz_rec_sorted(irec+1,0) - xz_rec_sorted(irec+2,0);
           dt = time(irec+1,0,icode) - time(irec+2,0,icode);
           da = amplitude(irec+1,0,icode) - amplitude(irec+2,0,icode);
           dp = phase(irec+1,0,icode) - phase(irec+2,0,icode);
+          dangle = angle(irec+1,0,icode) - angle(irec+2,0,icode);
           float ratio = 0.0;
           if( abs(dx) > 0.00001 ) {
             ratio = (xz_rec_sorted(irec,0) - xz_rec_sorted(irec+1,0) ) / dx;
@@ -1323,6 +1416,7 @@ void exec_mod_ray2d_(
           time(irec,0,icode) = time(irec+1,0,icode) + dt * ratio;
           amplitude(irec,0,icode) = amplitude(irec+1,0,icode) + da * ratio;
           phase(irec,0,icode) = phase(irec+1,0,icode) + dp * ratio;
+          angle(irec,0,icode) = angle(irec+1,0,icode) + dangle * ratio;
 
           float dccpx = ccp(0,irec+1,icode) - ccp(0,irec+2,icode);
           float dccpz = ccp(1,irec+1,icode) - ccp(1,irec+2,icode);
@@ -1337,37 +1431,6 @@ void exec_mod_ray2d_(
     } // END while
   }
 
-  if( vars->seismogramType != mod_ray2d::SEISMOGRAM_NONE ) {
-    float dampingFactor = 0.0;
-    float phaseShift_rad = 0.0;
-    float sampleInt_s = shdr->sampleInt / 1000.0f;
-    float timeSamp1_s = 0.0;
-    for( int itrc = 0; itrc < numTraces; itrc++ ) {
-      // Make sure to match sorted time array with unsorted input tracegather
-      int sortedIndex = sortManager.sortedIndex(itrc);
-      float* samples  = traceGather->trace(sortedIndex)->getTraceSamples();
-
-      for( int icode = 0; icode < numTimeCodes; icode++ ) {
-	for( int iarr = 0; iarr < maxNumArrivals; iarr++ ) {	  
-	  float eventTime_s    = time(itrc,iarr,icode);
-	  if( eventTime_s == 0.0 ) continue;
-	  //	  fprintf(stderr,"Event time: %f   %d\n", eventTime_s, iarr);
-	  float eventAmplitude = 1.0f;
-	  float eventPhase_rad = 0.0f;
-	  if( vars->seismogramType == mod_ray2d::SEISMOGRAM_DYNAMIC ) {
-	    eventPhase_rad = phase(itrc,0,icode);
-	    eventAmplitude = amplitude(itrc,0,icode);
-	  }
-	  bool success = addRickerWavelet( vars->rickerPeakFrequency, dampingFactor, phaseShift_rad, sampleInt_s, timeSamp1_s,
-					   eventTime_s, eventPhase_rad, eventAmplitude, samples, shdr->numSamples );
-	  if( !success ) {
-	    // Nothing..
-	  }
-	} // for iarr
-      }
-    }
-  }
-
 
   if( vars->nmoMethod != mod_ray2d::NMO_NONE ) {
     csTimeStretch timeStretch( shdr->sampleInt, shdr->numSamples, csTimeStretch::SAMPLE_INTERPOL_SINC );
@@ -1378,16 +1441,6 @@ void exec_mod_ray2d_(
     float* timesOut = new float[numTimes];
     timesIn[0]  = 0.0f;
     timesOut[0] = 0.0f;
-    /*    int indexZeroOffset = 0;
-    if( vars->nmoMethod == mod_ray2d::NMO_TIME ) {
-      for( int itrc = 0; itrc < numReceivers; itrc++ ) {
-        int tmpIndex = sortManager.sortedIndex(itrc);
-        if( tmpIndex == numTraces ) {
-	  indexZeroOffset = itrc;
-          break;
-        }
-      }
-      } */
     for( int itrc = 0; itrc < numReceivers; itrc++ ) {
       // Make sure to match sorted time array with unsorted input tracegather
       int sortedIndex = sortManager.sortedIndex(itrc);
@@ -1409,9 +1462,9 @@ void exec_mod_ray2d_(
 
       if( edef->isDebug() ) {
         for( int icode = 0; icode <= vars->numCodes; icode++ ) {
-          log->line(" NMO time IN/OUT:  %d   %.2f  %.2f   (%.2f)", icode,  timesIn[icode], timesOut[icode], time(0,0,icode)*1000.0f);
+          writer->line(" NMO time IN/OUT:  %d   %.2f  %.2f   (%.2f)", icode,  timesIn[icode], timesOut[icode], time(0,0,icode)*1000.0f);
         }
-        log->line("");
+        writer->line("");
       }
       //      float offset =  traceGather->trace(sortedIndex)->getTraceHeader()->floatValue( hdef->headerIndex("offset") );
       //  for( int icode = 0; icode <= vars->numCodes; icode++ ) {
@@ -1431,8 +1484,22 @@ void exec_mod_ray2d_(
     csTraceHeader* trcHdr = traceGather->trace(sortedIndex)->getTraceHeader();
     for( int icode = 0; icode < vars->numCodes; icode++ ) {
       trcHdr->setFloatValue( vars->hdrId_rayTime[icode], time(itrc,0,icode)*1000.0f );
+      trcHdr->setFloatValue( vars->hdrId_rayAngle[icode], angle(itrc,0,icode) );
       trcHdr->setFloatValue( vars->hdrId_ccpx[icode], ccp(0,itrc,icode)*1000.0f );
       trcHdr->setFloatValue( vars->hdrId_ccpz[icode], ccp(1,itrc,icode)*1000.0f );
+    }
+    if( vars->nmoMethod != mod_ray2d::NMO_NONE && vars->modelType == mod_ray2d::MODEL_1D ) {
+      if( vars->nmoMethod == mod_ray2d::NMO_DEPTH ) {
+        for( int icode = 0; icode < vars->numCodes; icode++ ) {
+          int maxCodeLayer = abs(vars->rayCode(0,icode));
+          for( int istep = 1; istep < vars->numCodeSteps[icode]; istep++ ) {
+            int rayCode = abs(vars->rayCode(istep,icode));
+            if( rayCode > maxCodeLayer ) maxCodeLayer = rayCode;
+          }
+          if( vars->rayCode(0,icode) < 0 && vars->numCodeSteps[icode] == 1 ) maxCodeLayer += 1; // Direct arrival
+          trcHdr->setFloatValue( vars->hdrId_rayTime[icode], vars->z_int(0,maxCodeLayer)*1000 ); // x1000 to convert from [km] to [m]
+        }
+      }
     }
   }
 }
@@ -1495,11 +1562,14 @@ void params_mod_ray2d_( csParamDef* pdef ) {
   pdef->addOption( "dynamic", "Generate seismogram including amplitude/phase correction" );
   pdef->addOption( "kinematic", "Generate seismogram with constant wavelet" );
 
-  pdef->addParam( "ray_code", "Ray code definition", NUM_VALUES_VARIABLE);
+  pdef->addParam( "ray_code", "Ray code definition", NUM_VALUES_VARIABLE, "Each ray code consists of a list of layer numbers through which the ray travels");
   pdef->addValue( "down", VALTYPE_OPTION );
   pdef->addOption( "down", "Ray travels downwards from source" );
   pdef->addOption( "up", "Ray travels upwards from source" );
-  pdef->addValue( "", VALTYPE_NUMBER, "List of ray codes defining one ray path from source to receiver" );
+  pdef->addValue( "", VALTYPE_NUMBER, "List of layer numbers defining one ray path from source to receiver, for example '1 2 2 1' for a ray traveling from the source through layer 1, then through layer 2, then reflecting back through layer 2, then through layer 1 to the receiver", "Specify negative layer numbers for S-waves" );
+
+  pdef->addParam( "plot_code_step", "If applicable: First ray code step to plot (wave fronts, rays...)", NUM_VALUES_VARIABLE, "Used for wave front plots and ray plots, if specified" );
+  pdef->addValue( "", VALTYPE_NUMBER, "List of values: For each used-defined ray code ('ray_code'), specify the first code step which shall be plotted, starting with 1 for the first code step" );
 
   pdef->addParam( "max_offset", "Define maximum source-receiver offset for 1D model", NUM_VALUES_FIXED );
   pdef->addValue( "10000", VALTYPE_NUMBER, "Maximum source-receiver offset [m] in case of 1D model" );
@@ -1522,7 +1592,7 @@ void params_mod_ray2d_( csParamDef* pdef ) {
   pdef->addValue( "", VALTYPE_NUMBER, "Vp/Vs velocity ratio, or S-wave velocity at top of layer [m/s], see user parameter 'model_type'" );
   pdef->addValue( "1.0", VALTYPE_NUMBER, "Density (=rho1)" );
   pdef->addValue( "0.0", VALTYPE_NUMBER, "Density coefficient (=rho2)", "Density is computed as  rho = rho1 + vp*rho2" );
-  pdef->addValue( "0.0", VALTYPE_NUMBER, "Optional: P-wave velocity at bottom of layer [m/s]",
+  pdef->addValue( "", VALTYPE_NUMBER, "Optional: P-wave velocity at bottom of layer [m/s]",
                   "If specified, P-wave velocity function is a vertical gradient. If not specified, layer P-wave velocity is set constant" );
 
   pdef->addParam( "dt_ray", "Ray propagation time interval", NUM_VALUES_FIXED );
@@ -1563,16 +1633,33 @@ void params_mod_ray2d_( csParamDef* pdef ) {
   pdef->addValue( "0", VALTYPE_NUMBER, "'Compound' ray flag. 1: Do not trace 'compound' rays = turning/diving waves" );
 
   pdef->addParam( "dump_rays", "Dump rays", NUM_VALUES_FIXED );
-  pdef->addValue( "0", VALTYPE_NUMBER, "Fortran output file number for rays (temporary)" );
-  pdef->addValue( "0", VALTYPE_NUMBER, "Fortran output file number for rays (final)" );
+  pdef->addValue( "0", VALTYPE_NUMBER, "Fortran output file number for rays (temporary)", "Output file will be named 'fort.<num>'" );
+  pdef->addValue( "0", VALTYPE_NUMBER, "Fortran output file number for rays (final)", "Output file will be named 'fort.<num>'" );
   pdef->addValue( "0", VALTYPE_NUMBER, "Ray step (only output evey n'th ray)" );
 
   pdef->addParam( "dump_wfronts", "Dump wave fronts", NUM_VALUES_FIXED );
-  pdef->addValue( "0", VALTYPE_NUMBER, "Fortran output file number for wave fronts" );
+  pdef->addValue( "0", VALTYPE_NUMBER, "Fortran output file number for wave fronts", "Output file will be named 'fort.<num>'" );
   pdef->addValue( "4", VALTYPE_NUMBER, "Wave front 'step' (only output every n'th wave front)" );
+
+  pdef->addParam( "dump_vel", "Dump veocity model", NUM_VALUES_FIXED );
+  pdef->addValue( "", VALTYPE_STRING, "Output file name" );
+  pdef->addValue( "0", VALTYPE_NUMBER, "Output cell interval in horizontal direction [m]" );
+  pdef->addValue( "0", VALTYPE_NUMBER, "Output cell interval in vertical direction [m]" );
+  pdef->addValue( "vp", VALTYPE_OPTION );
+  pdef->addOption( "vp", "Output Vp" );
+  pdef->addOption( "vs", "Output Vs" );
+  pdef->addOption( "int", "Output interface number" );
+  //  pdef->addOption( "vpvs", "Output Vp/Vs ratio" );
+  //  pdef->addOption( "rho", "Output density" );
 
   pdef->addParam( "dump_times", "Dump travel times", NUM_VALUES_FIXED );
   pdef->addValue( "", VALTYPE_STRING, "Filename of output ASCII file" );
+
+  pdef->addParam( "duplicate_raycodes", "Allow duplicate ray codes?", NUM_VALUES_FIXED, "If 'yes', each user-defined ray code will be ray-traced. Otherwise, ray codes contained in other (longer) ray codes will not be ray-traced again");
+  pdef->addValue( "no", VALTYPE_OPTION );
+  pdef->addOption( "no", "Do not allow duplicate ray codes" );
+  pdef->addOption( "yes", "Allow duplicate ray codes", "This is the preferred mode when applying ray-traced NMO, since only one arrival per user-defined ray code is used for NMO" );
+
 
   pdef->addDoc("This module computes travel times using a 2D isotropic, dynamic ray tracer, and applies");
   pdef->addDoc("travel time corrections to the data, equivalent to a horizon based normal moveout correction.");
@@ -1624,13 +1711,199 @@ void params_mod_ray2d_( csParamDef* pdef ) {
   pdef->addDoc("  filename test_ray2d.cseis<br></kbd>");
 }
 
+//--------------------------------------------------------------------------------
+//
+void compute_z( mod_ray2d::VariableStruct* vars, float xvalue, int intIndex, float* zout, int* pointIndex_out ) {
+  int pointIndex = 0;
+  do {
+    if( xvalue < vars->x_int(pointIndex+1,intIndex) ) break;
+    pointIndex += 1;
+  } while( pointIndex < vars->numPointsInt[intIndex]-1 );
+  pointIndex = std::min( pointIndex, vars->numPointsInt[intIndex]-2 );
+  *pointIndex_out = pointIndex;
+  float dx = xvalue - vars->x_int(pointIndex,intIndex);
+  *zout = ((vars->d_int(pointIndex,intIndex)*dx + vars->c_int(pointIndex,intIndex))*dx + vars->b_int(pointIndex,intIndex))*dx + vars->z_int(pointIndex,intIndex);
+}
+//--------------------------------------------------------------------------------
+//
+void exportVelocityModel( mod_ray2d::VariableStruct* vars, cseis_geolib::csSegyWriter* segyWriter, double dx, double dz, float xMin, float xMax, float zMin, float zMax, int velout_flag ) {
+  int nx_velout = (int)round( (xMax-xMin)/dx ) + 1;
+  int nz_velout = (int)round( (zMax-zMin)/dz ) + 1;
+
+  if( nx_velout < 2 ) {
+    nx_velout = 2;
+    dx = xMax-xMin;
+  }
+  if( nz_velout < 2 ) {
+    nz_velout = 2;
+    dz = zMax-zMin;
+  }
+
+  //  fprintf(stderr,"min/max:   X: %f %f   Z: %f %f\n", xMin, xMax, zMin, zMax);
+  //  fprintf(stderr,"nx/nz   %d %d\n", nx_velout, nz_velout);
+
+  float* samples = new float[nz_velout];
+  float* interface_depths = new float[vars->numInterfaces];
+
+  int veltype = 1;
+  if( velout_flag == mod_ray2d::VELOUT_VS ) {
+    veltype = -1;
+  }
+  //  float ptos = 2.0;
+
+  cseis_geolib::csSegyTraceHeader* segyTrcHdr = segyWriter->getTraceHeader(); 
+  int hdrId_chan = segyTrcHdr->headerIndex( cseis_geolib::HDR_CHAN.name );
+  int hdrId_recx = segyTrcHdr->headerIndex( cseis_geolib::HDR_REC_X.name );
+  int hdrId_soux = segyTrcHdr->headerIndex( cseis_geolib::HDR_SOU_X.name );
+
+  for( int ix = 0; ix < nx_velout; ix++ ) {
+    float x_output = (float)( xMin + (double)ix * dx );
+
+    segyTrcHdr->setIntValue( hdrId_chan, ix+1 );
+    segyTrcHdr->setDoubleValue( hdrId_soux, x_output*1000 ); // x1000 to convert from [km] to [m]
+    segyTrcHdr->setDoubleValue( hdrId_recx, x_output*1000 ); // x1000 to convert from [km] to [m]
+
+    for( int intIndex = 0; intIndex < vars->numInterfaces; intIndex++ ) {
+      int pointIndex;
+      compute_z( vars, x_output, intIndex, &interface_depths[intIndex], &pointIndex );
+      //      fprintf(stdout,"DEPTH %d %.4f %.4f\n", intIndex, x_output, interface_depths[intIndex]);
+    }
+
+    for( int iz = 0; iz < nz_velout; iz++ ) {
+      float z_output = (float)( zMin + (double)iz * dz );
+      
+      int intIndex = 0;
+      do {
+        if( interface_depths[intIndex] > z_output ) {
+          if( intIndex > 0 ) intIndex -= 1;
+          else break;
+        }
+        else if( interface_depths[intIndex+1] < z_output ) {
+          if( intIndex < vars->numInterfaces-2 ) intIndex += 1;
+          else break;
+        }
+        else {
+          break;
+        }
+      } while( intIndex < vars->numInterfaces-1 );
+
+      int actlayer = intIndex+1;
+      float velocity;
+      if( velout_flag == mod_ray2d::VELOUT_INT ) {
+        velocity = intIndex;
+      }
+      else {
+        velonly_( x_output, z_output, vars->nx_grid[intIndex], vars->nz_grid[intIndex],
+                  &vars->x_grid(0,intIndex), &vars->z_grid(0,intIndex), &vars->v_grid( 0, 0, 0, intIndex ),
+                  veltype, vars->vpvs_ratio[intIndex], actlayer, velocity,
+                  vars->maxPointsXGrid, vars->maxPointsZGrid );
+        //        if( velout_flag == mod_ray2d::VELOUT_VP ) {
+        // }
+        // else if( velout_flag == mod_ray2d::VELOUT_VS ) {
+        //  }
+      }
+
+      samples[iz] = velocity;
+      //      fprintf(stdout,"%7.4f %7.4f  %f   %d\n", x_output, z_output, velocity, intIndex );
+    } // END for iz
+    try {
+      segyWriter->writeNextTrace( (byte_t*)samples, nz_velout );
+    }
+    catch( csException& exc ) {
+      fprintf(stderr, "System error message: %s" ,exc.getMessage() );
+    }
+  } // END for ix
+
+  delete [] samples;
+  delete [] interface_depths;
+}
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_ray2d_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_ray2d::VariableStruct* vars = reinterpret_cast<mod_ray2d::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_ray2d_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_ray2d::VariableStruct* vars = reinterpret_cast<mod_ray2d::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->file_timeout != 0 ) {
+    fclose( vars->file_timeout );
+    vars->file_timeout = NULL;
+  }
+  if( vars->hdrId_rayTime != NULL ) {
+    delete [] vars->hdrId_rayTime;
+    vars->hdrId_rayTime = NULL;
+  }
+  if( vars->hdrId_rayAngle != NULL ) {
+    delete [] vars->hdrId_rayAngle;
+    vars->hdrId_rayAngle = NULL;
+  }
+  if( vars->hdrId_ccpx != NULL ) {
+    delete [] vars->hdrId_ccpx;
+    vars->hdrId_ccpx = NULL;
+  }
+  if( vars->hdrId_ccpz != NULL ) {
+    delete [] vars->hdrId_ccpz;
+    vars->hdrId_ccpz = NULL;
+  }
+  if( vars->numPointsInt != NULL ) {
+    delete [] vars->numPointsInt;
+    vars->numPointsInt = NULL;
+  }
+  if( vars->rho1 != NULL ) {
+    delete [] vars->rho1;
+    vars->rho1 = NULL;
+  }
+  if( vars->rho2 != NULL ) {
+    delete [] vars->rho2;
+    vars->rho2 = NULL;
+  }
+  if( vars->nx_grid != NULL ) {
+    delete [] vars->nx_grid;
+    vars->nx_grid = NULL;
+  }
+  if( vars->nz_grid != NULL ) {
+    delete [] vars->nz_grid;
+    vars->nz_grid = NULL;
+  }
+  if( vars->codeStepPlot != NULL ) {
+    delete [] vars->codeStepPlot;
+    vars->codeStepPlot = NULL;
+  }
+  if( vars->numCodeSteps != NULL ) {
+    delete [] vars->numCodeSteps;
+    vars->numCodeSteps = NULL;
+  }
+  if( vars->vpvs_ratio != NULL ) {
+    delete [] vars->vpvs_ratio;
+    vars->vpvs_ratio = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_ray2d_( csParamDef* pdef ) {
   params_mod_ray2d_( pdef );
 }
-extern "C" void _init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_ray2d_( param, env, log );
+extern "C" void _init_mod_ray2d_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_ray2d_( param, env, writer );
 }
-extern "C" void _exec_mod_ray2d_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_ray2d_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_ray2d_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_ray2d_( env, writer );
 }
-
+extern "C" void _exec_mod_ray2d_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_ray2d_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_ray2d_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_ray2d_( env, writer );
+}

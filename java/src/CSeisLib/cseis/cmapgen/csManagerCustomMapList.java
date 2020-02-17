@@ -17,7 +17,8 @@ import javax.swing.event.ListDataListener;
  * Manages custom color maps for color map generator application.
  * @author 2013 Felipe Punto
  */
-public class csManagerCustomMapList extends JList {
+@SuppressWarnings("serial")
+public class csManagerCustomMapList extends JList<csColorMapListItem> {
   private csColorMapListModel myColManagerListModel;
   
   public csManagerCustomMapList() {

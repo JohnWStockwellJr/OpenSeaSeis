@@ -39,6 +39,9 @@ void csTraceData::setData( csTraceData const* data ) {
 void csTraceData::setData( float const* samples, int nSamples ) {
   memcpy( myDataSamples, samples, std::min(nSamples,myNumSamples)*sizeof(float) );
 }
+void csTraceData::setData( char const* samples, int nSamples ) {
+  memcpy( myDataSamples, samples, std::min(nSamples,myNumSamples)*sizeof(float) );
+}
 void csTraceData::trim() {
   //  printf("---Trimmed from %d to %d samples\n", myNumAllocatedSamples, myNumSamples );
   myDoTrimOnNextCall = true;

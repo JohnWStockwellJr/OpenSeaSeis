@@ -59,7 +59,7 @@ double compute_dist_mult1_slope( double angle, double aoffset, double srcz, doub
 //
 //
 //*************************************************************************************************
-void init_mod_geotools_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_geotools_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -67,7 +67,8 @@ void init_mod_geotools_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
   
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
 //---------------------------------------------
 //
@@ -85,7 +86,7 @@ void init_mod_geotools_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
     vars->method = SEABED_LINEAR_SLOPE;
   }
   else {
-    log->error("Unknown tool method: '%s'", text.c_str() );
+    writer->error("Unknown tool method: '%s'", text.c_str() );
   }
 
   //----------------------------------------------------------------
@@ -95,7 +96,7 @@ void init_mod_geotools_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
     vars->tool = TOOL_OBC_MULT1;
   }
   else {
-    log->error("Unknown tool option: '%s'", text.c_str() );
+    writer->error("Unknown tool option: '%s'", text.c_str() );
   }
 
   param->getFloat( "velocity", &vars->velocity );
@@ -115,7 +116,7 @@ void init_mod_geotools_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
     vars->hdrType_out = hdef->headerType( text );
   }
   else {
-    log->error("Trace header does not exist: '%s'", text.c_str() );
+    writer->error("Trace header does not exist: '%s'", text.c_str() );
   }
 
   if( !hdef->headerExists( "an_inci" ) ) {
@@ -131,7 +132,7 @@ void init_mod_geotools_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
 
   param->getString( "filename", &text );
   if( (f_in = fopen( text.c_str(), "r" )) == (FILE*) NULL ) {
-    log->error("Error occurred when opening file '%s'", text.c_str() );
+    writer->error("Error occurred when opening file '%s'", text.c_str() );
   }
 
   char buffer[1024];
@@ -153,7 +154,7 @@ void init_mod_geotools_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
     valueList.clear();
     tokenize( buffer, valueList );
     if( valueList.size() < 4 ) {
-      log->error("Input file contains too few columns...");
+      writer->error("Input file contains too few columns...");
     }
     vars->stations[counterLines]  = atoi(valueList.at(0).c_str());
     vars->xvalues[counterLines]   = atof(valueList.at(1).c_str());
@@ -184,28 +185,21 @@ void init_mod_geotools_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
 //
 //
 //*************************************************************************************************
-bool exec_mod_geotools_(
-  csTrace* trace,
+void exec_mod_geotools_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
 //  csSuperHeader const* shdr = env->superHeader;
+
+  csTrace* trace = traceGather->trace(0);
 
   if( vars->stations ) {
     delete [] vars->stations;
     vars->stations = NULL;
-  }
-  if( edef->isCleanup()){
-    if( vars ) {
-      if( vars->xvalues ) delete [] vars->xvalues;
-      if( vars->yvalues ) delete [] vars->yvalues;
-      if( vars->zvalues ) delete [] vars->zvalues;
-      if( vars->stations ) delete [] vars->stations;
-      delete vars; vars = NULL;
-    }
-    return true;
   }
 
   csTraceHeader* trcHdr = trace->getTraceHeader();
@@ -248,8 +242,8 @@ bool exec_mod_geotools_(
         delta_mid   = compute_dist_mult1( angle_mid, aoffset, srcz, rcvz, &total_dist );
         
         time = (float)total_dist / vars->velocity;
-        //      log->line("angle, delta, time:  %9.5f  %9.5f  %9.5f", RAD2DEG(angle_mid), delta_mid, 1000*time );
-        //       log->line("angle, delta, time:  %9.5f  %9.5f  %9.5f", delta_left, delta_mid, delta_right );
+        //      writer->line("angle, delta, time:  %9.5f  %9.5f  %9.5f", RAD2DEG(angle_mid), delta_mid, 1000*time );
+        //       writer->line("angle, delta, time:  %9.5f  %9.5f  %9.5f", delta_left, delta_mid, delta_right );
         //   printf("angle, delta, time:  %9.5f  %9.5f  %9.5f\n", delta_left, delta_mid, delta_right );
         
         if( delta_mid*delta_left > 0.0 ) {
@@ -286,8 +280,8 @@ bool exec_mod_geotools_(
         delta_mid = compute_dist_mult1_slope( angle_mid, aoffset, srcz, rcvz, wdep_src, &total_dist, &an_inci );
         
         time = (float)total_dist / vars->velocity;
-        //      log->line("an_inci, delta, time:  %9.5f  %9.5f  %9.5f", RAD2DEG(angle_mid), delta_mid, 1000*time );
-        //       log->line("angle, delta, time:  %9.5f  %9.5f  %9.5f", delta_left, delta_mid, delta_right );
+        //      writer->line("an_inci, delta, time:  %9.5f  %9.5f  %9.5f", RAD2DEG(angle_mid), delta_mid, 1000*time );
+        //       writer->line("angle, delta, time:  %9.5f  %9.5f  %9.5f", delta_left, delta_mid, delta_right );
         //   printf("angle, delta, time:  %9.5f  %9.5f  %9.5f\n", delta_left, delta_mid, delta_right );
         
         if( delta_mid*delta_left > 0.0 ) {
@@ -302,16 +296,16 @@ bool exec_mod_geotools_(
       } while( abs(delta_mid) > vars->accuracy && counterIteration < MAX_ITERATIONS);
     }
     if( counterIteration == MAX_ITERATIONS ) {
-      log->warning("Maximum number of iterations reached!");
+      writer->warning("Maximum number of iterations reached!");
     }
-    log->line("an_inci, delta, time, iterations:  %7.3f %7.3f   %9.5f  %9.5f  %6d", RAD2DEG(an_inci), RAD2DEG(angle_mid), delta_mid, 1000*time, counterIteration );
+    writer->line("an_inci, delta, time, iterations:  %7.3f %7.3f   %9.5f  %9.5f  %6d", RAD2DEG(an_inci), RAD2DEG(angle_mid), delta_mid, 1000*time, counterIteration );
     //    printf("an_inci, delta, time, iterations:  %7.3f %7.3f   %9.5f  %9.5f  %6d\n", RAD2DEG(an_inci), RAD2DEG(angle_mid-an_inci)/2, delta_mid, 1000*time, counterIteration );
 
     trcHdr->setFloatValue( vars->hdrId_out, (float)time*1000 );
     trcHdr->setFloatValue( vars->hdrId_an_inci, (float)RAD2DEG(an_inci) );
   }
   
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -344,14 +338,49 @@ void params_mod_geotools_( csParamDef* pdef ) {
   pdef->addValue( "10.0", VALTYPE_NUMBER, "Accuracy [m]" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_geotools_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_geotools::VariableStruct* vars = reinterpret_cast<mod_geotools::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_geotools_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_geotools::VariableStruct* vars = reinterpret_cast<mod_geotools::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars ) {
+    if( vars->xvalues ) delete [] vars->xvalues;
+    if( vars->yvalues ) delete [] vars->yvalues;
+    if( vars->zvalues ) delete [] vars->zvalues;
+    if( vars->stations ) delete [] vars->stations;
+    delete vars; vars = NULL;
+  }
+}
+
 extern "C" void _params_mod_geotools_( csParamDef* pdef ) {
   params_mod_geotools_( pdef );
 }
-extern "C" void _init_mod_geotools_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_geotools_( param, env, log );
+extern "C" void _init_mod_geotools_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_geotools_( param, env, writer );
 }
-extern "C" bool _exec_mod_geotools_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_geotools_( trace, port, env, log );
+extern "C" bool _start_exec_mod_geotools_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_geotools_( env, writer );
+}
+extern "C" void _exec_mod_geotools_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_geotools_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_geotools_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_geotools_( env, writer );
 }
 
 //*************************************************************************************************

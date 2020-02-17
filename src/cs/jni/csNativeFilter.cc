@@ -23,8 +23,7 @@ using namespace std;
  */
 JNIEXPORT jlong JNICALL Java_cseis_jni_csNativeFilter_native_1createInstance
 (JNIEnv *env, jobject obj, jint numSamples_in, jfloat sampleInt_in, jfloat freqLowPass_in, jfloat slopeLowPass_in, jfloat freqHighPass_in, jfloat slopeHighPass_in ) {
-  cseis_jni::csFilterTool* filterTool =
-    new cseis_jni::csFilterTool( numSamples_in, sampleInt_in );
+  cseis_jni::csFilterTool* filterTool = new cseis_jni::csFilterTool( numSamples_in, sampleInt_in );
   filterTool->setParam( freqLowPass_in, slopeLowPass_in, freqHighPass_in, slopeHighPass_in );
   return( reinterpret_cast<jlong>( filterTool ) );
 }
@@ -38,12 +37,14 @@ JNIEXPORT void JNICALL Java_cseis_jni_csNativeFilter_native_1performFilter
 ( JNIEnv *env, jobject obj, jlong ptr_in, jfloatArray samples_in, jfloatArray samples_out ) {
   cseis_jni::csFilterTool* filterTool = reinterpret_cast<cseis_jni::csFilterTool*>(ptr_in);
 
-  float* samples_c = filterTool->retrieveSamplesPointer();
-  env->GetFloatArrayRegion( samples_in, 0, filterTool->numInputSamples(), samples_c );
+  if( filterTool->isFilter() ) {
+    float* samples_c = filterTool->retrieveSamplesPointer();
+    env->GetFloatArrayRegion( samples_in, 0, filterTool->numInputSamples(), samples_c );
 
-  filterTool->applyFilter();
+    filterTool->applyFilter();
 
-  env->SetFloatArrayRegion( samples_out, 0, filterTool->numInputSamples(), samples_c );
+    env->SetFloatArrayRegion( samples_out, 0, filterTool->numInputSamples(), samples_c );
+  }
 }
 
 /*

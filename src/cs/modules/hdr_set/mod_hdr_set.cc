@@ -32,7 +32,7 @@ using mod_hdr_set::VariableStruct;
 //
 //
 //*************************************************************************************************
-void init_mod_hdr_set_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_hdr_set_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
 //  csSuperHeader*    shdr = env->superHeader;
@@ -40,7 +40,8 @@ void init_mod_hdr_set_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
 //---------------------------------------------
 //
@@ -67,7 +68,7 @@ void init_mod_hdr_set_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
       sortTable = false;
     }
     else {
-      log->error("Unknown option: %s", text.c_str() );
+      writer->error("Unknown option: %s", text.c_str() );
     }
   }
   //-----------------------------------------------
@@ -77,7 +78,7 @@ void init_mod_hdr_set_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
   //-----------------------------------------------
   int numKeys = param->getNumLines("key");
   if( numKeys == 0 ) {
-    log->error("No table key(s) specified.");
+    writer->error("No table key(s) specified.");
   }
   vars->hdrId_keys     = new int[numKeys];
   for( int ikey = 0; ikey < numKeys; ikey++ ) {
@@ -95,12 +96,12 @@ void init_mod_hdr_set_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
         interpolate = false;
       }
       else {
-        log->error("Unknown option: %s", text.c_str() );
+        writer->error("Unknown option: %s", text.c_str() );
       }
     }
     vars->table->addKey( col-1, interpolate );  // -1 to convert from 'user' column to 'C' column
     if( !hdef->headerExists( headerName ) ) {
-      log->error("No matching trace header found for table key '%s'", headerName.c_str() );
+      writer->error("No matching trace header found for table key '%s'", headerName.c_str() );
     }
     vars->hdrId_keys[ikey] = hdef->headerIndex( headerName );
   } // END for ikey
@@ -108,10 +109,10 @@ void init_mod_hdr_set_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
   //-----------------------------------------------
   int numValues = param->getNumLines("header");
   if( numValues == 0 ) {
-    log->error("No table 'value' header specified.");
+    writer->error("No table 'value' header specified.");
   }
   if( numValues > 1 ) {
-    log->error("Only one table 'value' header is supported right now.");
+    writer->error("Only one table 'value' header is supported right now.");
   }
   for( int ival = 0; ival < numValues; ival++ ) {
     std::string headerName;
@@ -121,12 +122,12 @@ void init_mod_hdr_set_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
     vars->table->addValue( col-1 );  // -1 to convert from 'user' column to 'C' column
 
     if( !hdef->headerExists(headerName) ) {
-      log->error("Unknown trace header '%s'", headerName.c_str());
+      writer->error("Unknown trace header '%s'", headerName.c_str());
     }
     vars->hdrId   = hdef->headerIndex(headerName);
     vars->hdrType = hdef->headerType(headerName);
     if( vars->hdrType == TYPE_STRING ) {
-      log->error("String headers are not supported by this module.");
+      writer->error("String headers are not supported by this module.");
     }
     vars->tableValueIndex = ival;
   } // END for ival
@@ -137,7 +138,7 @@ void init_mod_hdr_set_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
     vars->table->initialize( text, sortTable );
   }
   catch( csException& exc ) {
-    log->error("Error when initializing input table '%s': %s\n", text.c_str(), exc.getMessage() );
+    writer->error("Error when initializing input table '%s': %s\n", text.c_str(), exc.getMessage() );
   }
 
   if( edef->isDebug() ) {
@@ -156,28 +157,19 @@ void init_mod_hdr_set_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
 //
 //
 //*************************************************************************************************
-bool exec_mod_hdr_set_(
-  csTrace* trace,
+void exec_mod_hdr_set_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
 //  csSuperHeader const* shdr = env->superHeader;
 //  csTraceHeaderDef const* hdef = env->headerDef;
 
-  if( edef->isCleanup()){
-    if( vars->table != NULL ) {
-      delete vars->table;
-      vars->table = NULL;
-    }
-    if( vars->hdrId_keys != NULL ) {
-      delete [] vars->hdrId_keys;
-      vars->hdrId_keys = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
 
   csTraceHeader* trcHdr = trace->getTraceHeader();
 
@@ -192,7 +184,7 @@ bool exec_mod_hdr_set_(
   }
   catch( csException& e ) {
     delete [] keyValueBuffer;
-    log->error("Error occurred in HDR_SET: %s", e.getMessage());
+    writer->error("Error occurred in HDR_SET: %s", e.getMessage());
     throw(e);
   }
 
@@ -211,7 +203,7 @@ bool exec_mod_hdr_set_(
 
   delete [] keyValueBuffer;
 
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -242,13 +234,49 @@ void params_mod_hdr_set_( csParamDef* pdef ) {
   pdef->addOption( "no", "Do not sort table on input. Assume input table is sorted according to its key columns" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_hdr_set_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_hdr_set::VariableStruct* vars = reinterpret_cast<mod_hdr_set::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_hdr_set_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_hdr_set::VariableStruct* vars = reinterpret_cast<mod_hdr_set::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->table != NULL ) {
+    delete vars->table;
+    vars->table = NULL;
+  }
+  if( vars->hdrId_keys != NULL ) {
+    delete [] vars->hdrId_keys;
+    vars->hdrId_keys = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_hdr_set_( csParamDef* pdef ) {
   params_mod_hdr_set_( pdef );
 }
-extern "C" void _init_mod_hdr_set_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_hdr_set_( param, env, log );
+extern "C" void _init_mod_hdr_set_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_hdr_set_( param, env, writer );
 }
-extern "C" bool _exec_mod_hdr_set_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_hdr_set_( trace, port, env, log );
+extern "C" bool _start_exec_mod_hdr_set_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_hdr_set_( env, writer );
 }
-
+extern "C" void _exec_mod_hdr_set_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_hdr_set_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_hdr_set_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_hdr_set_( env, writer );
+}

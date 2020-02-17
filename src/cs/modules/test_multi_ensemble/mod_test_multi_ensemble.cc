@@ -27,7 +27,7 @@ using mod_test_multi_ensemble::VariableStruct;
 //
 //
 //*************************************************************************************************
-void init_mod_test_multi_ensemble_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_test_multi_ensemble_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   csTraceHeaderDef* hdef = env->headerDef;
@@ -43,40 +43,39 @@ void init_mod_test_multi_ensemble_( csParamManager* param, csInitPhaseEnv* env, 
   vars->hdrId_bias      = -1;
   vars->gather          = NULL;
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
   edef->setTraceSelectionMode( TRCMODE_ENSEMBLE );
 
   if( param->exists("repeat") ) {
     param->getInt("repeat", &vars->repeat );
     if( vars->repeat < 0 ) {
-      log->error("Incorrect entry for number of times to repeat proessing: %d", vars->repeat);
+      writer->error("Incorrect entry for number of times to repeat proessing: %d", vars->repeat);
     }
   }
   if( param->exists("ntraces_roll") ) {
     param->getInt("ntraces_roll", &vars->numTracesToRoll );
     if( vars->numTracesToRoll < 0 ) {
-      log->error("Incorrect entry for number of traces to roll: %d", vars->numTracesToRoll);
+      writer->error("Incorrect entry for number of traces to roll: %d", vars->numTracesToRoll);
     }
     vars->gather = new cseis_system::csTraceGather();
   }
   if( param->exists("skip") ) {
     param->getInt("skip", &vars->skip );
     if( vars->skip < 0 ) {
-      log->error("Incorrect entry for number of times to skip: %d", vars->skip);
+      writer->error("Incorrect entry for number of times to skip: %d", vars->skip);
     }
   }
   if( param->exists("ntraces_add") ) {
     param->getInt("ntraces_add", &vars->numTracesToAdd );
     if( vars->numTracesToAdd <= 0 ) {
-      log->error("Incorrect entry for number of traces to add: %d", vars->numTracesToAdd);
+      writer->error("Incorrect entry for number of traces to add: %d", vars->numTracesToAdd);
     }
   }
 
   if( vars->numTracesToAdd != 0 && vars->numTracesToRoll != 0 ) {
-    log->error("Cannot add and roll traces at the same time... Specify one at a time");
+    writer->error("Cannot add and roll traces at the same time... Specify one at a time");
   }
   if( vars->skip != 0 && vars->repeat != 0 ) {
-    log->error("Cannot skip and repeat at the same time... Specify one at a time");
+    writer->error("Cannot skip and repeat at the same time... Specify one at a time");
   }
 
   if( !hdef->headerExists("dc") ) {
@@ -99,21 +98,13 @@ void exec_mod_test_multi_ensemble_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
   csTraceHeaderDef const* hdef = env->headerDef;
 
-  if( edef->isCleanup()){
-    if( vars->gather != NULL ) {
-      delete vars->gather;
-      vars->gather = NULL;
-    }
-    delete vars; vars = NULL;
-    return;
-  }
 
   int numTracesIn = traceGather->numTraces();
   int numTracesOut;
@@ -129,7 +120,7 @@ void exec_mod_test_multi_ensemble_(
 
   vars->callCounter += 1;
   if( edef->isDebug() ) {
-    log->line("Number of input traces: %d, last call: %d, callCounter: %d (repeat %d, roll %d)", numTracesIn, edef->isLastCall(), vars->callCounter, vars->repeat, vars->numTracesToRoll);
+    writer->line("Number of input traces: %d, last call: %d, callCounter: %d (repeat %d, roll %d)", numTracesIn, edef->isLastCall(), vars->callCounter, vars->repeat, vars->numTracesToRoll);
     fprintf(stdout,"Number of input traces: %d, last call: %d, callCounter: %d (repeat %d, roll %d)\n", numTracesIn, edef->isLastCall(), vars->callCounter, vars->repeat, vars->numTracesToRoll );
   }
 
@@ -142,7 +133,7 @@ void exec_mod_test_multi_ensemble_(
       }
     }
     mean /= numTracesIn*shdr->numSamples;
-    if( edef->isDebug() ) log->line("Mean amplitude: %f", mean);
+    if( edef->isDebug() ) writer->line("Mean amplitude: %f", mean);
     for( int itrc = 0; itrc < numTracesOut; itrc++ ) {
       traceGather->trace(itrc)->getTraceHeader()->setFloatValue( vars->hdrId_bias, mean );
       float* samples = traceGather->trace(itrc)->getTraceSamples();
@@ -200,13 +191,45 @@ void params_mod_test_multi_ensemble_( csParamDef* pdef ) {
   pdef->addValue( "0", VALTYPE_NUMBER, "Number of times to repeat each processing" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_test_multi_ensemble_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_test_multi_ensemble::VariableStruct* vars = reinterpret_cast<mod_test_multi_ensemble::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_test_multi_ensemble_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_test_multi_ensemble::VariableStruct* vars = reinterpret_cast<mod_test_multi_ensemble::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->gather != NULL ) {
+    delete vars->gather;
+    vars->gather = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_test_multi_ensemble_( csParamDef* pdef ) {
   params_mod_test_multi_ensemble_( pdef );
 }
-extern "C" void _init_mod_test_multi_ensemble_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_test_multi_ensemble_( param, env, log );
+extern "C" void _init_mod_test_multi_ensemble_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_test_multi_ensemble_( param, env, writer );
 }
-extern "C" void _exec_mod_test_multi_ensemble_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_test_multi_ensemble_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_test_multi_ensemble_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_test_multi_ensemble_( env, writer );
 }
-
+extern "C" void _exec_mod_test_multi_ensemble_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_test_multi_ensemble_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_test_multi_ensemble_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_test_multi_ensemble_( env, writer );
+}

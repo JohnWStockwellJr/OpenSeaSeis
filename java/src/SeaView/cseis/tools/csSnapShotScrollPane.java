@@ -13,6 +13,7 @@ import java.awt.image.*;
  * Contains csSnapShotPanel.
  * @author 2011 Bjorn Olofsson
  */
+@SuppressWarnings("serial")
 public class csSnapShotScrollPane extends JScrollPane {
   private int myTotalWidth  = 120;
   private int myTotalHeight = 120;

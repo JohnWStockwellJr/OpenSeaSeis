@@ -179,7 +179,8 @@ public class csCurveAttributes {
   /**
    * JPanel providing functionality to set curve attributes
    */
-  protected class CurveAttrPanel extends JPanel {
+  @SuppressWarnings("serial")
+protected class CurveAttrPanel extends JPanel {
     private JComboBox<String> myComboPointType;
     private JComboBox<String> myComboLineType;
     private JComboBox<String> myComboFillType;
@@ -193,9 +194,9 @@ public class csCurveAttributes {
 
     CurveAttrPanel() {
       super( new GridBagLayout() );
-      myComboPointType = new JComboBox<>(TEXT_POINT_TYPES);
-      myComboLineType  = new JComboBox<>(TEXT_LINE_TYPES);
-      myComboFillType  = new JComboBox<>(TEXT_FILL_TYPES);
+      myComboPointType = new JComboBox<String>(TEXT_POINT_TYPES);
+      myComboLineType  = new JComboBox<String>(TEXT_LINE_TYPES);
+      myComboFillType  = new JComboBox<String>(TEXT_FILL_TYPES);
       myComboPointType.setSelectedIndex( pointType );
       myComboLineType.setSelectedIndex( lineType );
       myComboFillType.setSelectedIndex( filledType );

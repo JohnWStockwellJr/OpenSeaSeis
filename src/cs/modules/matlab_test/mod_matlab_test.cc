@@ -36,14 +36,15 @@ using mod_matlab_test::VariableStruct;
 //
 //
 //*************************************************************************************************
-void init_mod_matlab_test_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_matlab_test_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   csSuperHeader*  shdr   = env->superHeader;
   VariableStruct* vars   = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
 #ifdef PLATFORM_LINUX
   vars->matlab_data_in  = NULL;
@@ -54,22 +55,22 @@ void init_mod_matlab_test_( csParamManager* param, csInitPhaseEnv* env, csLogWri
   //  param->getString("method_name", &vars->method_name);
   
 
-  log->line(" Start up Matlab Runtime Environment...");
+  writer->line(" Start up Matlab Runtime Environment...");
   fprintf(stdout," Start up Matlab Runtime Environment...\n");
   csTimer timer;
   timer.start();
   // Initialize Matlab Compiler Runtime (MCR) Environment
   mclmcrInitialize();
 
-  log->line(" Time taken for Matlab startup (Runtime Environment):   %12.6fs\n", timer.getElapsedTime() );
+  writer->line(" Time taken for Matlab startup (Runtime Environment):   %12.6fs\n", timer.getElapsedTime() );
   fprintf(stdout," Time taken for Matlab startup (Runtime Environment):   %12.6fs\n", timer.getElapsedTime() );
 
   // Initialize linked Matlab method...
   if( !libmatlabTestInitialize() ) {
-    log->error("Could not initialize Matlab library.");
+    writer->error("Could not initialize Matlab library.");
   }
 
-  log->line(" Time taken for Matlab startup (Runtime + Module Init): %12.6fs\n", timer.getElapsedTime() );
+  writer->line(" Time taken for Matlab startup (Runtime + Module Init): %12.6fs\n", timer.getElapsedTime() );
   fprintf(stdout," Time taken for Matlab startup (Runtime + Module Init): %12.6fs\n", timer.getElapsedTime() );
 
   // Create Matlab objects
@@ -78,7 +79,7 @@ void init_mod_matlab_test_( csParamManager* param, csInitPhaseEnv* env, csLogWri
 #endif
 
 #ifdef PLATFORM_WINDOWS
-  log->error("Matlab test module only available on Linux platform");
+  writer->error("Matlab test module only available on Linux platform");
 #endif
 
 }
@@ -89,29 +90,20 @@ void init_mod_matlab_test_( csParamManager* param, csInitPhaseEnv* env, csLogWri
 //
 //
 //*************************************************************************************************
-bool exec_mod_matlab_test_(
-  csTrace* trace,
+void exec_mod_matlab_test_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
 
+  csTrace* trace = traceGather->trace(0);
+
 #ifdef PLATFORM_LINUX
-  if( edef->isCleanup()){
-    if( vars->matlab_data_in != NULL ) {
-      mxDestroyArray( vars->matlab_data_in );
-      vars->matlab_data_in = NULL;
-    }
-    if( vars->matlab_data_out != NULL ) {
-      mxDestroyArray( vars->matlab_data_out );
-      vars->matlab_data_out = NULL;
-    }
-    mclTerminateApplication();
-    delete vars; vars = NULL;
-    return true;
-  }
 
   float* samples = trace->getTraceSamples();
   int numSamples = shdr->numSamples;
@@ -121,7 +113,7 @@ bool exec_mod_matlab_test_(
   memcpy( samples, mxGetData(vars->matlab_data_out), numSamples*sizeof(float) );
 #endif
 
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -137,13 +129,50 @@ void params_mod_matlab_test_( csParamDef* pdef ) {
 
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_matlab_test_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_matlab_test::VariableStruct* vars = reinterpret_cast<mod_matlab_test::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_matlab_test_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_matlab_test::VariableStruct* vars = reinterpret_cast<mod_matlab_test::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->matlab_data_in != NULL ) {
+    mxDestroyArray( vars->matlab_data_in );
+    vars->matlab_data_in = NULL;
+  }
+  if( vars->matlab_data_out != NULL ) {
+    mxDestroyArray( vars->matlab_data_out );
+    vars->matlab_data_out = NULL;
+  }
+  mclTerminateApplication();
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_matlab_test_( csParamDef* pdef ) {
   params_mod_matlab_test_( pdef );
 }
-extern "C" void _init_mod_matlab_test_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_matlab_test_( param, env, log );
+extern "C" void _init_mod_matlab_test_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_matlab_test_( param, env, writer );
 }
-extern "C" bool _exec_mod_matlab_test_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_matlab_test_( trace, port, env, log );
+extern "C" bool _start_exec_mod_matlab_test_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_matlab_test_( env, writer );
 }
-
+extern "C" void _exec_mod_matlab_test_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_matlab_test_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_matlab_test_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_matlab_test_( env, writer );
+}

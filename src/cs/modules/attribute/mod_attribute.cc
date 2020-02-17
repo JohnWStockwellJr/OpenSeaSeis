@@ -5,6 +5,7 @@
 #include "geolib_methods.h"
 #include "csTableNew.h"
 #include "csTableValueList.h"
+#include "csGeolibUtils.h"
 #include <cmath>
 
 using namespace cseis_system;
@@ -27,6 +28,8 @@ namespace mod_attribute {
     int rmsWinStepSample;
     int hdrID_attr1;
     int hdrID_attr2;
+    cseis_geolib::type_t type_attr1;
+    cseis_geolib::type_t type_attr2;
     float* buffer;
     bool interpolate;
 
@@ -40,6 +43,7 @@ namespace mod_attribute {
   static int const METHOD_RMS_MAXIMUM = 3;
   static int const METHOD_ZRUNS = 4;
   static int const METHOD_HORIZON = 5;
+  static int const METHOD_AMPLITUDE = 6;
 }
 using mod_attribute::VariableStruct;
 
@@ -49,18 +53,21 @@ using mod_attribute::VariableStruct;
 //
 //
 //*************************************************************************************************
-void init_mod_attribute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_attribute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   csSuperHeader*    shdr = env->superHeader;
   csTraceHeaderDef* hdef = env->headerDef;
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
   vars->method      = mod_attribute::METHOD_NONE;
   vars->hdrID_attr1 = -1;
   vars->hdrID_attr2 = -1;
+  vars->type_attr1 = cseis_geolib::TYPE_DOUBLE;
+  vars->type_attr2 = cseis_geolib::TYPE_DOUBLE;
   vars->startSample = 0;
   vars->endSample   = shdr->numSamples-1;
   vars->buffer = NULL;
@@ -90,8 +97,11 @@ void init_mod_attribute_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
     else if( !text.compare( "horizon" ) ) {
       vars->method = mod_attribute::METHOD_HORIZON;
     }
+    else if( !text.compare( "amplitude" ) ) {
+      vars->method = mod_attribute::METHOD_AMPLITUDE;
+    }
     else {
-      log->line("Unknown argument for user parameter 'method': '%s'.", text.c_str());
+      writer->line("Unknown argument for user parameter 'method': '%s'.", text.c_str());
       env->addError();
     }
   }
@@ -102,7 +112,7 @@ void init_mod_attribute_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
 
     int numKeys = param->getNumLines("table_key");
     if( numKeys == 0 ) {
-      log->error("No table key(s) specified.");
+      writer->error("No table key(s) specified.");
     }
     vars->hdrId_keys  = new int[numKeys];
     for( int ikey = 0; ikey < numKeys; ikey++ ) {
@@ -112,20 +122,20 @@ void init_mod_attribute_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
       param->getStringAtLine( "table_key", &headerName, ikey, 0 );
       param->getIntAtLine( "table_key", &col, ikey, 1 );
       if( param->getNumValues( "table_key", ikey ) > 2 ) {
-	param->getStringAtLine( "table_key", &text, ikey, 2 );
-	if( !text.compare("yes") ) {
-	  interpolate = true;
-	}
-	else if( !text.compare("no") ) {
-	  interpolate = false;
-	}
-	else {
-	  log->error("Unknown option: %s", text.c_str() );
-	}
+        param->getStringAtLine( "table_key", &text, ikey, 2 );
+        if( !text.compare("yes") ) {
+          interpolate = true;
+        }
+        else if( !text.compare("no") ) {
+          interpolate = false;
+        }
+        else {
+          writer->error("Unknown option: %s", text.c_str() );
+        }
       }
       vars->table->addKey( col-1, interpolate );  // -1 to convert from 'user' column to 'C' column
       if( !hdef->headerExists( headerName ) ) {
-	log->error("No matching trace header found for table key '%s'", headerName.c_str() );
+        writer->error("No matching trace header found for table key '%s'", headerName.c_str() );
       }
       vars->hdrId_keys[ikey] = hdef->headerIndex( headerName );
     } // END for ikey
@@ -141,7 +151,7 @@ void init_mod_attribute_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
       vars->table->initialize( text, sortTable );
     }
     catch( csException& exc ) {
-      log->error("Error when initializing input table '%s': %s\n", text.c_str(), exc.getMessage() );
+      writer->error("Error when initializing input table '%s': %s\n", text.c_str(), exc.getMessage() );
     }
   }
 
@@ -157,7 +167,7 @@ void init_mod_attribute_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
       vars->interpolate = false;
     }
     else {
-      log->line("Unknown option: '%s'.", text.c_str());
+      writer->line("Unknown option: '%s'.", text.c_str());
       env->addError();
     }
   }
@@ -184,26 +194,60 @@ void init_mod_attribute_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
     vars->rmsWinWidthSample = (int)( width / shdr->sampleInt + 0.5 );
     vars->rmsWinStepSample  = (int)( inc / shdr->sampleInt + 0.5 );
     if( vars->rmsWinWidthSample >= widthFull ) {
-      log->warning("Specified window is shorter than specified time window");
+      writer->warning("Specified window is shorter than specified time window");
       vars->rmsWinWidthSample = widthFull-1;
     }
     if( vars->rmsWinStepSample > vars->rmsWinWidthSample ) vars->rmsWinStepSample = vars->rmsWinWidthSample;
     if( vars->rmsWinStepSample <= 0 ) vars->rmsWinStepSample = 1;
     vars->endSample = (int)((widthFull - vars->rmsWinWidthSample) / vars->rmsWinStepSample ) * vars->rmsWinStepSample + vars->startSample;
     if( edef->isDebug() ) {
-      log->line(" Start/end sample of analysis: %d / %d, RMS window width/increment: %d / %d, Total numSamples: %d",
+      writer->line(" Start/end sample of analysis: %d / %d, RMS window width/increment: %d / %d, Total numSamples: %d",
         vars->startSample, vars->endSample, vars->rmsWinWidthSample, vars->rmsWinStepSample, shdr->numSamples );
     }
   }
 
-  if( !hdef->headerExists("attr1") ) {
-    hdef->addHeader(TYPE_DOUBLE,"attr1");
+  std::string headerName_attr1("attr1");
+  vars->type_attr1 = cseis_geolib::TYPE_DOUBLE;
+  if( param->exists("hdr_attr1") ) {
+    param->getString("hdr_attr1", &headerName_attr1, 0);
+    if( param->getNumValues("hdr_attr1") > 1 ) {
+      param->getString("hdr_attr1", &text, 1);
+      vars->type_attr1 = csGeolibUtils::text2Type( text );
+    }
   }
-  if( !hdef->headerExists("attr2") ) {
-    hdef->addHeader(TYPE_DOUBLE,"attr2");
+  std::string headerName_attr2("attr2");
+  vars->type_attr2 = cseis_geolib::TYPE_DOUBLE;
+  if( param->exists("hdr_attr2") ) {
+    param->getString("hdr_attr2", &headerName_attr2, 0);
+    if( param->getNumValues("hdr_attr2") > 1 ) {
+      param->getString("hdr_attr2", &text, 1);
+      vars->type_attr2 = csGeolibUtils::text2Type( text );
+    }
   }
-  vars->hdrID_attr1 = hdef->headerIndex("attr1");
-  vars->hdrID_attr2 = hdef->headerIndex("attr2");
+
+  if( !hdef->headerExists( headerName_attr1 ) ) {
+    hdef->addHeader( vars->type_attr1, headerName_attr1, "Attribute 1" );
+  }
+  else {
+    vars->type_attr1 = hdef->headerType(headerName_attr1);
+  }
+  if( vars->type_attr1 != cseis_geolib::TYPE_INT && vars->type_attr1 != cseis_geolib::TYPE_INT64 &&
+      vars->type_attr1 != cseis_geolib::TYPE_FLOAT && vars->type_attr1 != cseis_geolib::TYPE_DOUBLE ) {
+    writer->error("Attribute 1 (%s): Supported types are 'float', 'double', 'int' and 'int64'", headerName_attr1.c_str() );
+  }
+  if( !hdef->headerExists( headerName_attr2 ) ) {
+    hdef->addHeader( vars->type_attr2, headerName_attr2, "Attribute 2" );
+  }
+  else {
+    vars->type_attr2 = hdef->headerType(headerName_attr2);
+  }
+  if( vars->type_attr2 != cseis_geolib::TYPE_INT && vars->type_attr2 != cseis_geolib::TYPE_INT64 &&
+      vars->type_attr2 != cseis_geolib::TYPE_FLOAT && vars->type_attr2 != cseis_geolib::TYPE_DOUBLE ) {
+    writer->error("Attribute 2 (%s): Supported types are 'float', 'double', 'int' and 'int64'", headerName_attr2.c_str() );
+  }
+
+  vars->hdrID_attr1 = hdef->headerIndex( headerName_attr1 );
+  vars->hdrID_attr2 = hdef->headerIndex( headerName_attr2 );
 
   vars->buffer = new float[5];
 }
@@ -214,31 +258,18 @@ void init_mod_attribute_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
 //
 //
 //*************************************************************************************************
-bool exec_mod_attribute_(
-  csTrace* trace,
+void exec_mod_attribute_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup() ) {
-    if( vars->buffer != NULL ) {
-      delete [] vars->buffer;
-      vars->buffer = NULL;
-    }
-    if( vars->table != NULL ) {
-      delete vars->table;
-      vars->table = NULL;
-    }
-    if( vars->hdrId_keys != NULL ) {
-      delete [] vars->hdrId_keys;
-      vars->hdrId_keys = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
 
   float* samples = trace->getTraceSamples();
   csTraceHeader* trcHdr = trace->getTraceHeader();
@@ -266,7 +297,7 @@ bool exec_mod_attribute_(
       }
       float sampleIndex;
       float maxAmplitude;
-    	sampleIndex = getQuadMaxSample( vars->buffer, sampMinNew, 5, &maxAmplitude );
+        sampleIndex = getQuadMaxSample( vars->buffer, sampMinNew, 5, &maxAmplitude );
       attr1 = -maxAmplitude;
       attr2 = (sampleIndex+start)*shdr->sampleInt;
     }
@@ -292,6 +323,10 @@ bool exec_mod_attribute_(
       attr1 = maxAmplitude;
       attr2 = sampleIndex*shdr->sampleInt;
     }
+  }
+  else if( vars->method == mod_attribute::METHOD_AMPLITUDE ) {
+    attr1 = samples[vars->startSample];
+    attr2 = samples[vars->endSample];
   }
   //--------------------------------------------------------------
   else if( vars->method == mod_attribute::METHOD_RMS_MAXIMUM ) {
@@ -335,7 +370,7 @@ bool exec_mod_attribute_(
     }
     catch( csException& e ) {
       delete [] keyValueBuffer;
-      log->error("Error occurred in INSERT_DATA: %s", e.getMessage());
+      writer->error("Error occurred in INSERT_DATA: %s", e.getMessage());
       throw(e);
     }
     delete [] keyValueBuffer;
@@ -360,7 +395,7 @@ bool exec_mod_attribute_(
   trace->getTraceHeader()->setDoubleValue( vars->hdrID_attr2, sampleIndex*shdr->sampleInt );
 */
 
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -378,6 +413,7 @@ void params_mod_attribute_( csParamDef* pdef ) {
   pdef->addOption( "max_rms", "Extract maximum RMS from data. Store maximum RMS amplitude (attr1) and time/frequency (attr2).", "RMS is computed over sliding window, given by user parameter 'rms'" );
   pdef->addOption( "zruns", "Count how many adjacent samples have the same sample value." );
   pdef->addOption( "horizon", "Extract amplitude at horizon time.", "Specify input horizon in user parameter 'table'" );
+  pdef->addOption( "amplitude", "Extract amplitude at two constant times (at window start and end time)" );
 
   pdef->addParam( "window", "Computation window", NUM_VALUES_FIXED );
   pdef->addValue( "", VALTYPE_NUMBER, "Start time/frequency [ms] or [Hz]" );
@@ -404,14 +440,71 @@ void params_mod_attribute_( csParamDef* pdef ) {
 
   pdef->addParam( "table_time", "Table column containing seismic time (or depth, frequency..)", NUM_VALUES_FIXED );
   pdef->addValue( "", VALTYPE_NUMBER, "Column number in input table containing vertical dimension value" );
+
+  pdef->addParam( "hdr_attr1", "Name of trace header where first attribute shall be stored", NUM_VALUES_VARIABLE, "...may be new or existing trace header" );
+  pdef->addValue( "attr1", VALTYPE_STRING );
+  pdef->addValue( "double", VALTYPE_OPTION, "Trace header type" );
+  pdef->addOption( "int", "Integer, 4 byte integer type" );
+  pdef->addOption( "int64", "Integer, 8 byte integer type" );
+  pdef->addOption( "float", "Float, 4 byte floating point type" );
+  pdef->addOption( "double", "Double, 8 byte floating point type" );
+
+  pdef->addParam( "hdr_attr2", "Name of trace header where second attribute shall be stored (if applicable)", NUM_VALUES_VARIABLE, "...may be new or existing trace header" );
+  pdef->addValue( "attr2", VALTYPE_STRING );
+  pdef->addValue( "double", VALTYPE_OPTION, "Trace header type" );
+  pdef->addOption( "int", "Integer, 4 byte integer type" );
+  pdef->addOption( "int64", "Integer, 8 byte integer type" );
+  pdef->addOption( "float", "Float, 4 byte floating point type" );
+  pdef->addOption( "double", "Double, 8 byte floating point type" );
+}
+
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_attribute_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_attribute::VariableStruct* vars = reinterpret_cast<mod_attribute::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_attribute_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_attribute::VariableStruct* vars = reinterpret_cast<mod_attribute::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->buffer != NULL ) {
+    delete [] vars->buffer;
+    vars->buffer = NULL;
+  }
+  if( vars->table != NULL ) {
+    delete vars->table;
+    vars->table = NULL;
+  }
+  if( vars->hdrId_keys != NULL ) {
+    delete [] vars->hdrId_keys;
+    vars->hdrId_keys = NULL;
+  }
+  delete vars; vars = NULL;
 }
 
 extern "C" void _params_mod_attribute_( csParamDef* pdef ) {
   params_mod_attribute_( pdef );
 }
-extern "C" void _init_mod_attribute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_attribute_( param, env, log );
+extern "C" void _init_mod_attribute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_attribute_( param, env, writer );
 }
-extern "C" bool _exec_mod_attribute_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_attribute_( trace, port, env, log );
+extern "C" bool _start_exec_mod_attribute_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_attribute_( env, writer );
+}
+extern "C" void _exec_mod_attribute_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_attribute_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_attribute_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_attribute_( env, writer );
 }

@@ -86,6 +86,8 @@ private:
   cseis_geolib::csSelection* mySelection;
   /// Temporary field used to store the trace header values of the current trace
   cseis_geolib::csFlexNumber* myValues;
+  ///
+  std::string myStringSelectionText;
 };
 
 } // namespace

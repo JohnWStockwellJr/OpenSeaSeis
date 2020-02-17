@@ -20,6 +20,7 @@ import cseis.general.csStandard;
  * 
  * @author 2013 Felipe Punto
  */
+@SuppressWarnings("serial")
 public class csExportImageDialog extends JDialog {
   private JTextField myTextPixelWidth;
   private JTextField myTextPixelHeight;

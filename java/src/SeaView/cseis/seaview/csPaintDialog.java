@@ -15,14 +15,15 @@ import java.awt.event.ActionListener;
 /**
  * Dialog window providing painting functionality in seismic view.<br>
  */
+@SuppressWarnings("serial")
 public class csPaintDialog extends JDialog {
   final static public Integer[] SIZES_LINES  = { 2, 3, 4, 5, 6, 7, 8, 9, 10 };
   final static public Integer[] SIZES_POINTS = { 3, 5, 7, 9, 11, 13, 15, 17 };
 
   final private csColorButton myColorButtonLine;
   final private csColorButton myColorButtonPoint;
-  final private JComboBox myComboLineSize;
-  final private JComboBox myComboPointSize;
+  final private JComboBox<Integer> myComboLineSize;
+  final private JComboBox<Integer> myComboPointSize;
   final private JButton myButtonClose;
   final private JButton myButtonClear;
 
@@ -37,8 +38,8 @@ public class csPaintDialog extends JDialog {
     myColorButtonLine  = new csColorButton( this, Color.red );
     myButtonClose = new JButton("Close");
     myButtonClear = new JButton("Clear");
-    myComboLineSize = new JComboBox( SIZES_LINES );
-    myComboPointSize  = new JComboBox( SIZES_POINTS );
+    myComboLineSize = new JComboBox<Integer>( SIZES_LINES );
+    myComboPointSize  = new JComboBox<Integer>( SIZES_POINTS );
     myComboLineSize.setSelectedIndex( 4 );
     myComboPointSize.setSelectedIndex( 4 );
     

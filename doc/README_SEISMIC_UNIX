@@ -1,5 +1,5 @@
 
-   *** SEASEIS V2.03 ***
+   *** SEASEIS V3.00 ***
 
 ADDITIONAL NOTES REGARDING SEISMIC UNIX (version 4.3R3)
 
@@ -62,17 +62,17 @@ $SU
 
  HOW TO ADD MORE SU MODULES TO SEASEIS
 
-Only some SU modules have been converted to Seaseis so far, see seaseis_v2.03/src/cs/su/su_modules.txt
+Only some SU modules have been converted to Seaseis so far, see seaseis_v3.00/src/cs/su/su_modules.txt
 To convert more modules, follow these instructions:
 
 1) Build helper programs
 Build the two helper programs
   helper_convert_su_c2cpp.cc, and 
   helper_create_su_make_include.cc
-These are located in directory seaseis_v2.03/src/cs/su/
+These are located in directory seaseis_v3.00/src/cs/su/
 To build, use the following commands:
 
-export SRCDIR=<your_seaseis_src_path>/seaseis_v2.03
+export SRCDIR=<your_seaseis_src_path>/seaseis_v3.00
 export LIBDIR=<your_seaseis_lib_path>/lib
 cd $SRCDIR/src/cs/su
 g++ helper_convert_su_c2cpp.cc -o helper_convert_su_c2cpp -I../geolib -Wl,-rpath,${LIBDIR} -L${LIBDIR} -lgeolib

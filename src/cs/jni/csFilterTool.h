@@ -1,3 +1,6 @@
+/* Copyright (c) Colorado School of Mines, 2013.*/
+/* All rights reserved.                       */
+
 #ifndef CS_FILTER_TOOL_H
 #define CS_FILTER_TOOL_H
 
@@ -12,15 +15,17 @@ class csFilterTool : public cseis_geolib::csFFTTools {
   void setParam( float freqLowPass, float slopeLowPass, float freqHighPass, float slopeHighPass );
   float* retrieveSamplesPointer();
   void applyFilter();
+  bool isFilter() const;
  private:
-  csFilterTool( int numSamples );
   csFilterTool( int numSamplesIn, int numSamplesOut, float sampleIntIn, float sampleIntOut );
 
   float* mySamples;
-  float myFreqHighPass;
+  bool myIsFilter;
+  /*  float myFreqHighPass;
   float myFreqLowPass;
   float myOrderLowPass;
   float myOrderHighPass;
+  */
 };
 
 } // END namespace

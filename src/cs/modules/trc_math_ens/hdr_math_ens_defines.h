@@ -23,7 +23,7 @@ namespace mod_trc_math_ens {
     int numAllTraces() const {
       int ntraces = 0;
       for( int i = 0; i < myNumEnsCurrent; i++ ) {
-	ntraces += myNumTraces[i];
+        ntraces += myNumTraces[i];
       }
       return ntraces;
     }
@@ -31,8 +31,8 @@ namespace mod_trc_math_ens {
     int addEns( int numTraces, double ensValue ) {
       //      fprintf(stdout,"Ensemble: %d (max: %d)  %f\n", myNumEnsCurrent, myNumEnsMax, ensValue);
       if( myNumEnsCurrent == myNumEnsMax ) {
-	fprintf(stdout,"Incorrect ensemble: %d (max: %d)  %f\n", myNumEnsCurrent, myNumEnsMax, ensValue);
-	exit(-1);
+        fprintf(stdout,"Incorrect ensemble: %d (max: %d)  %f\n", myNumEnsCurrent, myNumEnsMax, ensValue);
+        exit(-1);
       }
       myNumTraces[myNumEnsCurrent] = numTraces;
       myEnsValues[myNumEnsCurrent] = ensValue;
@@ -43,8 +43,8 @@ namespace mod_trc_math_ens {
       if( myNumEnsCurrent == 0 ) return 0;
       int ntraces = myNumTraces[0];
       for( int i = 1; i < myNumEnsCurrent; i++ ) {
-	myNumTraces[i-1] = myNumTraces[i];
-	myEnsValues[i-1] = myEnsValues[i];
+        myNumTraces[i-1] = myNumTraces[i];
+        myEnsValues[i-1] = myEnsValues[i];
       }
       myNumEnsCurrent -= 1;
       return ntraces;

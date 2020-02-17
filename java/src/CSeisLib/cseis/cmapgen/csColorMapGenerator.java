@@ -69,6 +69,7 @@ import javax.swing.event.ListSelectionListener;
  * may be loaded from and stored to an external ASCII file.
  * @author 2013 Felipe Punto
  */
+@SuppressWarnings("serial")
 public class csColorMapGenerator extends JFrame implements ChangeListener {
   public static double POSITION_INCREMENT = 0.01;
   private JPanel myPanelEditor;
@@ -107,7 +108,7 @@ public class csColorMapGenerator extends JFrame implements ChangeListener {
   private JCheckBox myBoxManagerDefault;
   private JButton myButtonSelectCustom;
   private JButton myButtonSelectDefault;
-  private JComboBox myComboDefaultMaps;
+  private JComboBox<csColorMapListItem> myComboDefaultMaps;
   private boolean myUpdatesWaiting = false;
   
   private ArrayList<csIColorMapGeneratorListener> myListeners;
@@ -130,7 +131,7 @@ public class csColorMapGenerator extends JFrame implements ChangeListener {
     myButtonCreate.setToolTipText("Create new custom color map");
     this.getRootPane().setDefaultButton(myButtonTestApply);
 
-    myComboDefaultMaps = new JComboBox();
+    myComboDefaultMaps = new JComboBox<csColorMapListItem>();
     myComboDefaultMaps.setRenderer( new csComboColorMapRenderer() );
     for( int imap = 0; imap < csColorMap.NUM_DEFAULT_MAPS; imap++ ) {
       csColorMap map = new csColorMap(imap,csColorMap.COLOR_MAP_TYPE_32BIT);
@@ -596,10 +597,10 @@ public class csColorMapGenerator extends JFrame implements ChangeListener {
     }
     updateUndoOperation();
   }
-  private void emptyUndoStack() {
-    myUndoStack.clear();
-    updateUndoOperation();
-  }
+//  private void emptyUndoStack() {
+//    myUndoStack.clear();
+//    updateUndoOperation();
+//  }
   private void updateUndoOperation() {
     if( myUndoStack.size() > myMaxUndoElements ) myUndoStack.setSize(myMaxUndoElements);
     myButtonUndo.setEnabled( !myUndoStack.isEmpty() );

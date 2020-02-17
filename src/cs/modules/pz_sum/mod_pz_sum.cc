@@ -6,7 +6,7 @@
 #include "csFlexNumber.h"
 #include "geolib_math.h"
 #include "geolib_methods.h"
-#include "csFFTTools.h"
+#include "csFFTTools_ORIG.h"
 #include "csGeolibUtils.h"
 #include <cmath>
 
@@ -35,7 +35,7 @@ namespace mod_pz_sum {
     bool doEqualize;
     float zScalar;
 
-    cseis_geolib::csFFTTools* fftTool;
+    cseis_geolib::csFFTTools_ORIG* fftTool;
     int numFFTSamples;
     float* buffer;
     float* weightsHyd;
@@ -72,7 +72,7 @@ void pz_zero( float* samples_p, float const* samples_z, int nSamples );
 //
 //
 //*************************************************************************************************
-void init_mod_pz_sum_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_pz_sum_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -80,7 +80,6 @@ void init_mod_pz_sum_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
   edef->setTraceSelectionMode( TRCMODE_FIXED, 2 );
 
   std::string text;
@@ -128,7 +127,7 @@ void init_mod_pz_sum_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
     vars->method = METHOD_WEIGHT;
   }
   else {
-    log->error("Unknown option '%s'", text.c_str());
+    writer->error("Unknown option '%s'", text.c_str());
   }
 
   //-------------------------------------------------------------------------
@@ -151,7 +150,7 @@ void init_mod_pz_sum_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       vars->last_sample  = shdr->numSamples-1;
     }
     else if( startTime > endTime ) {
-      log->error("Specified start/end times are invalid. Please check input parameters.");
+      writer->error("Specified start/end times are invalid. Please check input parameters.");
     }
     else {
       vars->first_sample = (int)(startTime / shdr->sampleInt + 0.5);
@@ -159,7 +158,7 @@ void init_mod_pz_sum_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
     }
 
     if( !hdef->headerExists( "rec_z" ) ) {
-      log->error("Required trace header 'rec_z' does not exist.");
+      writer->error("Required trace header 'rec_z' does not exist.");
     }
     vars->hdrId_rec_z  = hdef->headerIndex( "rec_z" );
   }
@@ -173,7 +172,7 @@ void init_mod_pz_sum_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
         vars->doEqualize = false;
       }
       else {
-        log->error("Unknown option '%s'", text.c_str());
+        writer->error("Unknown option '%s'", text.c_str());
       }
     }
 
@@ -181,7 +180,7 @@ void init_mod_pz_sum_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
     if( param->exists("percent") ) {
       param->getFloat( "percent", &vars->percent );
       if( vars->percent < 0.0 || vars->percent > 100.0 ) {
-        log->error("Percentage cannot be in the range [0,100]: %f", vars->percent);
+        writer->error("Percentage cannot be in the range [0,100]: %f", vars->percent);
       }
     }
     float windowLength = 0.0;
@@ -189,7 +188,7 @@ void init_mod_pz_sum_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       param->getFloat( "window_length", &windowLength );
     }
     if( windowLength < 0.0 ) {
-      log->error("Window length cannot be smaller than 0: %f", windowLength);
+      writer->error("Window length cannot be smaller than 0: %f", windowLength);
     }
     else if( windowLength == 0.0 ) {
       vars->windowLengthSamples = shdr->numSamples;
@@ -197,7 +196,7 @@ void init_mod_pz_sum_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
     else {
       vars->windowLengthSamples = (int)(windowLength/shdr->sampleInt + 0.5);
       if( vars->windowLengthSamples > shdr->numSamples ) {
-        log->warning("Specified window length is larger than total number of samples: %f", windowLength);
+        writer->warning("Specified window length is larger than total number of samples: %f", windowLength);
         vars->windowLengthSamples = shdr->numSamples;
       }
     }
@@ -206,16 +205,16 @@ void init_mod_pz_sum_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
     if( param->exists("weight_output" ) ) {
       param->getString( "weight_output", &text );
       if( !text.compare("pz") ) {
-	vars->outputOption = OUTPUT_PZ;
+        vars->outputOption = OUTPUT_PZ;
       }
       else if( !text.compare("p") ) {
-	vars->outputOption = OUTPUT_P;
+        vars->outputOption = OUTPUT_P;
       }
       else if( !text.compare("z") ) {
-	vars->outputOption = OUTPUT_Z;
+        vars->outputOption = OUTPUT_Z;
       }
       else {
-	log->error("Unknown option '%s'", text.c_str());
+        writer->error("Unknown option '%s'", text.c_str());
       }
     }
     float rec_z;
@@ -230,11 +229,11 @@ void init_mod_pz_sum_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       param->getFloat("weight_damping", &weightDamping );
     }
     if( !hdef->headerExists( "rec_z" ) ) {
-      log->error("Required trace header 'rec_z' does not exist.");
+      writer->error("Required trace header 'rec_z' does not exist.");
     }
     vars->hdrId_rec_z  = hdef->headerIndex( "rec_z" );
 
-    vars->fftTool = new cseis_geolib::csFFTTools( shdr->numSamples );
+    vars->fftTool = new cseis_geolib::csFFTTools_ORIG( shdr->numSamples );
     vars->numFFTSamples = vars->fftTool->numFFTSamples();
     vars->buffer = new float[vars->numFFTSamples + 2];
     vars->weightsHyd = new float[vars->numFFTSamples/2];
@@ -251,13 +250,13 @@ void init_mod_pz_sum_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       double an_rad = (freq/notchFreq) * 2.0 * M_PI;
       double number = fmod( an_rad, 2*M_PI ) - M_PI;
       if( squeezeFactor < 0.001 ) {
-	an_rad = M_PI;
+        an_rad = M_PI;
       }
       else if( number >= 0 ) {
-	an_rad = pow( number/M_PI, 1.0/squeezeFactor )*M_PI + M_PI;
+        an_rad = pow( number/M_PI, 1.0/squeezeFactor )*M_PI + M_PI;
       }
       else {
-	an_rad = -pow( -number/M_PI, 1.0/squeezeFactor )*M_PI + M_PI;
+        an_rad = -pow( -number/M_PI, 1.0/squeezeFactor )*M_PI + M_PI;
       }
       vars->weightsHyd[ifreq] = (float)(1.0 + -cos( an_rad ) );
       if( freq < freqMinConst ) vars->weightsHyd[ifreq] = 2.0f;
@@ -277,10 +276,10 @@ void init_mod_pz_sum_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
 //-------------------------------------------------------------------------
 // Check headers
   if( !hdef->headerExists( sensorName ) ) {
-    log->error("Required trace header '%s' does not exist.", sensorName.c_str() );
+    writer->error("Required trace header '%s' does not exist.", sensorName.c_str() );
   }
   if( hdef->headerType( sensorName ) != TYPE_INT ) {
-    log->error("Trace header '%s%' has the wrong type: %s. Should be integer type", sensorName.c_str(), csGeolibUtils::typeText( hdef->headerType( sensorName ) ) );
+    writer->error("Trace header '%s%' has the wrong type: %s. Should be integer type", sensorName.c_str(), csGeolibUtils::typeText( hdef->headerType( sensorName ) ) );
   }  
 
   vars->hdrId_sensor = hdef->headerIndex( sensorName.c_str() );
@@ -297,36 +296,16 @@ void exec_mod_pz_sum_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup() ){
-    if( vars->fftTool != NULL ) {
-      delete vars->fftTool;
-      vars->fftTool = NULL;
-    }
-    if( vars->buffer != NULL ) {
-      delete [] vars->buffer;
-      vars->buffer = NULL;
-    }
-    if( vars->weightsHyd != NULL ) {
-      delete [] vars->weightsHyd;
-      vars->weightsHyd = NULL;
-    }
-    if( vars->weightsGeo != NULL ) {
-      delete [] vars->weightsGeo;
-      vars->weightsGeo = NULL;
-    }
-    delete vars; vars = NULL;
-    return;
-  }
 
   int nTraces = traceGather->numTraces();
   if( nTraces < 2 ) {
-    log->error("Module %s: Incorrect number of input traces. Expected 2 (or more), found %d", nTraces, edef->moduleName().c_str() );
+    writer->error("Module %s: Incorrect number of input traces. Expected 2 (or more), found %d", nTraces, edef->moduleName().c_str() );
   }
 
   int sensor;
@@ -337,25 +316,25 @@ void exec_mod_pz_sum_(
     sensor = traceGather->trace(itrc)->getTraceHeader()->intValue(vars->hdrId_sensor);
     if( !vars->isSensorUserDefined && sensor == SENSOR_INDEX_P ) {
       if( trace_index_p != NO_VALUE ) {
-        log->error("Found more than one sensor P (%d) trace in input trace pair.", SENSOR_INDEX_P );
+        writer->error("Found more than one sensor P (%d) trace in input trace pair.", SENSOR_INDEX_P );
       }
       trace_index_p = itrc;
     }
     else if( !vars->isSensorUserDefined && ( sensor == SENSOR_INDEX_Z || sensor == SENSOR_INDEX_Z2 ) ) {
       if( trace_index_z != NO_VALUE ) {
-        log->error("Found more than one sensor Z (%d/%d) trace in input trace pair.", SENSOR_INDEX_Z, SENSOR_INDEX_Z2 );
+        writer->error("Found more than one sensor Z (%d/%d) trace in input trace pair.", SENSOR_INDEX_Z, SENSOR_INDEX_Z2 );
       }
       trace_index_z = itrc;
     }
     else if( sensor == vars->sensorNumP ) {
       if( trace_index_p != NO_VALUE ) {
-        log->error("Found more than one sensor P (%d) trace in input trace pair.", vars->sensorNumP );
+        writer->error("Found more than one sensor P (%d) trace in input trace pair.", vars->sensorNumP );
       }
       trace_index_p = itrc;
     }
     else if( sensor == vars->sensorNumZ ) {
       if( trace_index_z != NO_VALUE ) {
-	log->error("Found more than one sensor Z (%d) trace in input trace pair.", vars->sensorNumZ );
+        writer->error("Found more than one sensor Z (%d) trace in input trace pair.", vars->sensorNumZ );
       }
       trace_index_z = itrc;
     }
@@ -363,18 +342,18 @@ void exec_mod_pz_sum_(
   }
   if( trace_index_p == NO_VALUE ) {
     if( !vars->isSensorUserDefined ) {
-      log->error("Ensemble is missing a sensor P (%d) trace.", SENSOR_INDEX_P );
+      writer->error("Ensemble is missing a sensor P (%d) trace.", SENSOR_INDEX_P );
     }
     else {
-      log->error("Ensemble is missing a sensor P (%d) trace.", vars->sensorNumP );
+      writer->error("Ensemble is missing a sensor P (%d) trace.", vars->sensorNumP );
     }
   }
   if( trace_index_z == NO_VALUE ) {
     if( !vars->isSensorUserDefined ) {
-      log->error("Ensemble is missing a sensor Z (%d/%d) trace.", SENSOR_INDEX_Z, SENSOR_INDEX_Z2 );
+      writer->error("Ensemble is missing a sensor Z (%d/%d) trace.", SENSOR_INDEX_Z, SENSOR_INDEX_Z2 );
     }
     else {
-      log->error("Ensemble is missing a sensor Z (%d) trace.", vars->sensorNumZ );
+      writer->error("Ensemble is missing a sensor Z (%d) trace.", vars->sensorNumZ );
     }
   }
 
@@ -443,38 +422,38 @@ void exec_mod_pz_sum_(
     bool success;
     double const* real;
     if( vars->outputOption != mod_pz_sum::OUTPUT_Z ) {
-      success = vars->fftTool->fft_forward( samplesHyd, &vars->buffer[0], &vars->buffer[vars->numFFTSamples/2+1], false );
-      if( !success ) log->error("FFT transform failed for unknown reasons...");
+      success = vars->fftTool->fft_forward( samplesHyd, &vars->buffer[0], &vars->buffer[vars->numFFTSamples/2+1] );
+      if( !success ) writer->error("FFT transform failed for unknown reasons...");
       for( int ifreq = 0; ifreq <= vars->numFFTSamples/2; ifreq++ ) {
-	vars->buffer[ifreq] *= vars->weightsHyd[ifreq];
+        vars->buffer[ifreq] *= vars->weightsHyd[ifreq];
       }
       success = vars->fftTool->fft_inverse( vars->buffer, fftDataType );
-      if( !success ) log->error("FFT transform failed for unknown reasons...");
+      if( !success ) writer->error("FFT transform failed for unknown reasons...");
       real = vars->fftTool->realData();
       for( int i = 0; i < shdr->numSamples; i++ ) {
-	samplesHyd[i] = real[i];
+        samplesHyd[i] = real[i];
       }
     }
     if( vars->outputOption != mod_pz_sum::OUTPUT_P ) {
       // Apply frequency weights for Z data:
-      success = vars->fftTool->fft_forward( samplesGeo, &vars->buffer[0], &vars->buffer[vars->numFFTSamples/2+1], false );
-      if( !success ) log->error("FFT transform failed for unknown reasons...");
+      success = vars->fftTool->fft_forward( samplesGeo, &vars->buffer[0], &vars->buffer[vars->numFFTSamples/2+1] );
+      if( !success ) writer->error("FFT transform failed for unknown reasons...");
       for( int ifreq = 0; ifreq <= vars->numFFTSamples/2; ifreq++ ) {
-        //	vars->buffer[ifreq] *= (2.0f - vars->weightsHyd[ifreq]);
-	vars->buffer[ifreq] *= vars->weightsGeo[ifreq];
+        //      vars->buffer[ifreq] *= (2.0f - vars->weightsHyd[ifreq]);
+        vars->buffer[ifreq] *= vars->weightsGeo[ifreq];
       }
       success = vars->fftTool->fft_inverse( vars->buffer, fftDataType );
-      if( !success ) log->error("FFT transform failed for unknown reasons...");
+      if( !success ) writer->error("FFT transform failed for unknown reasons...");
       real = vars->fftTool->realData();
       if( vars->outputOption == mod_pz_sum::OUTPUT_PZ ) {
-	for( int i = 0; i < shdr->numSamples; i++ ) {
-	  samplesHyd[i] = 0.5 * ( samplesHyd[i] + real[i] );
-	}
+        for( int i = 0; i < shdr->numSamples; i++ ) {
+          samplesHyd[i] = 0.5 * ( samplesHyd[i] + real[i] );
+        }
       }
       else if( vars->outputOption == mod_pz_sum::OUTPUT_Z ) {
-	for( int i = 0; i < shdr->numSamples; i++ ) {
-	  samplesHyd[i] = real[i];
-	}
+        for( int i = 0; i < shdr->numSamples; i++ ) {
+          samplesHyd[i] = real[i];
+        }
       }
     }
 
@@ -658,13 +637,57 @@ void pz_zero( float* samples_p, float const* samples_z, int nSamples ) {
   }
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_pz_sum_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_pz_sum::VariableStruct* vars = reinterpret_cast<mod_pz_sum::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_pz_sum_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_pz_sum::VariableStruct* vars = reinterpret_cast<mod_pz_sum::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->fftTool != NULL ) {
+    delete vars->fftTool;
+    vars->fftTool = NULL;
+  }
+  if( vars->buffer != NULL ) {
+    delete [] vars->buffer;
+    vars->buffer = NULL;
+  }
+  if( vars->weightsHyd != NULL ) {
+    delete [] vars->weightsHyd;
+    vars->weightsHyd = NULL;
+  }
+  if( vars->weightsGeo != NULL ) {
+    delete [] vars->weightsGeo;
+    vars->weightsGeo = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_pz_sum_( csParamDef* pdef ) {
   params_mod_pz_sum_( pdef );
 }
-extern "C" void _init_mod_pz_sum_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_pz_sum_( param, env, log );
+extern "C" void _init_mod_pz_sum_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_pz_sum_( param, env, writer );
 }
-extern "C" void _exec_mod_pz_sum_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_pz_sum_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_pz_sum_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_pz_sum_( env, writer );
 }
-
+extern "C" void _exec_mod_pz_sum_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_pz_sum_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_pz_sum_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_pz_sum_( env, writer );
+}

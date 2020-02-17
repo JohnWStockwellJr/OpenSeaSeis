@@ -18,7 +18,6 @@ using namespace std;
  */
 namespace mod_despike {
   struct VariableStruct {
-    int method;
     cseis_geolib::csDespike* despike;
     float* buffer;
     int output;
@@ -36,16 +35,16 @@ using namespace mod_despike;
 //
 //
 //*************************************************************************************************
-void init_mod_despike_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_despike_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   csSuperHeader*    shdr = env->superHeader;
   csTraceHeaderDef* hdef = env->headerDef;
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
 
-  vars->method  = csDespike::COSINE_TAPER;
+
   vars->buffer  = NULL;
   vars->despike = NULL;
   vars->output  = OUTPUT_APPLY;
@@ -53,21 +52,43 @@ void init_mod_despike_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
   vars->hdrID_num_spikes_samples = -1;
 
   std::string text;
+  cseis_geolib::DespikeConfig config;
+  if( shdr->domain == DOMAIN_XT || shdr->domain == DOMAIN_XD ) {
+    csDespike::getDefaultTimeNoiseBurstConfig( config );
+  }
+  else {
+    csDespike::getDefaultFrequencySpikeConfig( config );
+  }
 
   if( param->exists( "method" ) ) {
     param->getString( "method", &text );
     text = toLowerCase( text );
     if( !text.compare( "cos_taper" ) ) {
-      vars->method = csDespike::COSINE_TAPER;
+      config.method = csDespike::COSINE_TAPER;
     }
     else if( !text.compare( "interpolation" ) ) {
-      vars->method = csDespike::LINEAR_INTERPOLATION;
+      config.method = csDespike::LINEAR_INTERPOLATION;
     }
     else if( !text.compare( "zero" ) ) {
-      vars->method = csDespike::SET_TO_ZERO;
+      config.method = csDespike::SET_TO_ZERO;
     }
     else {
-      log->line("Unknown argument for user parameter 'method': '%s'.", text.c_str());
+      writer->line("Unknown argument for user parameter 'method': '%s'.", text.c_str());
+      env->addError();
+    }
+  }
+
+  if( param->exists( "debias" ) ) {
+    param->getString( "debias", &text );
+    text = toLowerCase( text );
+    if( !text.compare( "yes" ) ) {
+      config.performDebias = true;
+    }
+    else if( !text.compare( "no" ) ) {
+      config.performDebias = false;
+    }
+    else {
+      writer->line("Unknown argument for user parameter 'debias': '%s'.", text.c_str());
       env->addError();
     }
   }
@@ -82,25 +103,28 @@ void init_mod_despike_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
       vars->output = OUTPUT_DIFF;
     }
     else {
-      log->line("Option not recognized: '%s'.", text.c_str());
+      writer->line("Option not recognized: '%s'.", text.c_str());
       env->addError();
     }
   }
 
   //---------------------------------------------------------
-  DespikeConfig config;
-  if( shdr->domain == DOMAIN_XT || shdr->domain == DOMAIN_XD ) {
-    csDespike::getDefaultTimeNoiseBurstConfig( config );
-  }
-  else {
-    csDespike::getDefaultFrequencySpikeConfig( config );
-  }
 
   int numValues = param->getNumValues("win_ref");
   if( numValues > 0 ) {
     param->getFloat( "win_ref", &config.widthRefWin, 0 );
-    if( numValues > 1 ) {
-      param->getFloat( "win_ref", &config.incWin, 1 );
+    param->getFloat( "win_ref", &config.incWin, 1 );
+    param->getString( "win_ref", &text, 2 );
+    text = toLowerCase( text );
+    if( !text.compare( "mean" ) ) {
+      config.methodRefWin = csDespike::METHOD_WIN_MEAN;
+    }
+    else if( !text.compare( "median" ) ) {
+      config.methodRefWin = csDespike::METHOD_WIN_MEDIAN;
+    }
+    else {
+      writer->line("Unknown argument for user parameter 'win_ref': '%s'.", text.c_str());
+      env->addError();
     }
   }
 
@@ -121,35 +145,35 @@ void init_mod_despike_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
 
   float traceLength = shdr->numSamples*shdr->sampleInt;
   if( config.widthRefWin < config.minWidthSpikeWin ) {
-    log->warning("The despike window is chosen larger than the reference window: %f < %f. This is not good practise.", config.widthRefWin, config.minWidthSpikeWin );
+    writer->warning("The despike window is chosen larger than the reference window: %f < %f. This is not good practise.", config.widthRefWin, config.minWidthSpikeWin );
   }
   if( config.widthRefWin >= traceLength ) {
-    log->error("The reference window is chosen larger or equal to the current trace length: %f >= %f.", config.widthRefWin, traceLength );
+    writer->error("The reference window is chosen larger or equal to the current trace length: %f >= %f.", config.widthRefWin, traceLength );
   }
   if( (int)(config.minWidthSpikeWin/shdr->sampleInt) < 1 ) {
-    log->error("The despike window is chosen too small to be effective: %f.", config.minWidthSpikeWin );
+    writer->error("The despike window is chosen too small to be effective: %f.", config.minWidthSpikeWin );
   }
   if( config.incWin > config.minWidthSpikeWin ) {
-    log->error("The increment of the despike window is too large: %f. Maximum increment length: %f", config.incWin, config.minWidthSpikeWin );
+    writer->error("The increment of the despike window is too large: %f. Maximum increment length: %f", config.incWin, config.minWidthSpikeWin );
   }
   if( (config.start >= config.stop || config.start >= traceLength) && (config.stop > 0 || config.start > config.stop)) {
-    log->error("Inconsistent start/end points: %f %f", config.start, config.stop );
+    writer->error("Inconsistent start/end points: %f %f", config.start, config.stop );
   }
   if( config.maxRatio <= 1.0 ) {
-    log->error("Incorrect maximum ratio: %f. The threshold ratio must be greater than 1 to be effective.", config.maxRatio );
+    writer->error("Incorrect maximum ratio: %f. The threshold ratio must be greater than 1 to be effective.", config.maxRatio );
   }
 
   if( !hdef->headerExists("num_spikes") ) {
     hdef->addHeader( TYPE_INT, "num_spikes" );
   }
   else if( hdef->headerType("num_spikes") != TYPE_INT ) {
-    log->error("Trace header 'num_spikes' exists but has wrong type: Should be INT");
+    writer->error("Trace header 'num_spikes' exists but has wrong type: Should be INT");
   }
   if( !hdef->headerExists("nsamp_spikes") ) {
     hdef->addHeader( TYPE_INT, "nsamp_spikes" );
   }
   else if( hdef->headerType("nsamp_spikes") != TYPE_INT ) {
-    log->error("Trace header 'nsamp_spikes' exists but has wrong type: Should be INT");
+    writer->error("Trace header 'nsamp_spikes' exists but has wrong type: Should be INT");
   }
   vars->hdrID_num_spikes = hdef->headerIndex("num_spikes");
   vars->hdrID_num_spikes_samples = hdef->headerIndex("nsamp_spikes");
@@ -164,33 +188,37 @@ void init_mod_despike_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
 //
 //
 //*************************************************************************************************
-bool exec_mod_despike_(
-  csTrace* trace,
+void exec_mod_despike_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup()){
-    if( vars->despike != NULL ) {
-      delete vars->despike;
-      vars->despike = NULL;
-    }
-    if( vars->buffer != NULL ) {
-      delete [] vars->buffer;
-      vars->buffer = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
 
   float* samples = trace->getTraceSamples();
+
   for( int i = 0; i < shdr->numSamples; i++ ) {
     vars->buffer[i] = samples[i];
   }
-
+  /*
+  float bias_float;
+  if( vars->performDebias ) {
+    double bias = 0;
+    for( int i = 0; i < shdr->numSamples; i++ ) {
+      bias += samples[i];
+    }
+    bias_float = (float)( bias / (double)shdr->numSamples );
+    for( int i = 0; i < shdr->numSamples; i++ ) {
+      vars->buffer[i] -= bias_float;
+    }
+  }
+*/
   int numSpikes = 0;
   int numSpikesSamples = 0;
   vars->despike->apply( vars->buffer, shdr->numSamples, numSpikes, numSpikesSamples );
@@ -199,32 +227,18 @@ bool exec_mod_despike_(
   trace->getTraceHeader()->setIntValue( vars->hdrID_num_spikes_samples, numSpikesSamples );
 
   if( vars->output == OUTPUT_APPLY ) {
-    if( vars->despike->method() == csDespike::COSINE_TAPER ) {
-      for( int i = 0; i < shdr->numSamples; i++ ) {
-        samples[i] *= vars->buffer[i];
-      }
-    }
-    else {
-      for( int i = 0; i < shdr->numSamples; i++ ) {
-        samples[i] = vars->buffer[i];
-      }
+    for( int i = 0; i < shdr->numSamples; i++ ) {
+      samples[i] = vars->buffer[i];
     }
   }
   else {  // OUTPUT_DIFF
-    if( vars->despike->method() == csDespike::COSINE_TAPER ) {
-      for( int i = 0; i < shdr->numSamples; i++ ) {
-        samples[i] *= ( 1.0 - vars->buffer[i] );
-      }
-    }
-    else {
-      for( int i = 0; i < shdr->numSamples; i++ ) {
-        samples[i] -= vars->buffer[i];
-      }
+    for( int i = 0; i < shdr->numSamples; i++ ) {
+      samples[i] -= vars->buffer[i];
     }
   }
 
 
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -241,12 +255,18 @@ void params_mod_despike_( csParamDef* pdef ) {
   pdef->addOption( "interpolation", "Interpolate linearly between first and last sample of identified window" );
   pdef->addOption( "zero", "Set samples in spike window to zero" );
 
-  pdef->addParam( "win_ref", "Reference window", NUM_VALUES_VARIABLE, "Width in units of trace, e.g. [ms] or [Hz]" );
+  pdef->addParam( "win_ref", "Reference window", NUM_VALUES_FIXED, "Width in units of trace, e.g. [ms] or [Hz]" );
   pdef->addValue( "0", VALTYPE_NUMBER, "Width of reference window in units of trace.", "Reference window over which median background value is computed" );
   pdef->addValue( "0", VALTYPE_NUMBER, "Window increment in units of trace.", "Set to zero for sliding window, e.g. one sample interval" );
+  pdef->addValue( "median", VALTYPE_OPTION );
+  pdef->addOption( "mean", "Use mean value over reference window");
+  pdef->addOption( "median", "Use median value over reference window" );
 
-  pdef->addParam( "win_spike", "Width of despike window", NUM_VALUES_VARIABLE, "Width in units of trace, e.g. [ms] or [Hz]" );
+  pdef->addParam( "win_spike", "Width of despike window", NUM_VALUES_FIXED, "Width in units of trace, e.g. [ms] or [Hz]" );
   pdef->addValue( "0", VALTYPE_NUMBER, "Minimum width of despike window, in units of trace" );
+  pdef->addValue( "mean", VALTYPE_OPTION );
+  pdef->addOption( "mean", "Use mean value over spike window");
+  pdef->addOption( "median", "Use median value over spike window" );
 
   pdef->addParam( "start", "Start time/frequency for despike application", NUM_VALUES_FIXED,
                   "Despike operation will only be performed within the specified start/end window, given in the units of the trace , e.g. [ms] or [Hz]" );
@@ -266,15 +286,55 @@ void params_mod_despike_( csParamDef* pdef ) {
   pdef->addOption( "apply", "Apply despike operation" );
   pdef->addOption( "diff", "Output detected spikes (difference)" );
 
+  pdef->addParam( "debias", "Apply debias?", NUM_VALUES_FIXED );
+  pdef->addValue( "no", VALTYPE_OPTION );
+  pdef->addOption( "no", "Do not debias data" );
+  pdef->addOption( "yes", "Apply debias to data in each window", "This may better preserve low-frequency signal" );
+}
+
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_despike_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_despike::VariableStruct* vars = reinterpret_cast<mod_despike::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_despike_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_despike::VariableStruct* vars = reinterpret_cast<mod_despike::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->despike != NULL ) {
+    delete vars->despike;
+    vars->despike = NULL;
+  }
+  if( vars->buffer != NULL ) {
+    delete [] vars->buffer;
+    vars->buffer = NULL;
+  }
+  delete vars; vars = NULL;
 }
 
 extern "C" void _params_mod_despike_( csParamDef* pdef ) {
   params_mod_despike_( pdef );
 }
-extern "C" void _init_mod_despike_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_despike_( param, env, log );
+extern "C" void _init_mod_despike_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_despike_( param, env, writer );
 }
-extern "C" bool _exec_mod_despike_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_despike_( trace, port, env, log );
+extern "C" bool _start_exec_mod_despike_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_despike_( env, writer );
 }
-
+extern "C" void _exec_mod_despike_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_despike_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_despike_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_despike_( env, writer );
+}

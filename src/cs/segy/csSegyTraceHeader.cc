@@ -5,7 +5,7 @@
 #include "csSegyHdrMap.h"
 #include "csStandardHeaders.h"
 #include "csSegyHeaderInfo.h"
-#include "csSegyHeader.h"
+#include "csSegyDefines.h"
 #include "csFlexNumber.h"
 #include "csFlexHeader.h"
 #include "csByteConversions.h"
@@ -86,6 +86,47 @@ void csSegyTraceHeader::readHeaderValues( byte_t const* buffer, bool doSwapEndia
       }
       else {
         myHdrValues[ihdr].setFloatValue( byte2Float( &buffer[byteLoc] ) );
+      }
+    }
+    else if( info->inType == TYPE_FLOAT_IBM ) { // FLOAT, 4 bytes, IBM
+      //ibm2ieee( (unsigned char*)(), 1 );
+      //void cseis_geolib::ibm2ieee( unsigned char* values, int numValues ) {
+      //ibm2ieee( (unsigned char*)(myBigBuffer+myTraceByteSize*itrc+cseis_segy::SIZE_TRCHDR), nSamples );
+      //
+      // float byte2Float( byte_t const* ptr ) {
+      //   return( (float)( (ptr[3] << 24) + (ptr[2] << 16) + (ptr[1] << 8) + ptr[0] ) );
+      // }
+      //
+      //inline float byte2Float_SWAP( byte_t const* ptr ) {
+      //char c[4];
+      //c[0] = ptr[3];
+      //  c[1] = ptr[2];
+      //  c[2] = ptr[1];
+      //  c[3] = ptr[0];
+      //      //  float f;
+      //  memcpy( &f, c, 4 );
+      //  return f;
+      //}
+      if( doSwapEndian ) {
+        /*
+        unsigned char c[4];
+        c[0] = buffer[byteLoc+3];
+        c[1] = buffer[byteLoc+2];
+        c[2] = buffer[byteLoc+1];
+        c[3] = buffer[byteLoc+0];
+        ibm2ieee( (unsigned char*)c, 1 );
+        float f;
+        memcpy( &f, c, 4 );
+
+        myHdrValues[ihdr].setFloatValue( f );
+*/
+        myHdrValues[ihdr].setFloatValue( byte_FloatIBM2Float_SWAP( &buffer[byteLoc] ) );
+        //        myHdrValues[ihdr].setFloatValue( ibm2ieee( (unsigned char*)&buffer[byteLoc], 1 ) );
+      }
+      else {
+        //        ibm2ieee( (unsigned char*)&buffer[byteLoc], 1 );
+        //   myHdrValues[ihdr].setFloatValue( byte2Float( &buffer[byteLoc] ) );
+        myHdrValues[ihdr].setFloatValue( byte_FloatIBM2Float( &buffer[byteLoc] ) );
       }
     }
     else if( info->inType == TYPE_STRING ) { // STRING
@@ -222,26 +263,34 @@ void csSegyTraceHeader::writeHeaderValues( byte_t* buffer, bool doSwapEndian, bo
         float2Byte( (float)myHdrValues[ihdr].doubleValue(), &buffer[byteLoc] );
       }
     }
+    else if( info->inType == TYPE_DOUBLE ) { // DOUBLE, 8 bytes
+      if( doSwapEndian ) {
+        double2Byte_SWAP( myHdrValues[ihdr].doubleValue(), &buffer[byteLoc] );
+      }
+      else {
+        double2Byte( myHdrValues[ihdr].doubleValue(), &buffer[byteLoc] );
+      }
+    }
   }
 
-  // Special treatment for scalars:
-  // Reverse polarity for output scalars, so that on input the data is inversely scaled
-  if( autoScaleHeaders ) {
+  // Special treatment for headers that need to be scaled:
+  /*  if( autoScaleHeaders ) {
+    // Reverse polarity for output scalars, so that on input the data is inversely scaled
     int scalarCoord = -myHdrValues[myHdrMapPtr->getCoordScalarHeaderIndex()].intValue();
     int scalarElev  = -myHdrValues[myHdrMapPtr->getElevScalarHeaderIndex()].intValue();
     int scalarStat  = -myHdrValues[myHdrMapPtr->getStatScalarHeaderIndex()].intValue();
     if( doSwapEndian ) {
-      short2Byte_SWAP( scalarCoord, &buffer[csSegyHeader::BYTE_LOC_SCALAR_COORD] );
-      short2Byte_SWAP( scalarElev, &buffer[csSegyHeader::BYTE_LOC_SCALAR_ELEV] );
-      short2Byte_SWAP( scalarStat, &buffer[csSegyHeader::BYTE_LOC_SCALAR_STAT] );
+      short2Byte_SWAP( scalarCoord, &buffer[cseis_segy::BYTE_LOC_SCALAR_COORD] );
+      short2Byte_SWAP( scalarElev, &buffer[cseis_segy::BYTE_LOC_SCALAR_ELEV] );
+      short2Byte_SWAP( scalarStat, &buffer[cseis_segy::BYTE_LOC_SCALAR_STAT] );
     }
     else {
-      short2Byte( scalarCoord, &buffer[csSegyHeader::BYTE_LOC_SCALAR_COORD] );
-      short2Byte( scalarElev, &buffer[csSegyHeader::BYTE_LOC_SCALAR_ELEV] );
-      short2Byte( scalarStat, &buffer[csSegyHeader::BYTE_LOC_SCALAR_STAT] );
+      short2Byte( scalarCoord, &buffer[cseis_segy::BYTE_LOC_SCALAR_COORD] );
+      short2Byte( scalarElev, &buffer[cseis_segy::BYTE_LOC_SCALAR_ELEV] );
+      short2Byte( scalarStat, &buffer[cseis_segy::BYTE_LOC_SCALAR_STAT] );
     }
   }
-
+  */
 }
 
 int csSegyTraceHeader::numHeaders() const {

@@ -208,20 +208,22 @@ bool checkParameters( char const* moduleName, csParamDef const* paramDef, cseis_
   // Go through all parameters specified by user
   for( int iUserParam = 0; iUserParam < nUserParams; iUserParam++ ) {
     csUserParam* userParam = userParams->at(iUserParam);
-    char const* userParamName = userParam->getName().c_str();
+    //    char const* userParamName = userParam->getName().c_str();
     int ip = -1;
     // Go through all parameters defined for this module, try to find matching parameter name
     for( int i = 0; i < nDefinedParams; i++ ) {
-      if( !strcmp( userParamName, paramDefList.at(i)->name() ) ) {
+      //      if( !strcmp( userParamName, paramDefList.at(i)->name() ) ) {
+      if( userParam->getName().compare( paramDefList.at(i)->name() ) == 0 ) {
         ip = i;
         break;
       }
     }
     if( ip < 0 ) {
-      if( !strcmp(userParamName,"debug") || !strcmp(userParamName,"version") ) {
+      //      if( !strcmp(userParamName,"debug") || !strcmp(userParamName,"version") ) {
+      if( userParam->getName().compare("debug") == 0 || userParam->getName().compare("version") == 0 ) {
         continue;
       }
-      log->line("Error: Unknown user specified parameter: '%s'", userParamName);
+      log->line("Error: Unknown user specified parameter: '%s'", userParam->getName().c_str() );
       returnFlag = false;
       continue;  // Check other parameters
     }
@@ -233,12 +235,12 @@ bool checkParameters( char const* moduleName, csParamDef const* paramDef, cseis_
     int nDefinedValues = valueDefList.size();   // Number of values DEFINED for this parameter
 
     if( paramDefList.at(ip)->type() == NUM_VALUES_FIXED && nUserValues < nDefinedValues ) {
-      log->line("Error: Too few user specified values for parameter '%s'. Required: %d, found: %d", userParamName, nDefinedValues, nUserValues );
+      log->line("Error: Too few user specified values for parameter '%s'. Required: %d, found: %d", userParam->getName().c_str(), nDefinedValues, nUserValues );
       returnFlag = false;
       continue;
     }
     else if( nUserValues == 0 ) {
-      log->line("Error: No value specified for parameter '%s'.", userParamName );
+      log->line("Error: No value specified for parameter '%s'.", userParam->getName().c_str() );
       returnFlag = false;
       continue;
     }
@@ -251,7 +253,7 @@ bool checkParameters( char const* moduleName, csParamDef const* paramDef, cseis_
       if( valueType == VALTYPE_NUMBER ) {
         std::string text = userParam->getValue( i );
         if( !valueTmp.convertToNumber( userParam->getValue( i ) ) ) {
-          log->line("Error: User parameter '%s': Value is not recognised as valid number: '%s'", userParamName, text.c_str() );
+          log->line("Error: User parameter '%s': Value is not recognised as valid number: '%s'", userParam->getName().c_str(), text.c_str() );
           returnFlag = false;
         }
       }
@@ -278,20 +280,20 @@ bool checkParameters( char const* moduleName, csParamDef const* paramDef, cseis_
     // Go through all parameter values, check correctness of OPTION values
     for( int iv = 0; iv < minNumValues; iv++ ) {
       if( valueDefList.at(iv)->type() == VALTYPE_OPTION ) {
-        char const* userOptionName = userValueList.at(iv).c_str();
+        //        char const* userOptionName = userValueList.at(iv).c_str();
         // Check options:
         optionList.clear();
         paramDef->getOptions( ip, iv, &optionList );
         int optionFound = false;
         int nOptions = optionList.size();
         for( int io = 0; io < nOptions; io++ ) {
-          if( !strcmp( userOptionName, optionList.at(io)->name() ) ) {
+          if( userValueList.at(iv).compare( optionList.at(io)->name() ) == 0 ) {
             optionFound = true;
             break;
           }
         }
         if( !optionFound ) {
-          log->line("Error: Unknown user specified option for parameter '%s':  %s", userParamName, userOptionName );
+          log->line("Error: Unknown user specified option for parameter '%s':  %s", userParam->getName().c_str(), userValueList.at(iv).c_str() );
           log->write("Valid options are: ");
           for( int io = 0; io < nOptions; io++ ) {
             log->write("'%s' (%s)", optionList.at(io)->name(), optionList.at(io)->desc());

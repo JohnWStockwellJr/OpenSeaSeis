@@ -544,5 +544,3 @@ public class csSeisViewRenderer8bit extends csSeisViewRenderer {
     }    
   }
 }
-
-

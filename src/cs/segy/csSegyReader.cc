@@ -7,7 +7,7 @@
 #include "csSegyReader.h"
 #include "csSegyHdrMap.h"
 #include "csSegyTraceHeader.h"
-#include "csSegyHeader.h"
+#include "csSegyDefines.h"
 #include "csSegyHeaderInfo.h"
 #include "csSegyBinHeader.h"
 #include "csHeaderInfo.h"
@@ -58,7 +58,7 @@ csSegyReader::csSegyReader( std::string filename, SegyReaderConfig const& config
   myEnableRandomAccess      = config.enableRandomAccess;
   myIsSUFormat              = config.isSUFormat;
 
-  myHdrCheckByteOffset = 0;
+  myHdrCheckByteOffset   = 0;
   myHdrCheckInType       = cseis_geolib::TYPE_UNKNOWN;
   myHdrCheckOutType       = cseis_geolib::TYPE_UNKNOWN;
   myHdrCheckByteSize   = 0;
@@ -67,15 +67,16 @@ csSegyReader::csSegyReader( std::string filename, SegyReaderConfig const& config
   myCurrentPeekTraceIndex = 0;
   myCurrentPeekByteOffset = 0;
   myCurrentPeekByteSize   = 0;
+  myIsVariableTraceLength = false;
 
-  if( myOverrideSampleFormat != csSegyHeader::AUTO &&
-     (myOverrideSampleFormat != csSegyHeader::DATA_FORMAT_IEEE &&
-      myOverrideSampleFormat != csSegyHeader::DATA_FORMAT_IBM  &&
-      myOverrideSampleFormat != csSegyHeader::DATA_FORMAT_INT32  &&
-      myOverrideSampleFormat != csSegyHeader::DATA_FORMAT_INT16) ) {
-    throw csException( "Overriden SEGY data sample format not supported: %d  (Supported formats are: 1:IBM, 2: 32bit INT, 3: 16bit INT, 5:IEEE).", myOverrideSampleFormat );
+  if( myOverrideSampleFormat != cseis_segy::AUTO &&
+     (myOverrideSampleFormat != cseis_segy::DATA_FORMAT_IEEE &&
+      myOverrideSampleFormat != cseis_segy::DATA_FORMAT_IBM  &&
+      myOverrideSampleFormat != cseis_segy::DATA_FORMAT_INT32  &&
+      myOverrideSampleFormat != cseis_segy::DATA_FORMAT_INT16) ) {
+    throw csException( "Overriden SEGY data sample format not supported: %d  (Supported formats are: 1:IBM, 2: 32bit INT, 3: 16bit INT, 5:IEEE)\nFile name: %s", myOverrideSampleFormat, myFilename.c_str() );
   }
-  else if( myOverrideSampleFormat == csSegyHeader::DATA_FORMAT_INT16 ) {
+  else if( myOverrideSampleFormat == cseis_segy::DATA_FORMAT_INT16 ) {
     // Override number of traces to read in at once. For INT16, it is required that only one trace is read in at once
     myBufferCapacityNumTraces = 1;
   }
@@ -93,13 +94,13 @@ csSegyReader::csSegyReader( std::string filename, SegyReaderConfig const& config
 
   openFile();
 
-  myCharHdrBlock = new char[csSegyHeader::SIZE_CHARHDR];
-  myBinHdrBlock  = new byte_t[csSegyHeader::SIZE_BINHDR];
+  myCharHdrBlock = new char[cseis_segy::SIZE_CHARHDR];
+  myBinHdrBlock  = new byte_t[cseis_segy::SIZE_BINHDR];
   myBinHdr       = new csSegyBinHeader( myDoSwapEndianHdr );
-  for( int i = 0; i < csSegyHeader::SIZE_CHARHDR; i++ ) {
+  for( int i = 0; i < cseis_segy::SIZE_CHARHDR; i++ ) {
     myCharHdrBlock[i] = 0;
   }
-  for( int i = 0; i < csSegyHeader::SIZE_BINHDR; i++ ) {
+  for( int i = 0; i < cseis_segy::SIZE_BINHDR; i++ ) {
     myBinHdrBlock[i] = 0;
   }
 }
@@ -139,6 +140,10 @@ csSegyReader::~csSegyReader() {
     delete [] myHdrCheckBuffer;
     myHdrCheckBuffer = NULL;
   }    
+}
+//-----------------------------------------------------------------------------------------
+void csSegyReader::setVariableTraceLength() {
+  myIsVariableTraceLength = true;
 }
 //-----------------------------------------------------------------------------------------
 void csSegyReader::openFile() {
@@ -184,9 +189,9 @@ void csSegyReader::initialize() {
     else if( myBufferCapacityNumTraces > 20 ) myBufferCapacityNumTraces = 20;
   }
 
-  myTraceByteSize  = myNumSamples*mySampleByteSize+csSegyHeader::SIZE_TRCHDR;
+  myTraceByteSize  = myNumSamples*mySampleByteSize+cseis_segy::SIZE_TRCHDR;
   if( myFileSize != csFileUtils::FILESIZE_UNKNOWN ) {
-    long long sizeTraces  = myFileSize - ( (long long)csSegyHeader::SIZE_CHARHDR + (long long)csSegyHeader::SIZE_BINHDR );
+    long long sizeTraces  = myFileSize - ( (long long)cseis_segy::SIZE_CHARHDR + (long long)cseis_segy::SIZE_BINHDR );
     if( myIsSUFormat ) sizeTraces = myFileSize;  // Special for SU format: No bin & char header
     myNumTraces      = (int)(sizeTraces/(long long)myTraceByteSize);  // Total number of full traces in input file
     myLastTraceIndex = myNumTraces-1;
@@ -223,18 +228,18 @@ void csSegyReader::setCharHdrFormat( bool isEBCDIC ) {
 
 void csSegyReader::readCharBinHdr() {
   if( myTrcHdrMap->mapID() != csSegyHdrMap::SEGY_PSEGY && !myIsSUFormat ) {
-    myFile->read( myCharHdrBlock, csSegyHeader::SIZE_CHARHDR );
+    myFile->read( myCharHdrBlock, cseis_segy::SIZE_CHARHDR );
     if( myFile->fail() ) {
       throw csException("Unexpected error occurred when reading SEGY char header");
     }
 
     if( myIsEBCDIC ) {
-      for( int i = 0; i < csSegyHeader::SIZE_CHARHDR; i++) {
+      for( int i = 0; i < cseis_segy::SIZE_CHARHDR; i++) {
         myCharHdrBlock[i] = ebcdic2char( (short)myCharHdrBlock[i] );
       }
     }
 
-    myFile->read( (char*)myBinHdrBlock, csSegyHeader::SIZE_BINHDR );
+    myFile->read( (char*)myBinHdrBlock, cseis_segy::SIZE_BINHDR );
     if( myFile->fail() ) {
       throw csException("Unexpected error occurred when reading SEGY binary header");
     }
@@ -264,7 +269,7 @@ void csSegyReader::readCharBinHdr() {
     }
     myHasBeenInitialized = true; // Trick to make peek function work. Reset afterwards
 
-    myDataSampleFormat = csSegyHeader::DATA_FORMAT_IEEE;
+    myDataSampleFormat = cseis_segy::DATA_FORMAT_IEEE;
     cseis_geolib::csFlexHeader hdrValue;
     bool success;
     if( !myIsOverrideNumSamples ) {
@@ -297,12 +302,12 @@ void csSegyReader::readCharBinHdr() {
   }
   //---------------------------------------------------------------------------------
   else {  // PSEGY 'special' format
-    for( int i = 0; i < csSegyHeader::SIZE_CHARHDR; i++ ) {
+    for( int i = 0; i < cseis_segy::SIZE_CHARHDR; i++ ) {
       myCharHdrBlock[i] = ' ';
     }
-    byte_t* trcHdrBlock = new byte_t[csSegyHeader::SIZE_TRCHDR];
+    byte_t* trcHdrBlock = new byte_t[cseis_segy::SIZE_TRCHDR];
     
-    myFile->read( (char*)trcHdrBlock, csSegyHeader::SIZE_TRCHDR );
+    myFile->read( (char*)trcHdrBlock, cseis_segy::SIZE_TRCHDR );
     if( myFile->fail() ) {
       throw csException("Unexpected error occurred when reading P-SEGY trace header block");
     }
@@ -337,13 +342,13 @@ void csSegyReader::readCharBinHdr() {
       myNumSamples = numSamples_4byte;
     }
     if( dataFormat == 0 ) {  // 16bit int
-      myDataSampleFormat = csSegyHeader::DATA_FORMAT_INT16;
+      myDataSampleFormat = cseis_segy::DATA_FORMAT_INT16;
 //      if( myDataSampleFormat != myBinHdr->dataSampleFormat ) {  // comment out: binary header of PSEGY contains only garbage
 //        throw( csException("PSEGY file: Inconsistent data sample format in trace header (=%d) and binary header (=%d)", myDataSampleFormat, myBinHdr->dataSampleFormat) );
 //      }
     }
     else if( dataFormat == 1 ) {  // 32bit int
-      myDataSampleFormat = csSegyHeader::DATA_FORMAT_INT32;
+      myDataSampleFormat = cseis_segy::DATA_FORMAT_INT32;
     }
     else {
       myDataSampleFormat = -1;
@@ -368,21 +373,21 @@ void csSegyReader::readCharBinHdr() {
   //  if( mySampleInt <= 0 ) {
   // Do not throw exception. Sample interval is not really needed in segy reader... Calling program should check if it is correct
   // }
-  if( myOverrideSampleFormat == csSegyHeader::AUTO &&
-     (myDataSampleFormat != csSegyHeader::DATA_FORMAT_IEEE &&
-      myDataSampleFormat != csSegyHeader::DATA_FORMAT_IBM  &&
-      myDataSampleFormat != csSegyHeader::DATA_FORMAT_INT32  &&
-      myDataSampleFormat != csSegyHeader::DATA_FORMAT_INT16) ) {
-    throw csException( "SEGY data sample format not supported: %d  (Supported formats are: 1:IBM, 2: 32bit INT, 3: 16bit INT, 5:IEEE)", myDataSampleFormat );
+  if( myOverrideSampleFormat == cseis_segy::AUTO &&
+     (myDataSampleFormat != cseis_segy::DATA_FORMAT_IEEE &&
+      myDataSampleFormat != cseis_segy::DATA_FORMAT_IBM  &&
+      myDataSampleFormat != cseis_segy::DATA_FORMAT_INT32  &&
+      myDataSampleFormat != cseis_segy::DATA_FORMAT_INT16) ) {
+    throw csException( "SEGY data sample format not supported: %d  (Supported formats are: 1:IBM, 2: 32bit INT, 3: 16bit INT, 5:IEEE)\nFile name: %s", myDataSampleFormat, myFilename.c_str() );
   }
   else if( myNumSamples <= 0 && !myIsOverrideNumSamples ) {
     throw csException( "SEGY file corrupted: non-physical number of samples: %d. Try reversing the byte order.", myNumSamples );
   }
-  if( myOverrideSampleFormat != csSegyHeader::AUTO ) {
+  if( myOverrideSampleFormat != cseis_segy::AUTO ) {
     myDataSampleFormat = myOverrideSampleFormat;
   }
 
-  if( myDataSampleFormat != csSegyHeader::DATA_FORMAT_INT16 ) {
+  if( myDataSampleFormat != cseis_segy::DATA_FORMAT_INT16 ) {
     mySampleByteSize = 4;
   }
   else {
@@ -492,8 +497,52 @@ bool csSegyReader::getNextTrace( byte_t* sampleBufferOut, int nSamples ) {
     }
 
     if( myFileSize == csFileUtils::FILESIZE_UNKNOWN ) {
+
+      //      fprintf(stderr,"Segyreader: Read new traces %d\n", myBufferNumTraces);
       myBufferNumTraces = myBufferCapacityNumTraces;
-      myFile->read( myBigBuffer, myTraceByteSize*myBufferNumTraces );
+
+      if( !myIsVariableTraceLength ) {
+        myFile->read( myBigBuffer, myTraceByteSize*myBufferNumTraces );
+      }
+      else {
+        int numBytes = 118;
+        myFile->read( myBigBuffer, numBytes );
+        int nsamp   = 0;
+        if( myDoSwapEndianHdr ) {
+          nsamp = (int)(unsigned short)byte2Short_SWAP( (byte_t*)(&myBigBuffer[114]) );
+        }
+        else {
+          nsamp = (int)(unsigned short)byte2Short( (byte_t*)(&myBigBuffer[114]) );
+        }
+        myFile->read( &myBigBuffer[numBytes], (240-numBytes)+4*nsamp );
+      }
+      /*      else {  // Read in corrupted file
+        int numBytes = 118;
+        myFile->read( myBigBuffer, numBytes );
+        int nsamp   = 0;
+        int sampint = 0;
+        bool found = false;
+        do {        
+          if( myDoSwapEndianHdr ) {
+            nsamp = (int)(unsigned short)byte2Short_SWAP( (byte_t*)(&myBigBuffer[114]) );
+            sampint = (int)(unsigned short)byte2Short_SWAP( (byte_t*)(&myBigBuffer[116]) );
+          }
+          else {
+            nsamp = (int)(unsigned short)byte2Short( (byte_t*)(&myBigBuffer[114]) );
+            sampint = (int)(unsigned short)byte2Short( (byte_t*)(&myBigBuffer[116]) );
+          }
+          fprintf(stdout,"%4d  NSAMP = %d, SAMPINT = %d\n", myTEMPNumTracesRead, nsamp, sampint );
+          if( nsamp == 2277 && sampint == 4000 ) {
+            break;
+          }
+          for( int i = 0; i < 116; i++ ) {
+            myBigBuffer[i] = myBigBuffer[i+2];
+          }
+          myFile->read( &myBigBuffer[116], 2 );
+        } while( !found );
+        myFile->read( &myBigBuffer[118], (240-numBytes) + 2277*4 );
+        myTEMPNumTracesRead += 1;
+        } */
       //      fprintf(stdout,"SEGY %d %d  read: %d in\n", myBufferCurrentTrace, myCurrentTraceInFile, myCurrentTraceRead );
       //      fflush(stdout);
       if( myFile->fail() ) {
@@ -551,35 +600,35 @@ bool csSegyReader::getNextTrace( byte_t* sampleBufferOut, int nSamples ) {
     // Perform ENDIAN processing if necessary
     // Convert samples from endian format in input file to internal endian format
     if( myDoSwapEndianData ) {
-      if( myDataSampleFormat != csSegyHeader::DATA_FORMAT_INT16 ) {
+      if( myDataSampleFormat != cseis_segy::DATA_FORMAT_INT16 ) {
         for( int itrc = 0; itrc < myBufferNumTraces; itrc++ ) {
-          swapEndian4( myBigBuffer+myTraceByteSize*itrc+csSegyHeader::SIZE_TRCHDR, nSamples*mySampleByteSize );
+          swapEndian4( myBigBuffer+myTraceByteSize*itrc+cseis_segy::SIZE_TRCHDR, nSamples*mySampleByteSize );
         }
       }
       else {
         for( int itrc = 0; itrc < myBufferNumTraces; itrc++ ) {
-          swapEndian2( myBigBuffer+myTraceByteSize*itrc+csSegyHeader::SIZE_TRCHDR, nSamples*mySampleByteSize );
+          swapEndian2( myBigBuffer+myTraceByteSize*itrc+cseis_segy::SIZE_TRCHDR, nSamples*mySampleByteSize );
         }
       }
     }
 
     // Convert sample value format if necessary
-    if( myDataSampleFormat == csSegyHeader::DATA_FORMAT_IBM ) {
+    if( myDataSampleFormat == cseis_segy::DATA_FORMAT_IBM ) {
       for( int itrc = 0; itrc < myBufferNumTraces; itrc++ ) {
-        ibm2ieee( (unsigned char*)(myBigBuffer+myTraceByteSize*itrc+csSegyHeader::SIZE_TRCHDR), nSamples );
+        ibm2ieee( (unsigned char*)(myBigBuffer+myTraceByteSize*itrc+cseis_segy::SIZE_TRCHDR), nSamples );
       }
     }
-    else if( myDataSampleFormat == csSegyHeader::DATA_FORMAT_IEEE ) {
+    else if( myDataSampleFormat == cseis_segy::DATA_FORMAT_IEEE ) {
       // Nothing to be done here...
     }
-    else if( myDataSampleFormat== csSegyHeader::DATA_FORMAT_INT32 ) {
+    else if( myDataSampleFormat== cseis_segy::DATA_FORMAT_INT32 ) {
       for( int itrc = 0; itrc < myBufferNumTraces; itrc++ ) {
-        convertInt2Float( (int*)(myBigBuffer+myTraceByteSize*itrc+csSegyHeader::SIZE_TRCHDR), nSamples );
+        convertInt2Float( (int*)(myBigBuffer+myTraceByteSize*itrc+cseis_segy::SIZE_TRCHDR), nSamples );
       }
     }
-    else if( myDataSampleFormat== csSegyHeader::DATA_FORMAT_INT16 ) {
+    else if( myDataSampleFormat== cseis_segy::DATA_FORMAT_INT16 ) {
       //For 16bit files, only single trace is read in at once
-      convertShort2Float( (short*)(myBigBuffer+csSegyHeader::SIZE_TRCHDR), (float*)sampleBufferOut, nSamples );
+      convertShort2Float( (short*)(myBigBuffer+cseis_segy::SIZE_TRCHDR), (float*)sampleBufferOut, nSamples );
     }
   }
   //
@@ -587,8 +636,8 @@ bool csSegyReader::getNextTrace( byte_t* sampleBufferOut, int nSamples ) {
   //========================================================
 
   // Set output buffer
-  if( myDataSampleFormat != csSegyHeader::DATA_FORMAT_INT16 ) {
-    memcpy( sampleBufferOut, &myBigBuffer[myBufferCurrentTrace*myTraceByteSize+csSegyHeader::SIZE_TRCHDR], nSamples*mySampleByteSize );
+  if( myDataSampleFormat != cseis_segy::DATA_FORMAT_INT16 ) {
+    memcpy( sampleBufferOut, &myBigBuffer[myBufferCurrentTrace*myTraceByteSize+cseis_segy::SIZE_TRCHDR], nSamples*mySampleByteSize );
   }
 
   // Extract header values
@@ -635,16 +684,16 @@ bool csSegyReader::setHeaderToPeek(std::string const& headerName) {
     cseis_geolib::csSegyHeaderInfo const* info = myTrcHdrMap->header(idx);
     myHdrCheckInType     = info->inType;
     myHdrCheckOutType    = info->outType;
-    myHdrCheckByteSize   = info->byteSize;
     myHdrCheckByteOffset = info->byteLoc;
-    //    fprintf(stderr,"Header to peek  in:%2d  out:%2d  %s\n", info->inType, info->outType, headerName.c_str() );
     
-    if( myHdrCheckBuffer != NULL ) {
+    if( info->byteSize != myHdrCheckByteSize && myHdrCheckBuffer != NULL ) {
       delete [] myHdrCheckBuffer;
       myHdrCheckBuffer = NULL;
-    }    
-    myHdrCheckBuffer = new char[myHdrCheckByteSize];
-    //    fprintf(stderr,"setHeaderToPeek: %s  %d %d %d\n", headerName.c_str(), myHdrCheckInType, myHdrCheckByteSize, myHdrCheckByteOffset);
+    }
+    if( myHdrCheckBuffer == NULL ) {
+      myHdrCheckByteSize = info->byteSize;
+      myHdrCheckBuffer = new char[myHdrCheckByteSize];
+    }
     return true;
   }
 }
@@ -653,7 +702,9 @@ bool csSegyReader::setHeaderToPeek( std::string const& headerName, cseis_geolib:
   headerType = myHdrCheckOutType;
   return success;
 }
-
+int csSegyReader::getPeekByteOffset() const {
+  return myHdrCheckByteOffset;
+}
 bool csSegyReader::peekHeaderValue(cseis_geolib::csFlexHeader* hdrValue, int traceIndex) {
   if (myHdrCheckBuffer == NULL) {
     throw(cseis_geolib::csException("csSegyReader::peekHeaderValue: No header has been set for checking. This is a program bug in the calling function"));
@@ -750,8 +801,8 @@ bool csSegyReader::peek( int byteOffset, int byteSize, char* buffer, int traceIn
     throw( cseis_geolib::csException("csSegyReader::peek: File size unknown. This may be due to a compatibility problem of this compiled version of the program on the current platform." ) );
   }
 
-  myCurrentPeekByteOffset = byteOffset;
-  myCurrentPeekByteSize   = byteSize;
+  //  myCurrentPeekByteOffset = byteOffset;
+  //  myCurrentPeekByteSize   = byteSize;
 
   if( traceIndex < 0 && myCurrentTraceInFile >= myNumTraces && myBufferCurrentTrace == myBufferNumTraces ) {
     //    fprintf(stderr,"Seismic_ver: PEEK LAST TRACE  %d %d %d\n", myNumTraces, myBufferCurrentTrace, myBufferNumTraces );
@@ -764,8 +815,9 @@ bool csSegyReader::peek( int byteOffset, int byteSize, char* buffer, int traceIn
     csInt64_t bytePosRelative = 0;
   
     if( myPeekIsInProgress ) {      // subsequent peeks, jump from header block offset     
-      bytePosRelative = (csInt64_t)(traceIndex - myCurrentPeekTraceIndex) * (csInt64_t)myTraceByteSize - byteSize;
-    } 
+      bytePosRelative = (csInt64_t)(traceIndex - myCurrentPeekTraceIndex) * (csInt64_t)myTraceByteSize - myCurrentPeekByteSize + (byteOffset-myCurrentPeekByteOffset);
+      // OLD:                bytePosRelative = (csInt64_t)(traceIndex - myCurrentPeekTraceIndex) * (csInt64_t)myTraceByteSize - byteSize;
+    }
     else {                          // 1st peek, sets file pointer to offset in header block    
       bytePosRelative = (csInt64_t)(traceIndex - myCurrentTraceInFile) * (csInt64_t)myTraceByteSize + (csInt64_t)byteOffset;
       myPeekIsInProgress = true;
@@ -799,6 +851,9 @@ bool csSegyReader::peek( int byteOffset, int byteSize, char* buffer, int traceIn
   else {
     memcpy( buffer, &myBigBuffer[myBufferCurrentTrace*myTraceByteSize + byteOffset], byteSize );
   }
+
+  myCurrentPeekByteOffset = byteOffset;
+  myCurrentPeekByteSize   = byteSize;
 
   return success;
 }

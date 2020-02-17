@@ -423,7 +423,7 @@ no matching function for call to 'cseis_geolib::csTimeFunction<double>::set(csei
   if( myNumAllKeys > 0 ) {
     for( int iloc = 0; iloc < myNumLocations; iloc++ ) {
       if( keyValueList.at(iloc) != NULL ) {
-	delete [] keyValueList.at(iloc);
+        delete [] keyValueList.at(iloc);
       }
     }
   }
@@ -537,12 +537,14 @@ bool csTableNew::findInterpKeyLocation( double keyValue_in, int keyIndex, int& l
 void csTableNew::findInterpKeyLocation2D( double const* keyValues_in,
                                           int locStart, int locEnd,
                                           int& locLeftUp, int& locLeftDown,
-                                          int& locRightUp, int& locRightDown ) const
+                                          int& locRightUp, int& locRightDown,
+                                          double& weight1, double& weight2 ) const
 {
   findInterpKeyLocation2D( keyValues_in,
                            locStart, locEnd,
                            locLeftUp, locLeftDown,
                            locRightUp, locRightDown,
+                           weight1, weight2,
                            myNumKeys, myNumKeys+1 );
 }
 
@@ -550,13 +552,12 @@ void csTableNew::findInterpKeyLocation2D( double const* keyValues_in,
                                           int locStart, int locEnd,
                                           int& locLeftUp, int& locLeftDown,
                                           int& locRightUp, int& locRightDown,
+                                          double& weight1, double& weight2,
                                           int keyIndex1, int keyIndex2 ) const
 {
-  double weightDummy;
-
   locLeftUp    = locStart;
   locRightDown = locEnd;
-  findInterpKeyLocation( keyValues_in[keyIndex1], keyIndex1, locLeftUp, locRightDown, weightDummy );
+  findInterpKeyLocation( keyValues_in[keyIndex1], keyIndex1, locLeftUp, locRightDown, weight1 );
 
   // Save locations for later
   int loc1 = locLeftUp;
@@ -572,16 +573,16 @@ void csTableNew::findInterpKeyLocation2D( double const* keyValues_in,
   // First interpolation key value is constant over the range of possible locations
   // --> Simply search for second key value
   if( myKeyValues[keyIndex1][locLeftUp] == myKeyValues[keyIndex1][locRightDown] ) {
-    findInterpKeyLocation( keyValues_in[keyIndex2], keyIndex2, locLeftUp, locRightDown, weightDummy );
+    findInterpKeyLocation( keyValues_in[keyIndex2], keyIndex2, locLeftUp, locRightDown, weight2 );
     locRightUp   = locLeftUp;
     locLeftDown  = locRightDown;
   }
   else {
     locLeftDown = loc1;
-    findInterpKeyLocation( keyValues_in[keyIndex2], keyIndex2, locLeftUp, locLeftDown, weightDummy );
+    findInterpKeyLocation( keyValues_in[keyIndex2], keyIndex2, locLeftUp, locLeftDown, weight2 );
 
     locRightUp = loc2;
-    findInterpKeyLocation( keyValues_in[keyIndex2], keyIndex2, locRightUp, locRightDown, weightDummy );
+    findInterpKeyLocation( keyValues_in[keyIndex2], keyIndex2, locRightUp, locRightDown, weight2 );
   }
 }
 
@@ -682,8 +683,10 @@ double csTableNew::interpolate( int valueIndex, double const* keyValues_in ) con
     int locLeftDown  = 0;
     int locRightUp   = 0;
     int locRightDown = 0;
+    double weightLeft;
+    double weightRight;
 
-    findInterpKeyLocation2D( keyValues_in, locStart, locEnd, locLeftUp, locLeftDown, locRightUp, locRightDown );
+    findInterpKeyLocation2D( keyValues_in, locStart, locEnd, locLeftUp, locLeftDown, locRightUp, locRightDown, weightLeft, weightRight );
 
     int keyIndex1 = myNumKeys;
     int keyIndex2 = myNumKeys+1;
@@ -778,16 +781,16 @@ void csTableNew::dump() const {
     double* keyValues = new double[myNumAllKeys];
 
     for( int iloc = 0; iloc < myNumLocations; iloc++ ) {
-      fprintf(stdout,"Key ");
+      fprintf(stdout,"Keys at loc #%d: ", iloc);
       for( int ikey = 0; ikey < myNumAllKeys; ikey++ ) {
-        keyValues[ikey] = getKeyValue( ikey, iloc );
+        keyValues[ikey] = getKeyValue( iloc, ikey );
         fprintf(stdout," %12f", keyValues[ikey] );
       }
       fprintf(stdout,"\n");
       csTimeFunction<double> const* timeFunction = getFunction( keyValues );
       int numValues = timeFunction->numValues();
       int numSpatialValues = timeFunction->numSpatialValues();
-      fprintf(stdout,"Number of spatial values in function: %d\n", numSpatialValues );
+      fprintf(stdout,"Number of spatial values/values in function: %d / %d\n", numSpatialValues, numValues );
       for( int ival = 0; ival < numValues; ival++ ) {
         double time  = timeFunction->timeAtIndex( ival );
         fprintf(stdout," Time/Values #%-3d  %12f ", ival+1, time );
@@ -814,24 +817,24 @@ void csTableNew::dump() const {
 csTimeFunction<double> const* csTableNew::getFunction( double const* keyValues_in, bool dump ) const {
   int locLeft    = 0;
   int locRight   = myNumLocations-1;
-  double weightLoc = 1.0;
+  double weight1 = 1.0;
 
-  csTimeFunction<double> const* timeFuncLeft  = myTimeFunctions2D[locLeft];
-  csTimeFunction<double> const* timeFuncRight = myTimeFunctions2D[locRight];
+  csTimeFunction<double> const* timeFuncLeft  = myTimeFunctions2D[locLeft];  // Time function on 'left' side of requested location (key1 is smaller)
+  csTimeFunction<double> const* timeFuncRight = myTimeFunctions2D[locRight]; // Time function on 'right' side of requested location (key1 is larger)
   csTimeFunction<double> tempTimeFuncLeft( timeFuncLeft->numSpatialValues() );
   csTimeFunction<double> tempTimeFuncRight( timeFuncLeft->numSpatialValues() );
 
   if( myNumAllKeys > 0 ) {
     if( myNumInterpKeys == 0 ) { // No interpolation, need to find excact key
-      if( !findInterpKeyLocation( keyValues_in[myNumKeys-1], 0, locLeft, locRight, weightLoc ) ) {
+      if( !findInterpKeyLocation( keyValues_in[myNumKeys-1], 0, locLeft, locRight, weight1 ) ) {
         throw( csException("Key value not found: %f. Suggest to specify to interpolate key value.\n", keyValues_in[myNumKeys-1]) );
       }
       timeFuncLeft  = myTimeFunctions2D[locLeft];
       timeFuncRight = myTimeFunctions2D[locRight];
-      //      fprintf(stderr,"Locations: %f  %d %d   %f\n", keyValues_in[0], locLeft, locRight, weightLoc );
+      //      fprintf(stderr,"Locations: %f  %d %d   %f\n", keyValues_in[0], locLeft, locRight, weight1 );
     }
     else if( myNumInterpKeys == 1 ) {
-      findInterpKeyLocation( keyValues_in[myNumKeys], 0, locLeft, locRight, weightLoc );
+      findInterpKeyLocation( keyValues_in[myNumKeys], 0, locLeft, locRight, weight1 );
       timeFuncLeft  = myTimeFunctions2D[locLeft];
       timeFuncRight = myTimeFunctions2D[locRight];
       //      fprintf(stderr,"Locations: %f %f  %d %d\n", keyValues_in[0], keyValues_in[1], locLeft, locRight );
@@ -841,24 +844,30 @@ csTimeFunction<double> const* csTableNew::getFunction( double const* keyValues_i
       int locLeftDown;
       int locRightUp;
       int locRightDown;
-      findInterpKeyLocation2D( keyValues_in, locLeft, locRight, locLeftUp, locLeftDown, locRightUp, locRightDown );
+      double weight2;
 
-      timeFuncLeft  = &tempTimeFuncLeft;
+      // Step 1: Find four time functions surrounding the requested location
+      // Left: key1 smaller, Right: key1 larger, Up: key2 smaller, Down: key2 larger
+      findInterpKeyLocation2D( keyValues_in, locLeft, locRight, locLeftUp, locLeftDown, locRightUp, locRightDown, weight1, weight2 );
+
+      timeFuncLeft  = &tempTimeFuncLeft;  // Set link to internal, temporary time function, for last interpolation step
       timeFuncRight = &tempTimeFuncRight;
 
-      //      fprintf(stderr,"Locations: %f %f  %d %d %d %d\n", keyValues_in[0], keyValues_in[1], locLeftUp, locLeftDown, locRightUp, locRightDown );
-      interpolateTimeFunction( myTimeFunctions2D[locLeftUp], myTimeFunctions2D[locLeftDown], weightLoc, &tempTimeFuncLeft );
-      interpolateTimeFunction( myTimeFunctions2D[locRightUp], myTimeFunctions2D[locRightDown], weightLoc, &tempTimeFuncRight );
+      // Step 2a: Interpolate between up/down locations on left hand side, along key2 axis
+      interpolateTimeFunction( myTimeFunctions2D[locLeftUp], myTimeFunctions2D[locLeftDown], weight2, &tempTimeFuncLeft );
+      // Step 2b: Interpolate between up/down locations on right hand side, along key2 axis
+      interpolateTimeFunction( myTimeFunctions2D[locRightUp], myTimeFunctions2D[locRightDown], weight2, &tempTimeFuncRight );
       
     } // END more than one interpolated key
   } // END if myNumAllKeys > 0
 
-  interpolateTimeFunction( timeFuncLeft, timeFuncRight, weightLoc, myCurrentTimeFunction );
+  // Step X: Interpolate between left and right sides, along key1 axis
+  interpolateTimeFunction( timeFuncLeft, timeFuncRight, weight1, myCurrentTimeFunction );
 
   if( dump ) {
     for(int i = 0; i < myCurrentTimeFunction->numValues(); i++ ) {
       for( int ikey = 0; ikey < myNumAllKeys; ikey++ ) {
-	fprintf(stdout,"%f ", keyValues_in[ikey] );
+        fprintf(stdout,"%f ", keyValues_in[ikey] );
       }
       fprintf(stdout,"%f %f\n",myCurrentTimeFunction->timeAtIndex( i ), myCurrentTimeFunction->valueAtIndex( i ) );
     }
@@ -868,7 +877,7 @@ csTimeFunction<double> const* csTableNew::getFunction( double const* keyValues_i
 }
 
 void csTableNew::interpolateTimeFunction( csTimeFunction<double> const* timeFuncLeft, csTimeFunction<double> const* timeFuncRight,
-					  double weightLoc, csTimeFunction<double>* newTimeFunction ) const
+                                          double weightLoc, csTimeFunction<double>* newTimeFunction ) const
 {
   csVector<double> timeList;
   int timeIndexLeft  = 0;

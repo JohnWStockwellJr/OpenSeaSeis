@@ -230,7 +230,7 @@ float getQuadZeroSample( float const* traceData, int midSamp, int numSamples )
  * Sinc function
  * sinc(x) = sin(pi*x)/(pi*x)
  */
-template <typename T> void sincFunction( T value ) {
+template <typename T> T sincFunction( T value ) {
   if( value != 0.0 ) {
     T tmp = M_PI * value;
     return sin(tmp)/tmp;

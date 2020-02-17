@@ -18,6 +18,10 @@ extern "C" {
                int* iii2, int& error,
                int& MAXPOINTS_INT, int& MAXP_XGRID, int& MAXP_ZGRID );
 
+  void get_z_( float& xin, float* x_int, float* z_int, float* d_int, float*c_int, float* b_int, int& npoints,
+               float& zout, int& actp,
+               int& MAXPOINTS_INT );
+
   void velocity_( float& x_source, float& z_source, int& nx_grid, int& nz_grid,
                   float* x_grid, float* z_grid, float* v_grid,
                   int& veltype, float& vpvs_ratio, int& lay_source,
@@ -31,7 +35,7 @@ extern "C" {
                  int& MAXP_XGRID, int& MAXP_ZGRID);
  
   void sortraycode_( int* numCodeSteps, int& numCodes, int* codeStepPlot, int& f_out,
-                     int& int_source, int& lay_source, int* code, int* hold, int& error,
+                     int& int_source, int& lay_source, int* code, int* hold, int& flag_dup, int& error,
                      int& maxNumCodeSteps);
 
   void check_sou_loc_( float* x_int, float* z_int, float* d_int, float* c_int, float* b_int, int* numPointsInt,
@@ -54,7 +58,7 @@ extern "C" {
                int& maxNumReceivers, int& maxNumCodeSteps,
                int& maxPointsXGrid, int& maxPointsZGrid, int& maxAngles2Point,
                int& numIntAll, int& maxPointsInt, int& maxNumArrivals,
-               float* time, float* amplitude, float* phase, int& comp_out, int& numTimeCodes, float* ccp );
+               float* time, float* amplitude, float* phase, float* angle, int& comp_out, int& numTimeCodes, float* ccp );
 }
 
 int wfront_check_params(

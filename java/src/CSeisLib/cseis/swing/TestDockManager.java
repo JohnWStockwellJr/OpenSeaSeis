@@ -28,11 +28,12 @@ import javax.swing.JTextField;
 /**
  * Class to test csDockPaneManager.
  */
+@SuppressWarnings("serial")
 public class TestDockManager extends JFrame {
   public TestDockManager() {
     super("Test dockable manager");
     final csDockPaneManager manager = new csDockPaneManager();
-    final JComboBox combo = new JComboBox();
+    final JComboBox<String> combo = new JComboBox<String>();
     combo.addItem( "One row" );
     combo.addItem( "One col" );
     combo.addItem( "Two rows" );

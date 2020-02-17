@@ -65,6 +65,9 @@ public:
     bool  thisIsRev0;   // True if this is a revision 0 SEGD file
     bool  readAuxTraces;
     bool  numSamplesAddOne;
+    bool  overrideTraceHdrExtensions;
+    int numTraceHdrExtensions;
+    int numBytes_genhdr2_extHdrBlocks;
   };
   struct bytePosition {
     int generalHdr1;
@@ -160,6 +163,9 @@ public:
   csExtendedHeader const* extendedHdr() const {
     return myExtendedHdr;
   }
+  csTraceHeaderExtension const* traceHdrExtension() const {
+    return myTraceHdrExtension;
+  }
   csSegdHdrValues const* hdrValues() const {
     return mySegdHdrValues;
   }
@@ -170,6 +176,7 @@ public:
   void retrieveChanSetInfo( int chanSetIndex, commonChanSetStruct& info ) const;
   csGeneralHeader1 const* generalHdr1() const { return myGeneralHdr1; }
   csGeneralHeader2 const* generalHdr2() const { return myGeneralHdr2; }
+  bool readCharHdr( char* charHdr, int numBytes );
 private:
   /// 
   void setDefaultConfiguration();

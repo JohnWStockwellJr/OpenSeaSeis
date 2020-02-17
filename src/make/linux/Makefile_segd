@@ -11,6 +11,7 @@ OBJ_SEGD = $(OBJDIR)/csExternalHeader.o \
 	  $(OBJDIR)/csSegdHeader_GEORES.o \
 	  $(OBJDIR)/csSegdHeader_SEAL.o \
 	  $(OBJDIR)/csSegdHeader_DIGISTREAMER.o \
+	  $(OBJDIR)/csSegdHeader_FAIRFIELD.o \
 	  $(OBJDIR)/csNavInterface.o \
 	  $(OBJDIR)/csSegdBuffer.o \
 	  $(OBJDIR)/csStandardSegdHeader.o \
@@ -64,6 +65,9 @@ $(OBJDIR)/csNavHeader.o:	$(SEGDDIR)/csNavHeader.cc $(SEGDDIR)/csNavHeader.h
 
 $(OBJDIR)/csSegdHeader_GEORES.o:	$(SEGDDIR)/csSegdHeader_GEORES.cc $(SEGDDIR)/csSegdHeader_GEORES.h
 			$(CPP) $(SEGDDIR)/csSegdHeader_GEORES.cc -c -o $(OBJDIR)/csSegdHeader_GEORES.o $(CXXFLAGS_SEGD)
+
+$(OBJDIR)/csSegdHeader_FAIRFIELD.o:	$(SEGDDIR)/csSegdHeader_FAIRFIELD.cc $(SEGDDIR)/csSegdHeader_FAIRFIELD.h
+			$(CPP) $(SEGDDIR)/csSegdHeader_FAIRFIELD.cc -c -o $(OBJDIR)/csSegdHeader_FAIRFIELD.o $(CXXFLAGS_SEGD)
 
 $(OBJDIR)/csStandardSegdHeader.o:	$(SEGDDIR)/csStandardSegdHeader.cc $(SEGDDIR)/csStandardSegdHeader.h
 			$(CPP) $(SEGDDIR)/csStandardSegdHeader.cc -c -o $(OBJDIR)/csStandardSegdHeader.o $(CXXFLAGS_SEGD)

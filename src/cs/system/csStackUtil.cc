@@ -20,17 +20,13 @@ void csStackUtil::init( int nSamples, float normFactor, int outputOption ) {
   myOutputOption = outputOption;
 
   myNormTimeVariant = false;
-  //  myNormTrace = NULL;
   myOutputNormTrace = false;
   myNormTraceList = NULL;
   myNormTraceIndexMap = NULL;
   myHdrId_keyValue = -1;
+  myZeroThreshold = 0;
 }
 csStackUtil::~csStackUtil() {
-  //  if( myNormTrace != NULL ) {
-  //  delete [] myNormTrace;
-  //   myNormTrace = NULL;
-  // }
   if( myNormTraceList != NULL ) {
     for( int i = 0; i < myNormTraceList->size(); i++ ) {
       delete [] myNormTraceList->at(i);
@@ -46,45 +42,82 @@ csStackUtil::~csStackUtil() {
 void csStackUtil::setOutputNormTrace( bool doOutputNormTrace ) {
   myOutputNormTrace = doOutputNormTrace;
 }
-void csStackUtil::setTimeVariantNorm( bool doTimeVariantNorm, int hdrId_keyValue ) {
+void csStackUtil::setTimeVariantNorm( bool doTimeVariantNorm, int hdrId_keyValue, float zeroThreshold ) {
   myNormTimeVariant = doTimeVariantNorm;
   myHdrId_keyValue  = hdrId_keyValue;
+  myZeroThreshold = zeroThreshold;
   if( myNormTimeVariant ) {
-    //    myNormTrace = new int[myNumSamples];
-    //    for( int isamp = 0; isamp < myNumSamples; isamp++ ) {
-    //  myNormTrace[isamp] = 0;
-    // }
     myNormTraceList = new cseis_geolib::csVector<int*>();
     myNormTraceIndexMap = new std::map<int,int>();
   }
 }
-//-----------------------------------------------------------
-//
-void csStackUtil::stackTraces( csTraceGather* traceGather ) {
-  int nTraces = traceGather->numTraces();
-  if( nTraces == 0 ) return;
-  csTrace* traceOut = traceGather->trace(0);
-
-  float* samplesOut = traceGather->trace(0)->getTraceSamples();
-  for( int itrc = 1; itrc < nTraces; itrc++ ) {
-    float const* samplesIn = traceGather->trace(itrc)->getTraceSamples();
-    for( int isamp = 0; isamp < myNumSamples; isamp++ ) {
-      samplesOut[isamp] += samplesIn[isamp];
+void csStackUtil::clearNormTrace_internal() {
+  for( int i = 0; i < myNormTraceList->size(); i++ ) {
+    int* normTrace = myNormTraceList->at(i);
+    if( normTrace != NULL ) delete [] normTrace;
+    //for( int isamp = 0; isamp < myNumSamples; isamp++ ) {
+    //  normTrace[isamp] = 0;
+    // }
+  }
+  myNormTraceList->clear();
+  myNormTraceIndexMap->clear();
+}
+int* csStackUtil::getNormTrace_internal( int keyValue, bool createNew ) {
+  std::map<int,int>::iterator iter = myNormTraceIndexMap->find( keyValue );
+  int* normTrace = NULL;
+  if( iter == myNormTraceIndexMap->end() ) {
+    if( createNew ) {
+      // Create new coverage trace:
+      normTrace = new int[myNumSamples];
+      for( int isamp = 0; isamp < myNumSamples; isamp++ ) {
+        normTrace[isamp] = 0;
+      }
+      myNormTraceIndexMap->insert( std::pair<int,int>( keyValue, myNormTraceList->size() ) );
+      myNormTraceList->insertEnd(normTrace);
     }
   }
-  if( myNormTimeVariant ) {
+  else {
+    normTrace = myNormTraceList->at( iter->second );
+  }
+  return normTrace;
+}
+//-----------------------------------------------------------
+// Stack all input traces into first input trace (=output trace)
+//
+void csStackUtil::stackAndNormalizeTraces( csTraceGather* traceGather ) {
+  int nTraces = traceGather->numTraces();
+  if( nTraces == 0 ) return;
+
+  csTrace* traceOut = traceGather->trace(0);
+  float* samplesOut = traceOut->getTraceSamples();
+
+  if( !myNormTimeVariant ) {
     for( int itrc = 1; itrc < nTraces; itrc++ ) {
       float const* samplesIn = traceGather->trace(itrc)->getTraceSamples();
-      int keyValue = 0;
-      if( myHdrId_keyValue >= 0 ) keyValue = traceGather->trace(itrc)->getTraceHeader()->intValue(myHdrId_keyValue);
-      std::map<int,int>::iterator iter = myNormTraceIndexMap->find( keyValue );
-      if( iter == myNormTraceIndexMap->end() ) {
-        throw( cseis_geolib::csException("csStackUtil::stackTraces(): Key value not found: %d\n", keyValue) );
-        return; // Oops!
-      }
-      int* normTrace = myNormTraceList->at( iter->second );
       for( int isamp = 0; isamp < myNumSamples; isamp++ ) {
-        if( samplesIn[isamp] != 0.0 ) normTrace[isamp] += 1;
+        samplesOut[isamp] += samplesIn[isamp];
+      }
+    }
+  }
+  else {
+    int keyValue = 0;
+    int* normTrace = getNormTrace_internal( keyValue, true );
+    // 1) Loop through samples in output trace (= first input trace)
+    for( int isamp = 0; isamp < myNumSamples; isamp++ ) {
+      if( fabs(samplesOut[isamp]) > myZeroThreshold ) {
+        normTrace[isamp] += 1;
+      }
+      else {
+        samplesOut[isamp] = 0;
+      }
+    }
+    for( int itrc = 1; itrc < nTraces; itrc++ ) {
+      float const* samplesIn = traceGather->trace(itrc)->getTraceSamples();
+      for( int isamp = 0; isamp < myNumSamples; isamp++ ) {
+        if( fabs(samplesIn[isamp]) > myZeroThreshold ) {
+          samplesOut[isamp] += samplesIn[isamp];
+          normTrace[isamp]  += 1;
+        }
       }
     }
   }
@@ -101,6 +134,7 @@ void csStackUtil::stackTraces( csTraceGather* traceGather ) {
   }
   normStackedTrace( traceOut, nTraces );
   traceGather->freeTraces( 1, nTraces-1 );
+  if( myNormTimeVariant ) clearNormTrace_internal();
 }
 //-----------------------------------------------------------
 //
@@ -110,11 +144,7 @@ void csStackUtil::stackTraceOld( csTrace* stackedTrace, csTrace const* traceIn )
   for( int isamp = 0; isamp < myNumSamples; isamp++ ) {
     samplesOut[isamp] += samplesIn[isamp];
   }
-  //  if( myNormTimeVariant ) {
-  //  for( int isamp = 0; isamp < myNumSamples; isamp++ ) {
-  //    if( samplesIn[isamp] != 0.0 ) myNormTrace[isamp] += 1;
-  //  }
-  //  }
+
   if( myOutputOption == OUTPUT_FIRST ) {
     // Nothing to be done
   }
@@ -132,32 +162,17 @@ void csStackUtil::stackTrace( csTrace* stackedTrace, csTrace const* traceIn ) {
   stackTrace( stackedTrace, traceIn, false );
 }
 void csStackUtil::stackTrace( csTrace* stackedTrace, csTrace const* traceIn, bool newTrace ) {
-  // If this is a new trace, no need to stack in data samples and set headers. Otherwise, yes:
-  if( !newTrace ) stackTraceOld( stackedTrace, traceIn );
   if( myNormTimeVariant ) {
     int keyValue = 0;
     if( myHdrId_keyValue >= 0 ) keyValue = traceIn->getTraceHeader()->intValue(myHdrId_keyValue);
-    
-    std::map<int,int>::iterator iter = myNormTraceIndexMap->find( keyValue );
-    int* normTrace = NULL;
-    if( iter != myNormTraceIndexMap->end() ) {
-      // Key value already exists, use existing coverage trace
-      normTrace = myNormTraceList->at( iter->second );
-    }
-    else { // Create new coverage trace:
-      normTrace = new int[myNumSamples];
-      for( int isamp = 0; isamp < myNumSamples; isamp++ ) {
-        normTrace[isamp] = 0;
-      }
-      myNormTraceIndexMap->insert( std::pair<int,int>( keyValue, myNormTraceList->size() ) );
-      myNormTraceList->insertEnd(normTrace);
-    }
+    int* normTrace = getNormTrace_internal( keyValue, true );
     float const* samplesIn = traceIn->getTraceSamples();
     for( int isamp = 0; isamp < myNumSamples; isamp++ ) {
-      if( samplesIn[isamp] != 0.0 ) normTrace[isamp] += 1;
+      if( fabs(samplesIn[isamp]) > myZeroThreshold ) normTrace[isamp] += 1;
     }
-    //    fprintf(stdout,"STACK %d %d   %f   %d\n", myNormTraceIndexMap->size(), iter->second, keyValue, normTrace[1000] );
   }
+  // If this is a new trace, no need to stack in data samples and set headers. Otherwise, yes:
+  if( !newTrace ) stackTraceOld( stackedTrace, traceIn );
 }
 //-----------------------------------------------------------
 //
@@ -182,18 +197,6 @@ void csStackUtil::normStackedTraceOld( csTrace* trace, int nTraces ) {
       samplesOut[isamp] /= norm;
     }
   }
-  //  else if( !myOutputNormTrace ) {
-  //  for( int isamp = 0; isamp < myNumSamples; isamp++ ) {
-  //    if( myNormTrace[isamp] != 0 ) {
-  //      samplesOut[isamp] /= pow(myNormTrace[isamp],myNormFactor);
-  //    }
-  //  }
-  // }
-  //else {
-  //  for( int isamp = 0; isamp < myNumSamples; isamp++ ) {
-  //    samplesOut[isamp] = myNormTrace[isamp];
-  //  }
-  // }
   
   if( myOutputOption == OUTPUT_AVERAGE ) {
     normHeaders( trace->getTraceHeader(), nTraces );
@@ -205,12 +208,17 @@ void csStackUtil::normStackedTrace( csTrace* trace, int nTraces ) {
     float* samplesOut = trace->getTraceSamples();
     int keyValue = 0;
     if( myHdrId_keyValue >= 0 ) keyValue = trace->getTraceHeader()->intValue(myHdrId_keyValue);
-    std::map<int,int>::iterator iter = myNormTraceIndexMap->find( keyValue );
-    if( iter == myNormTraceIndexMap->end() ) {
+    int* normTrace = getNormTrace_internal( keyValue, false );
+    if( normTrace == NULL ) {
       throw( cseis_geolib::csException("csStackUtil::normStackedTrace(): Key value not found: %d\n", keyValue) );
-      return; // Oops!
     }
-    int* normTrace = myNormTraceList->at( iter->second );
+
+    //    std::map<int,int>::iterator iter = myNormTraceIndexMap->find( keyValue );
+    //  if( iter == myNormTraceIndexMap->end() ) {
+    //   throw( cseis_geolib::csException("csStackUtil::normStackedTrace(): Key value not found: %d\n", keyValue) );
+    //   return; // Oops!
+    //  }
+    //  int* normTrace = myNormTraceList->at( iter->second );
     if( !myOutputNormTrace ) {
       for( int isamp = 0; isamp < myNumSamples; isamp++ ) {
         if( normTrace[isamp] != 0 ) {
@@ -219,7 +227,6 @@ void csStackUtil::normStackedTrace( csTrace* trace, int nTraces ) {
       }
     }
     else {
-      //      fprintf(stdout,"NORM %d %d   %f   %d\n", myNormTraceList->size(), iter->second, keyValue, normTrace[1000]);
       for( int isamp = 0; isamp < myNumSamples; isamp++ ) {
         samplesOut[isamp] = normTrace[isamp];
       }

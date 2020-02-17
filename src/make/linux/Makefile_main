@@ -1,29 +1,27 @@
 
 OBJ_MAIN =  $(OBJDIR)/cseis_submit.o \
-			$(OBJDIR)/csRunManager.o \
-			$(OBJDIR)/csHelp.o
+			$(OBJDIR)/csRunManager.o
 			
-OBJ_HELP =  $(OBJDIR)/cseis_submit.o \
-			$(OBJDIR)/csHelp.o
+OBJ_HELP =  $(OBJDIR)/csHelp.o
 
-CXXFLAGS_MAIN = $(COMMON_FLAGS) -I"src/cs/geolib" -I"src/cs/system"
+CXXFLAGS_MAIN = -fPIC $(COMMON_FLAGS) -I"src/cs/geolib" -I"src/cs/system"
 
 MAIN = $(LIBDIR)/seaseis
-HELP = $(LIBDIR)/seaseis_help
+LIB_HELP = libcseis_help.so
 
-default: $(MAIN)
+default: $(LIBDIR)/$(LIB_HELP) $(MAIN)
 
 clean:
 	${RM} $(OBJ_MAIN) $(OBJ_HELP)
 
 bleach: clean
-	${RM} $(MAIN)
+	${RM} $(MAIN) $(LIBDIR)/$(LIB_HELP)
 
 $(MAIN): $(OBJ_MAIN)
-	$(CPP) $(GLOBAL_FLAGS) $(OBJ_MAIN) -Wl,-rpath,$(LIBDIR) -o "$(MAIN)" -L$(LIBDIR) -lgeolib -lcseis_system -ldl -lsegy -lm
+	$(CPP) $(LD_FLAGS) $(OBJ_MAIN) -Wl,-rpath=$(LIBDIR) -o "$(MAIN)" -L$(LIBDIR) -lgeolib -lcseis_system -lcseis_help -lsegy -ldl -lm
 
-$(HELP): $(OBJ_HELP)
-	$(CPP) $(GLOBAL_FLAGS) $(OBJ_HELP) -Wl,-rpath,$(LIBDIR) -o "$(LIBDIR)/seaseis_help" -L$(LIBDIR) -lgeolib -lcseis_system -lsegy -ldl
+$(LIBDIR)/$(LIB_HELP): $(OBJ_HELP)
+	$(CPP) $(LD_FLAGS) -fPIC -shared -Wl,-$(SONAME),$(LIB_HELP) -o $(LIBDIR)/$(LIB_HELP) $(OBJ_HELP) -L$(LIBDIR) -lc -lgeolib -lsegy -lcseis_system
 
 $(OBJDIR)/csRunManager.o: src/cs/system/csRunManager.cc   src/cs/system/csRunManager.h
 	$(CPP) -c src/cs/system/csRunManager.cc -o $(OBJDIR)/csRunManager.o $(CXXFLAGS_MAIN)
@@ -32,4 +30,4 @@ $(OBJDIR)/cseis_submit.o: src/cs/system/cseis_submit.cc            src/cs/system
 	$(CPP) -c src/cs/system/cseis_submit.cc -o $(OBJDIR)/cseis_submit.o $(CXXFLAGS_MAIN)
 
 $(OBJDIR)/csHelp.o: src/cs/system/csHelp.cc src/cs/system/csHelp.h
-	$(CPP) -fPIC -c src/cs/system/csHelp.cc -o $(OBJDIR)/csHelp.o $(CXXFLAGS_MAIN) -I"src/cs/segy"
+	$(CPP) -c src/cs/system/csHelp.cc -o $(OBJDIR)/csHelp.o $(CXXFLAGS_MAIN) -I"src/cs/segy"

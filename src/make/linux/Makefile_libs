@@ -35,11 +35,23 @@ OBJ_GEOLIB  = $(OBJDIR)/geolib_endian.o \
 			$(OBJDIR)/geolib_math.o \
 			$(OBJDIR)/csGeolibUtils.o \
 			$(OBJDIR)/csFFTTools.o \
+			$(OBJDIR)/csFFTTools_ORIG.o \
 			$(OBJDIR)/csFFTDesignature.o \
 			$(OBJDIR)/csSortManager.o \
 			$(OBJDIR)/csIOSelection.o \
 			$(OBJDIR)/csIReader.o \
-			$(OBJDIR)/csInterpolation.o
+			$(OBJDIR)/csInterpolation.o \
+			$(OBJDIR)/csInterpolation2D.o \
+			$(OBJDIR)/csSplineInterpolation.o \
+			$(OBJDIR)/csSplineInterpolation2D.o \
+			$(OBJDIR)/csPoint2D.o \
+			$(OBJDIR)/csPoint3D.o \
+			$(OBJDIR)/csLine3D.o \
+			$(OBJDIR)/csProfile.o \
+			$(OBJDIR)/csPlane3D.o \
+			$(OBJDIR)/csReflector2D.o \
+			$(OBJDIR)/csFFT.o \
+			$(OBJDIR)/csTaper.o
 
 OBJ_SYSTEM  = $(OBJDIR)/csTrace.o \
 			$(OBJDIR)/csTracePool.o \
@@ -66,6 +78,7 @@ OBJ_SYSTEM  = $(OBJDIR)/csTrace.o \
 			$(OBJDIR)/csSeismicReader.o \
 			$(OBJDIR)/csStackUtil.o \
 			$(OBJDIR)/csTableManager.o \
+			$(OBJDIR)/csRandomDataReader.o \
 			$(OBJDIR)/csTableManagerNew.o
 
 OBJ_IO = $(OBJDIR)/csSeismicWriter_ver.o \
@@ -88,7 +101,8 @@ CXXFLAGS_SYSTEM = -fPIC $(COMMON_FLAGS) -I"src/cs/geolib" -I"src/cs/io" -I"src/c
 
 LIB_GEOLIB = libgeolib.so
 LIB_SYSTEM = libcseis_system.so
- 
+LIB_SEGY   = libsegy.so
+
 default: $(LIBDIR)/$(LIB_GEOLIB) $(LIBDIR)/$(LIB_SYSTEM)
 
 clean:
@@ -98,7 +112,7 @@ bleach: clean
 	${RM} $(LIBDIR)/$(LIB_GEOLIB) $(LIBDIR)/$(LIB_SYSTEM)
 
 $(LIBDIR)/$(LIB_GEOLIB): $(OBJ_GEOLIB)
-	$(CPP) $(GLOBAL_FLAGS) -shared -Wl,-$(SONAME),$(LIB_GEOLIB) -o $(LIBDIR)/$(LIB_GEOLIB) $(OBJ_GEOLIB) -lc
+	$(CPP) $(GLOBAL_FLAGS) -shared -Wl,-$(SONAME),$(LIB_GEOLIB) -o $(LIBDIR)/$(LIB_GEOLIB) $(OBJ_GEOLIB) $(LIB_FLAGS)
 
 $(LIBDIR)/$(LIB_SYSTEM): $(OBJ_SYSTEM) $(OBJ_IO) $(OBJ_METHODS)
 	$(CPP) $(GLOBAL_FLAGS) -shared -Wl,-$(SONAME),$(LIB_SYSTEM) -o $(LIBDIR)/$(LIB_SYSTEM) $(OBJ_SYSTEM) $(OBJ_IO) $(OBJ_METHODS) -L$(LIBDIR) -lc -lgeolib -ldl
@@ -171,6 +185,12 @@ $(OBJDIR)/csGeolibUtils.o: src/cs/geolib/csGeolibUtils.cc src/cs/geolib/csGeolib
 $(OBJDIR)/csFFTTools.o: src/cs/geolib/csFFTTools.cc src/cs/geolib/csFFTTools.h
 	$(CPP) -c src/cs/geolib/csFFTTools.cc -o $(OBJDIR)/csFFTTools.o $(CXXFLAGS_GEOLIB)
 
+$(OBJDIR)/csFFTTools_ORIG.o: src/cs/geolib/csFFTTools_ORIG.cc src/cs/geolib/csFFTTools_ORIG.h
+	$(CPP) -c src/cs/geolib/csFFTTools_ORIG.cc -o $(OBJDIR)/csFFTTools_ORIG.o $(CXXFLAGS_GEOLIB)
+
+$(OBJDIR)/csFFT.o: src/cs/geolib/csFFT.cc src/cs/geolib/csFFT.h
+	$(CPP) -c src/cs/geolib/csFFT.cc -o $(OBJDIR)/csFFT.o $(CXXFLAGS_GEOLIB)
+
 $(OBJDIR)/csFFTDesignature.o: src/cs/geolib/csFFTDesignature.cc src/cs/geolib/csFFTDesignature.h
 	$(CPP) -c src/cs/geolib/csFFTDesignature.cc -o $(OBJDIR)/csFFTDesignature.o $(CXXFLAGS_GEOLIB)
 
@@ -197,6 +217,36 @@ $(OBJDIR)/csIReader.o: src/cs/geolib/csIReader.cc   src/cs/geolib/csIReader.h
 
 $(OBJDIR)/csInterpolation.o: src/cs/geolib/csInterpolation.cc src/cs/geolib/csInterpolation.h
 	$(CPP) -c src/cs/geolib/csInterpolation.cc -o $(OBJDIR)/csInterpolation.o $(CXXFLAGS_GEOLIB)	
+
+$(OBJDIR)/csInterpolation2D.o: src/cs/geolib/csInterpolation2D.cc src/cs/geolib/csInterpolation2D.h
+	$(CPP) -c src/cs/geolib/csInterpolation2D.cc -o $(OBJDIR)/csInterpolation2D.o $(CXXFLAGS_GEOLIB)	
+
+$(OBJDIR)/csSplineInterpolation.o: src/cs/geolib/csSplineInterpolation.cc src/cs/geolib/csSplineInterpolation.h
+	$(CPP) -c src/cs/geolib/csSplineInterpolation.cc -o $(OBJDIR)/csSplineInterpolation.o $(CXXFLAGS_GEOLIB)	
+
+$(OBJDIR)/csSplineInterpolation2D.o: src/cs/geolib/csSplineInterpolation2D.cc src/cs/geolib/csSplineInterpolation2D.h
+	$(CPP) -c src/cs/geolib/csSplineInterpolation2D.cc -o $(OBJDIR)/csSplineInterpolation2D.o $(CXXFLAGS_GEOLIB)	
+
+$(OBJDIR)/csPoint2D.o: src/cs/geolib/csPoint2D.cc src/cs/geolib/csPoint2D.h
+	$(CPP) -c src/cs/geolib/csPoint2D.cc -o $(OBJDIR)/csPoint2D.o $(CXXFLAGS_GEOLIB)	
+
+$(OBJDIR)/csPoint3D.o: src/cs/geolib/csPoint3D.cc src/cs/geolib/csPoint3D.h
+	$(CPP) -c src/cs/geolib/csPoint3D.cc -o $(OBJDIR)/csPoint3D.o $(CXXFLAGS_GEOLIB)	
+
+$(OBJDIR)/csLine3D.o: src/cs/geolib/csLine3D.cc src/cs/geolib/csLine3D.h
+	$(CPP) -c src/cs/geolib/csLine3D.cc -o $(OBJDIR)/csLine3D.o $(CXXFLAGS_GEOLIB)	
+
+$(OBJDIR)/csProfile.o: src/cs/geolib/csProfile.cc src/cs/geolib/csProfile.h
+	$(CPP) -c src/cs/geolib/csProfile.cc -o $(OBJDIR)/csProfile.o $(CXXFLAGS_GEOLIB)	
+
+$(OBJDIR)/csPlane3D.o: src/cs/geolib/csPlane3D.cc src/cs/geolib/csPlane3D.h
+	$(CPP) -c src/cs/geolib/csPlane3D.cc -o $(OBJDIR)/csPlane3D.o $(CXXFLAGS_GEOLIB)	
+
+$(OBJDIR)/csReflector2D.o: src/cs/geolib/csReflector2D.cc src/cs/geolib/csReflector2D.h
+	$(CPP) -c src/cs/geolib/csReflector2D.cc -o $(OBJDIR)/csReflector2D.o $(CXXFLAGS_GEOLIB)	
+
+$(OBJDIR)/csTaper.o: src/cs/geolib/csTaper.cc src/cs/geolib/csTaper.h
+	$(CPP) -c src/cs/geolib/csTaper.cc -o $(OBJDIR)/csTaper.o $(CXXFLAGS_GEOLIB)	
 
 $(OBJDIR)/methods_orientation.o: src/cs/geolib/methods_orientation.cc
 	$(CPP) -c src/cs/geolib/methods_orientation.cc -o $(OBJDIR)/methods_orientation.o $(CXXFLAGS_GEOLIB)
@@ -290,6 +340,9 @@ $(OBJDIR)/csLogWriter.o: src/cs/system/csLogWriter.cc src/cs/system/csLogWriter.
 $(OBJDIR)/csStackUtil.o: src/cs/system/csStackUtil.cc src/cs/system/csStackUtil.h      
 	$(CPP) -c src/cs/system/csStackUtil.cc -o $(OBJDIR)/csStackUtil.o $(CXXFLAGS_SYSTEM)
 
+$(OBJDIR)/csRandomDataReader.o: src/cs/system/csRandomDataReader.cc src/cs/system/csRandomDataReader.h      
+	$(CPP) -c src/cs/system/csRandomDataReader.cc -o $(OBJDIR)/csRandomDataReader.o $(CXXFLAGS_SYSTEM) -I"src/cs/segy"
+
 $(OBJDIR)/csInitExecEnv.o: src/cs/system/csInitExecEnv.cc   src/cs/system/csInitExecEnv.h
 	$(CPP) -c src/cs/system/csInitExecEnv.cc -o $(OBJDIR)/csInitExecEnv.o $(CXXFLAGS_SYSTEM)
 
@@ -306,7 +359,7 @@ $(OBJDIR)/csSeismicWriter.o: src/cs/system/csSeismicWriter.cc   src/cs/system/cs
 	$(CPP) -c src/cs/system/csSeismicWriter.cc -o $(OBJDIR)/csSeismicWriter.o $(CXXFLAGS_SYSTEM)
 
 $(OBJDIR)/csMethodRetriever.o: src/cs/system/csMethodRetriever.cc   src/cs/system/csMethodRetriever.h src/cs/system/cseis_defines.h   src/cs/geolib/geolib_defines.h $(LIBDIR)/include/cseis_modules.h
-	$(CPP) -c src/cs/system/csMethodRetriever.cc -o $(OBJDIR)/csMethodRetriever.o $(CSEIS_MODULE_INCS) $(CXXFLAGS_SYSTEM)
+	$(CPP) -c src/cs/system/csMethodRetriever.cc -o $(OBJDIR)/csMethodRetriever.o -I${LIBDIR}/include $(CXXFLAGS_SYSTEM)
 
 $(LIBDIR)/include/cseis_modules.h: src/include/cseis_modules.txt
 	${CSEISDIR_SRCROOT}/src/make/linux/prepare_cseis_build.sh

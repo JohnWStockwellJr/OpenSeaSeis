@@ -11,8 +11,14 @@ namespace cseis_geolib {
  */
 class csInterpolation {
  public:
+  static const int METHOD_LIN  = 30;
+  static const int METHOD_QUAD = 31;
+  static const int METHOD_SINC = 32;
+
+ public:
   csInterpolation( int numSamples, float sampleInt );
   csInterpolation( int numSamples, float sampleInt, int numCoefficients );
+  csInterpolation( int numSamples, int interpolationMethod, float sampleInt );
   ~csInterpolation();
 
   void setExtrapolation( float valLeft, float valRight );
@@ -28,6 +34,8 @@ class csInterpolation {
     process( sampleIntSkew, xVal1, samplesIn, sIndexOut, samplesOut, myNumSamples );
   }
   float valueAt( float time_ms, float const* samplesIn );
+  float timeAt_lin( float value, float const* samplesIn );
+  void timeAt_lin( float const* samplesIn, float sampleInt_out, int numSamplesOut, float* timesOut );
 
   static double sincFunction( double value );
   static bool toeplitzSolver( int numDimensions, double const* topRow, double const* vecRight, double* vecLeft, double* vecSolve );
@@ -50,7 +58,11 @@ class csInterpolation {
   static void xy2yxInterpolation( float const* arrayIn, float* arrayOut, int numSamples, float sampleInt, float valueInvalid );
 
  private:
-  void init( int numSamples, float sampleInt, int numCoefficients );
+  void init( int numSamples, int interpolationMethod, float sampleInt, int numCoefficients );
+  float valueAt_sinc( float time_ms, float const* samplesIn );
+  float valueAt_lin( float time_ms, float const* samplesIn );
+  float valueAt_quad( float time_ms, float const* samplesIn );
+
   int myNumCoefficients;
   int myNumValues;
   float myExtrapolValLeft;
@@ -58,6 +70,7 @@ class csInterpolation {
   float** myCoefficients;
   float mySampleInt;
   int myNumSamples;
+  int myMethod; /// Interpolation method
   float* myIndexBuffer;
   float myPreviousShift_ms; // Saved, previously applied time shift
 };

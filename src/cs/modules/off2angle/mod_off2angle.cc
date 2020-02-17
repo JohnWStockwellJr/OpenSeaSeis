@@ -34,21 +34,21 @@ namespace mod_off2angle {
     int maxTracesOut;
     float* angle_incidence;
   };
-  void checkHeader( std::string headerName, csTraceHeaderDef* hdef, csLogWriter* log, type_t checkType = TYPE_UNKNOWN ) {
+  void checkHeader( std::string headerName, csTraceHeaderDef* hdef, csLogWriter* writer, type_t checkType = TYPE_UNKNOWN ) {
     if( !hdef->headerExists(headerName) ){
-      log->error("Trace header '%s' not found.", headerName.c_str());
+      writer->error("Trace header '%s' not found.", headerName.c_str());
     }
     if( checkType != TYPE_UNKNOWN ) {
       int type = hdef->headerType(headerName);
       if( TYPE_FLOAT_DOUBLE ) {
         if( type != TYPE_FLOAT &&  type != TYPE_DOUBLE ) {
-          log->error("Trace header '%s' has the wrong type. Should be %s or %s",
+          writer->error("Trace header '%s' has the wrong type. Should be %s or %s",
             headerName.c_str() );
         }
       }
       else {
         if( type != checkType ) {
-          log->error("Trace header '%s' has the wrong type. Should be %s",
+          writer->error("Trace header '%s' has the wrong type. Should be %s",
             headerName.c_str(), csGeolibUtils::typeText(type) );
         }
       }
@@ -67,7 +67,7 @@ using namespace mod_off2angle;
 // - Implement angle band width != 0
 //
 //*************************************************************************************************
-void init_mod_off2angle_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_off2angle_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -75,7 +75,6 @@ void init_mod_off2angle_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
   edef->setTraceSelectionMode( TRCMODE_ENSEMBLE );
 
   //------------------------------------------------------
@@ -100,7 +99,7 @@ void init_mod_off2angle_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
   
   param->getAll( "angle", &valueList );
   if( valueList.size() != 4 && valueList.size() != 3 ) {
-    log->error("User parameter 'angle': Wrong number of input parameters. Expected: 3 or 4, found: %d", valueList.size() );
+    writer->error("User parameter 'angle': Wrong number of input parameters. Expected: 3 or 4, found: %d", valueList.size() );
   }
   vars->angle_first = atof( valueList.at(0).c_str() );
   vars->angle_last  = atof( valueList.at(1).c_str() );
@@ -108,13 +107,13 @@ void init_mod_off2angle_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
   vars->angle_width = atof( valueList.at(3).c_str() );
 
   if( vars->angle_last < vars->angle_first ) {
-    log->error(" Last angle must be smaller or equal to first angle.");
+    writer->error(" Last angle must be smaller or equal to first angle.");
   }
   if( vars->angle_first == vars->angle_last ) {
     vars->maxTracesOut = 1;
   }
   else if( vars->angle_inc <= 0.0 ) {
-    log->error(" Angle increment must be greater or equal to zero.");
+    writer->error(" Angle increment must be greater or equal to zero.");
   }
   else {
     vars->maxTracesOut = (int)((vars->angle_last - vars->angle_first) / vars->angle_inc) + 1;
@@ -153,24 +152,20 @@ void exec_mod_off2angle_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
   csTraceHeaderDef const* hdef = env->headerDef;
 
-  if( edef->isCleanup()){
-    delete vars; vars = NULL;
-    return;
-  }
 
   //---------------------------------------------------------------
   int nSamples = shdr->numSamples;
   int nTraces  = traceGather->numTraces();
 
   if( nTraces < 2 ) {
-    log->warning("%s: Gather with less than two traces.. This cannot be processed", edef->moduleName().c_str() );
+    writer->warning("%s: Gather with less than two traces.. This cannot be processed", edef->moduleName().c_str() );
     return;
   }
 
@@ -196,7 +191,7 @@ void exec_mod_off2angle_(
     if( offset < 0.0 ) {
       an_inci[itrc] *= -1.0;
     }
-    if( edef->isDebug() ) log->line("Trace: %3d, Offset: %f, Angle of incidence: %f\n", itrc, offset, RAD2DEG(an_inci[itrc]) );
+    if( edef->isDebug() ) writer->line("Trace: %3d, Offset: %f, Angle of incidence: %f\n", itrc, offset, RAD2DEG(an_inci[itrc]) );
   }
 
   // Check that input data is sorted correctly
@@ -205,7 +200,7 @@ void exec_mod_off2angle_(
   for( int itrc = 1; itrc < nTraces; itrc++ ) {
     diff = an_inci[itrc] - an_inci[itrc-1];
     if( diff * direction < 0.0 ) {
-      log->error ("Input gather is not sorted correctly. Expected trace sorting is increasing or decreasing offsets.");
+      writer->error ("Input gather is not sorted correctly. Expected trace sorting is increasing or decreasing offsets.");
     }
   }
   if( direction > 0.0 ) {
@@ -240,8 +235,8 @@ void exec_mod_off2angle_(
   }
 
   if( edef->isDebug() ) {
-   log->line(" in: %d, out: %d,  aFirst: %f, aLast: %f\n", nTraces, nTracesOut, RAD2DEG(angleFirst), RAD2DEG(angleLast));
-   log->line(" aFirst: %f, aLast: %f, nSamples: %d\n", RAD2DEG(vars->angle_first), RAD2DEG(vars->angle_last), nSamples);
+   writer->line(" in: %d, out: %d,  aFirst: %f, aLast: %f\n", nTraces, nTracesOut, RAD2DEG(angleFirst), RAD2DEG(angleLast));
+   writer->line(" aFirst: %f, aLast: %f, nSamples: %d\n", RAD2DEG(vars->angle_first), RAD2DEG(vars->angle_last), nSamples);
   }
 
 //***********************************************************************************
@@ -340,13 +335,41 @@ void params_mod_off2angle_( csParamDef* pdef ) {
   pdef->addValue( "0", VALTYPE_NUMBER, "Width of each angle band [deg]" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_off2angle_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_off2angle::VariableStruct* vars = reinterpret_cast<mod_off2angle::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_off2angle_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_off2angle::VariableStruct* vars = reinterpret_cast<mod_off2angle::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_off2angle_( csParamDef* pdef ) {
   params_mod_off2angle_( pdef );
 }
-extern "C" void _init_mod_off2angle_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_off2angle_( param, env, log );
+extern "C" void _init_mod_off2angle_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_off2angle_( param, env, writer );
 }
-extern "C" void _exec_mod_off2angle_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_off2angle_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_off2angle_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_off2angle_( env, writer );
 }
-
+extern "C" void _exec_mod_off2angle_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_off2angle_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_off2angle_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_off2angle_( env, writer );
+}

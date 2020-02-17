@@ -73,6 +73,7 @@ public:
    * @return false if something went wrong.
    */
   bool setHeaderToPeek( std::string const& headerName );
+  int getPeekByteOffset() const;
   /**
    * Set header to peek
    * Initiates header 'peeking' operation. Next, the method 'peekheaderValue' may be called to retrieve the header value

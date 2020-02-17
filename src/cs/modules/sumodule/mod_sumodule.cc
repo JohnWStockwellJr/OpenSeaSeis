@@ -9,17 +9,20 @@ using namespace std;
 
 
 #ifdef PLATFORM_WINDOWS
-void init_mod_sumodule_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_sumodule_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
-  log->error("SUMODULE is not supported on Windows platform");
+  writer->error("SUMODULE is not supported on Windows platform");
 }
 void exec_mod_sumodule_(
-  csTraceGather* traceGather,
-  int* port,
-  int* numTrcToKeep,
-  csExecPhaseEnv* env,
-  csLogWriter* log ) { }
+                        csTraceGather* traceGather,
+                        int* port,
+                        int* numTrcToKeep,
+                        csExecPhaseEnv* env,
+                        csLogWriter* writer ) { }
 
+void cleanup_mod_sumodule_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  // Nothing
+}
 
 // UNIX systems...:
 #else
@@ -32,19 +35,19 @@ void exec_mod_sumodule_(
 #include <sstream>
 
 extern "C" {
-  #include <unistd.h>
-  #include <fcntl.h>
-  #include <sys/wait.h>
-  #include <sys/stat.h>
-  #include <pthread.h>
-  #include <sys/types.h>
-  #include <errno.h>
-  #include <signal.h>
-  #include <poll.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/wait.h>
+#include <sys/stat.h>
+#include <pthread.h>
+#include <sys/types.h>
+#include <errno.h>
+#include <signal.h>
+#include <poll.h>
 }
 
 void setHeaders( csSegyTraceHeader* segyTrcHdr, csSegyHdrMap* segyHdrMap, int* hdrIndexSegy, type_t* hdrTypeSegy,
-		 int numSamples, float sampleInt,  csTraceHeaderDef* hdef, int scalarPolarity );
+                 int numSamples, float sampleInt,  csTraceHeaderDef* hdef, int scalarPolarity );
 void mini_sleep( int millisec );
 void* threadFunction( void *arg );
 pthread_mutex_t mutex1 = PTHREAD_MUTEX_INITIALIZER;
@@ -127,7 +130,7 @@ using mod_sumodule::VariableStruct;
 //
 //
 //*************************************************************************************************
-void init_mod_sumodule_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_sumodule_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   csSuperHeader*    shdr = env->superHeader;
@@ -135,7 +138,6 @@ void init_mod_sumodule_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
   
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
   edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
 
   vars->swapEndian = false;
@@ -176,7 +178,7 @@ void init_mod_sumodule_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
   else {
     char* cwpRoot = getenv("CWPROOT");
     if( strlen(cwpRoot) <= 0 ) {
-      log->error("Environment variable CWPROOT not set. Please specify SU root directory with user parameter 'cwproot'");
+      writer->error("Environment variable CWPROOT not set. Please specify SU root directory with user parameter 'cwproot'");
     }
     string cwpRoot_str(cwpRoot);
     suBinDir = cwpRoot_str + "/bin/";
@@ -193,7 +195,7 @@ void init_mod_sumodule_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
       vars->swapEndian = !isPlatformLittleEndian();
     }
     else {
-      log->error("Unknown option: %s", text.c_str());
+      writer->error("Unknown option: %s", text.c_str());
     }
   }
 
@@ -205,7 +207,7 @@ void init_mod_sumodule_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
   param->getString("command", &suCommand);
   tokenize( suCommand.c_str(), tokenList, true );
   if( tokenList.size() < 2 ) {
-    log->error("No arguments given in SU command '%s', Arguments must be separated by spaces.", suCommand.c_str());
+    writer->error("No arguments given in SU command '%s', Arguments must be separated by spaces.", suCommand.c_str());
   }
   int numArguments = tokenList.size();  // Count module name as argument, needed to pass as argument for execv..!?
   char** argumentList = new char*[numArguments+1];
@@ -222,11 +224,11 @@ void init_mod_sumodule_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
   for( int i = 1; i < numArguments; i++ ) {
     if( !strncmp(argumentList[i],"dt",2) ) {
       shdr->sampleInt = atof(&(argumentList[i][3])) * 1000.0;  // Convert from [s] to [ms]
-      log->line("Output sample interval: %f  (%s)\n", shdr->sampleInt, argumentList[i] );
+      writer->line("Output sample interval: %f  (%s)\n", shdr->sampleInt, argumentList[i] );
     }
     if( !strncmp(argumentList[i],"nt",2) ) {
       shdr->numSamples = atoi(&(argumentList[i][3]));
-      log->line("Output number of samples: %d  (%s)\n", shdr->numSamples, argumentList[i] );
+      writer->line("Output number of samples: %d  (%s)\n", shdr->numSamples, argumentList[i] );
     }
   }
 
@@ -251,7 +253,7 @@ void init_mod_sumodule_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
   std::string filename_p2c(tmpfile_template + counter_str + ".p2c");
   std::string filename_c2p(tmpfile_template + counter_str + ".c2p");
 
-  log->line("Create/use FIFO files %s and %s", filename_p2c.c_str(), filename_c2p.c_str() );
+  writer->line("Create/use FIFO files %s and %s", filename_p2c.c_str(), filename_c2p.c_str() );
 
   int status = mknod(filename_p2c.c_str(), S_IRUSR | S_IWUSR | S_IFIFO, 0);
   if( (status == -1) && (errno != EEXIST) ) {
@@ -303,7 +305,7 @@ void init_mod_sumodule_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
     }
     // Child process is done. Will not continue from here on
     kill( getppid() , 9 );  // Kill parent process
-    log->error("Failed to run external process");
+    writer->error("Failed to run external process");
   }
   //--------------------------------------------------------------------------------
   //
@@ -324,11 +326,11 @@ void init_mod_sumodule_( csParamManager* param, csInitPhaseEnv* env, csLogWriter
     }
     if( edef->isDebug() ) fprintf(stdout,"Parent: Error code: %d %s\n", vars->fd_c2p, strerror(errno));
 
-    log->write("External SU process:\n  %s", suModulePath.c_str());
+    writer->write("External SU process:\n  %s", suModulePath.c_str());
     for( int i = 1; i < numArguments; i++ ) { // Skip first element which is the SU module name
-      log->write(" %s", argumentList[i]);
+      writer->write(" %s", argumentList[i]);
     }
-    log->write("\n");
+    writer->write("\n");
   }
 
   for( int i = 0; i < numArguments; i++ ) {
@@ -386,51 +388,13 @@ void exec_mod_sumodule_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
   csTraceHeaderDef const* hdef  = env->headerDef;
 
-  if( edef->isCleanup() ) {
-    if( vars->fd_c2p >= 0 )  close(vars->fd_p2c);
-    if( vars->fd_p2c >= 0 )  close(vars->fd_c2p);
-
-    if( vars->segyHdrMap != NULL ) {
-      delete vars->segyHdrMap;
-      vars->segyHdrMap = NULL;
-    }
-    if( vars->segyTrcHdrRead != NULL ) {
-      delete vars->segyTrcHdrRead;
-      vars->segyTrcHdrRead = NULL;
-    }
-    if( vars->segyTrcHdrWrite != NULL ) {
-      delete vars->segyTrcHdrWrite;
-      vars->segyTrcHdrWrite = NULL;
-    }
-    if( vars->hdrIndexSegy != NULL ) {
-      delete [] vars->hdrIndexSegy;
-      vars->hdrIndexSegy = NULL;
-    }
-    if( vars->hdrTypeSegy != NULL ) {
-      delete [] vars->hdrTypeSegy;
-      vars->hdrTypeSegy = NULL;
-    }
-    if( vars->bufferOut != NULL ) {
-      delete [] vars->bufferOut;
-      vars->bufferOut = NULL;
-    }
-    //    if( vars->bufferIn != NULL ) {
-    //   delete [] vars->bufferIn;
-    //  vars->bufferIn = NULL;
-    // }
-    delete vars; vars = NULL;
-    // Wait until child process has finished, and clean up zombie processes...
-    int status = 0;
-    waitpid(-1, &status, WNOHANG); // clean up any children
-    return;
-  }
 
   // TEMP
   fd_set wio;
@@ -451,19 +415,19 @@ void exec_mod_sumodule_(
       int hdrIdOut = vars->hdrIndexSegy[ihdr];
       if( hdrIdOut < 0 ) continue;
       if( vars->hdrTypeSegy[ihdr] == TYPE_FLOAT ) {
-	vars->segyTrcHdrWrite->setFloatValue( ihdr, trcHdr->floatValue( hdrIdOut )  );
+        vars->segyTrcHdrWrite->setFloatValue( ihdr, trcHdr->floatValue( hdrIdOut )  );
       }
       else if( vars->hdrTypeSegy[ihdr] == TYPE_DOUBLE ) {
-	vars->segyTrcHdrWrite->setDoubleValue( ihdr, trcHdr->doubleValue(hdrIdOut) );
+        vars->segyTrcHdrWrite->setDoubleValue( ihdr, trcHdr->doubleValue(hdrIdOut) );
       }
       else if( vars->hdrTypeSegy[ihdr] == TYPE_INT ) {
-	vars->segyTrcHdrWrite->setIntValue( ihdr, trcHdr->intValue(hdrIdOut) );
+        vars->segyTrcHdrWrite->setIntValue( ihdr, trcHdr->intValue(hdrIdOut) );
       }
       else if( vars->hdrTypeSegy[ihdr] == TYPE_INT64 ) {
-	vars->segyTrcHdrWrite->setIntValue( ihdr, (int)trcHdr->int64Value(hdrIdOut) );
+        vars->segyTrcHdrWrite->setIntValue( ihdr, (int)trcHdr->int64Value(hdrIdOut) );
       }
       else {
-	vars->segyTrcHdrWrite->setStringValue( ihdr, trcHdr->stringValue(hdrIdOut) );
+        vars->segyTrcHdrWrite->setStringValue( ihdr, trcHdr->stringValue(hdrIdOut) );
       }
     }
     vars->segyTrcHdrWrite->writeHeaderValues(vars->bufferOut,vars->swapEndian,true);
@@ -514,7 +478,7 @@ void exec_mod_sumodule_(
       }
       vars->threadParam->bufferList.clear();
       pthread_mutex_unlock(&lock_x);
-        // !!! TEMP !!!
+      // !!! TEMP !!!
       // if( vars->traceCounterRead == vars->traceCounter ) close(vars->fd_c2p);
       if( vars->threadParam->getIOFlag() != mod_sumodule::FINISHED ) vars->threadParam->setIOFlag( mod_sumodule::READING );
     }
@@ -547,7 +511,7 @@ void exec_mod_sumodule_(
     if( edef->isDebug() ) fprintf(stdout,"START write %d...\n", vars->fd_p2c);
     int sizeWrite = (int)write( vars->fd_p2c, vars->bufferOut, vars->totalTraceSizeIn );
     if( sizeWrite == -1 ) {
-      log->error("Parent process write error\n");
+      writer->error("Parent process write error\n");
     }
     if( edef->isDebug() ) fprintf(stdout,"Written data %d to pipe...\n", vars->traceCounter);
     // TEMP!!
@@ -613,11 +577,11 @@ void exec_mod_sumodule_(
         if( vars->threadParam->getIOFlag() != mod_sumodule::FINISHED) vars->threadParam->setIOFlag( mod_sumodule::READING );
         // !!! TEMP !!!
         //if( vars->traceCounterRead >= 10 ) {
-          // close(vars->fd_p2c);
-          //vars->threadParam->getIOFlag() = mod_sumodule::FINISHED;
-          //}
+        // close(vars->fd_p2c);
+        //vars->threadParam->getIOFlag() = mod_sumodule::FINISHED;
+        //}
         // else {
-          //}
+        //}
       }
       else {
         if( edef->isDebug() ) fprintf(stdout,"--Main process: Start sleep %d, %d   %s\n", vars->threadParam->getIOFlag(), vars->fd_p2c, vars->suModulePath.c_str());
@@ -633,7 +597,7 @@ void exec_mod_sumodule_(
 }
 
 void setHeaders( csSegyTraceHeader* segyTrcHdr, csSegyHdrMap* segyHdrMap, int* hdrIndexSegy, type_t* hdrTypeSegy,
-		 int numSamples, float sampleInt, csTraceHeaderDef* hdef, int scalarPolarity ) {
+                 int numSamples, float sampleInt, csTraceHeaderDef* hdef, int scalarPolarity ) {
 
   // Add mandatory trace headers, if defined in user specified, pre-defined, trace header map
   int num_id = 0;
@@ -678,7 +642,7 @@ void setHeaders( csSegyTraceHeader* segyTrcHdr, csSegyHdrMap* segyHdrMap, int* h
   int numHeaders = segyTrcHdr->numHeaders();
   for( int ihdr = 0; ihdr < numHeaders; ihdr++ ) {
     string const& name = segyTrcHdr->headerName(ihdr);
-    //    log->line(" #%2d  %s", ihdr+1, name.c_str());
+    //    writer->line(" #%2d  %s", ihdr+1, name.c_str());
     if( hdef->headerExists(name) ) {
       hdrIndexSegy[ihdr] = hdef->headerIndex( name );
       hdrTypeSegy[ihdr]  = hdef->headerType( name );
@@ -691,7 +655,7 @@ void setHeaders( csSegyTraceHeader* segyTrcHdr, csSegyHdrMap* segyHdrMap, int* h
   for( int ihdr = 0; ihdr < mandatoryHdrNames.size(); ihdr++ ) {
     string name = mandatoryHdrNames.at(ihdr);
     int hdrIndex = segyTrcHdr->headerIndex(name);
-    //    if( hdrIndex < 0 ) log->error("Program bug! Wrong mandatory header index....");
+    //    if( hdrIndex < 0 ) writer->error("Program bug! Wrong mandatory header index....");
     if( hdef->headerExists(name) ) {
       hdrIndexSegy[hdrIndex] = -1;
     }
@@ -719,28 +683,28 @@ void* threadFunction( void *arg ) {
   while( ptr->getIOFlag() != mod_sumodule::FINISHED ) {
     // fprintf(stdout,"Thread process starting... %d, %d\n", ptr->getIOFlag(), ptr->fd_c2p );
     //    if( ptr->getIOFlag() == mod_sumodule::READING ) {
-      int sizeRead = (int)fread( ptr->buffer, 1, ptr->sizeBuffer, ptr->file_c2p );
-      if( sizeRead <= 0 ) {
-        // fprintf(stdout,"Thread process read error\n");
-        ptr->setIOFlag( mod_sumodule::FINISHED );
-        return NULL;
-      }
-      ptr->counter += 1;
-      // fprintf(stdout,"Read in from SU pipe trace #%d\n", ptr->counter);
-      pthread_mutex_lock( &lock_x );
-        ptr->bufferList.insertEnd( ptr->buffer );
-        ptr->buffer = new byte_t[ptr->sizeBuffer];
-        ptr->setIOFlag( mod_sumodule::BUFFER_READY );
-      pthread_mutex_unlock( &lock_x );
-      // Set thread into sleep mode until main thread has copied the current buffer..?
-      // --> doesn't work, can create gridlock
-      // instead, copy buffer into vector for later pickup
-      //    }
-      // else {
-      // fprintf(stdout,"Thread process: Start sleep... %d  %d\n", ptr->getIOFlag(), ptr->fd_c2p);
-      // mini_sleep(10);
-      //    }
-      // fprintf(stdout,"Thread process running... %d\n", ptr->getIOFlag());
+    int sizeRead = (int)fread( ptr->buffer, 1, ptr->sizeBuffer, ptr->file_c2p );
+    if( sizeRead <= 0 ) {
+      // fprintf(stdout,"Thread process read error\n");
+      ptr->setIOFlag( mod_sumodule::FINISHED );
+      return NULL;
+    }
+    ptr->counter += 1;
+    // fprintf(stdout,"Read in from SU pipe trace #%d\n", ptr->counter);
+    pthread_mutex_lock( &lock_x );
+    ptr->bufferList.insertEnd( ptr->buffer );
+    ptr->buffer = new byte_t[ptr->sizeBuffer];
+    ptr->setIOFlag( mod_sumodule::BUFFER_READY );
+    pthread_mutex_unlock( &lock_x );
+    // Set thread into sleep mode until main thread has copied the current buffer..?
+    // --> doesn't work, can create gridlock
+    // instead, copy buffer into vector for later pickup
+    //    }
+    // else {
+    // fprintf(stdout,"Thread process: Start sleep... %d  %d\n", ptr->getIOFlag(), ptr->fd_c2p);
+    // mini_sleep(10);
+    //    }
+    // fprintf(stdout,"Thread process running... %d\n", ptr->getIOFlag());
   }
   // fprintf(stdout,"*** Finished thread...\n");
 
@@ -762,6 +726,50 @@ int is_writeable(int fd) {
   }
   // fprintf(stdout,"Checked poll OK\n");
   return p.revents & POLLOUT;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_sumodule_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_sumodule::VariableStruct* vars = reinterpret_cast<mod_sumodule::VariableStruct*>( env->execPhaseDef->variables() );
+  //  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->fd_c2p >= 0 )  close(vars->fd_p2c);
+  if( vars->fd_p2c >= 0 )  close(vars->fd_c2p);
+  if( vars->fd_p2c >= 0 )  close(vars->fd_c2p);
+  if( vars->segyHdrMap != NULL ) {
+    delete vars->segyHdrMap;
+    vars->segyHdrMap = NULL;
+  }
+  if( vars->segyTrcHdrRead != NULL ) {
+    delete vars->segyTrcHdrRead;
+    vars->segyTrcHdrRead = NULL;
+  }
+  if( vars->segyTrcHdrWrite != NULL ) {
+    delete vars->segyTrcHdrWrite;
+    vars->segyTrcHdrWrite = NULL;
+  }
+  if( vars->hdrIndexSegy != NULL ) {
+    delete [] vars->hdrIndexSegy;
+    vars->hdrIndexSegy = NULL;
+  }
+  if( vars->hdrTypeSegy != NULL ) {
+    delete [] vars->hdrTypeSegy;
+    vars->hdrTypeSegy = NULL;
+  }
+  if( vars->bufferOut != NULL ) {
+    delete [] vars->bufferOut;
+    vars->bufferOut = NULL;
+  }
+  //    if( vars->bufferIn != NULL ) {
+  //   delete [] vars->bufferIn;
+  //  vars->bufferIn = NULL;
+  // }
+  delete vars; vars = NULL;
+  // Wait until child process has finished, and clean up zombie processes...
+  int status = 0;
+  waitpid(-1, &status, WNOHANG); // clean up any children
 }
 
 #endif
@@ -789,14 +797,30 @@ void params_mod_sumodule_( csParamDef* pdef ) {
   pdef->addValue( "", VALTYPE_STRING, "SU root directory, full path name" );
 }
 
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_sumodule_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  //  mod_sumodule::VariableStruct* vars = reinterpret_cast<mod_sumodule::VariableStruct*>( env->execPhaseDef->variables() );
+  //  csExecPhaseDef* edef = env->execPhaseDef;
+  //  csSuperHeader const* shdr = env->superHeader;
+  //  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
 extern "C" void _params_mod_sumodule_( csParamDef* pdef ) {
   params_mod_sumodule_( pdef );
 }
-extern "C" void _init_mod_sumodule_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_sumodule_( param, env, log );
+extern "C" void _init_mod_sumodule_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_sumodule_( param, env, writer );
 }
-extern "C" void _exec_mod_sumodule_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_sumodule_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_sumodule_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_sumodule_( env, writer );
 }
-
-
+extern "C" void _exec_mod_sumodule_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_sumodule_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_sumodule_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_sumodule_( env, writer );
+}

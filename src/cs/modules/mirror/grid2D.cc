@@ -6,7 +6,7 @@
 #include <cmath>
 #include <limits>
 #include <string>
-#include "csPoint.h"
+#include "csPoint3D.h"
 
 using namespace std;
 using namespace cseis_geolib;
@@ -30,8 +30,8 @@ using namespace cseis_geolib;
  * @param fillHoles    true if bins that do not contain an input point shall be interpolated
  */
 void interpolate2D_regular_grid( int numPointsIn,
-                                 csPoint const* pin,
-                                 csPoint p1,
+                                 csPoint3D const* pin,
+                                 csPoint3D p1,
                                  double xinc,
                                  double yinc,
                                  int nxOut,

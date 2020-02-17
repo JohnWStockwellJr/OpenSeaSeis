@@ -20,7 +20,6 @@ import java.util.ArrayList;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JLabel;
-//import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JToggleButton;
@@ -34,6 +33,7 @@ import javax.swing.border.BevelBorder;
  * Next, add the csDockPane to the csDockPaneManager.
  * @author 2013 Felipe Punto
  */
+@SuppressWarnings("serial")
 public class csDockPane extends JPanel {
   public static final Color COLOR_ACTIVE = new Color(255, 255, 124);
   public static final Color COLOR_INACTIVE = new JLabel("123").getBackground();
@@ -245,9 +245,14 @@ public class csDockPane extends JPanel {
     int height = 14;
     JPanel panel = new JPanel( new BorderLayout() );
     panel.setOpaque( false );
-    JLabel label = new JLabel( attr().title + "  ", JLabel.LEFT );
+    String text = attr().title + "  ";
+    JLabel label = new JLabel( text, JLabel.LEFT );
     label.setOpaque( false );
     label.setBackground( new Color(0, 0, 0, 255) );
+    label.setFocusable( true );
+    
+    int labelWidth = label.getFontMetrics( label.getFont() ).stringWidth( text );
+    if( labelWidth > myManager.getMaxTabWidth() ) label.setPreferredSize( new Dimension( myManager.getMaxTabWidth(), height ) );
 
     JButton button = new JButton( csDockPaneActions.getIcon(csDockPaneActions.CloseTabAction) );
     button.setToolTipText( csDockPaneActions.ACTION_DESC[csDockPaneActions.CloseTabAction] );
@@ -302,7 +307,7 @@ public class csDockPane extends JPanel {
       return false;
     }
   */  
-    fireEventHidePane(); // Tell pane listeners to hide pane
+//    fireEventHidePane(); // Tell pane listeners to hide pane
     fireEventClosePane(); // Tell pane listeners to close pane
     return true;
   }

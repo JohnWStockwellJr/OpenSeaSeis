@@ -50,11 +50,30 @@ void csTraceHeader::clearMemory() {
 char const* csTraceHeader::getTraceHeaderValueBlock() const {
   return myTraceHeaderData->myValueBlock;
 }
+//------------------------------------------------------
+char* csTraceHeader::getTraceHeaderValueBlockHandle() {
+  return myTraceHeaderData->myValueBlock;
+}
 void csTraceHeader::setTraceHeaderValueBlock( char const* hdrValueBlock, int byteSize ) {
   if( byteSize > myTraceHeaderData->myNumBytes ) {
-    throw( cseis_geolib::csException("csTraceHeader::setTraceHeaderValueBlock: Program bug. Incorrect byte size.") );
+    throw( cseis_geolib::csException("csTraceHeader::setTraceHeaderValueBlock: Program bug. Incorrect byte size (%d != %d).", byteSize, myTraceHeaderData->myNumBytes) );
   }
   memcpy( myTraceHeaderData->myValueBlock, hdrValueBlock, byteSize );
+
+  // TEMP:
+  /*
+  int value1;
+  int value2;
+  int index = 2;
+  memcpy( &value1, &hdrValueBlock[myTraceHeaderData->myByteLocationPtr[index]], 4 );
+  memcpy( &value2, &myTraceHeaderData->myValueBlock[myTraceHeaderData->myByteLocationPtr[index]], 4 );
+  fprintf(stderr,"csTraceHeader::setTraceHeaderValueBlock(): numHdr: %d, numBytes: %d; trcno values: %d ?= %d\n",
+          myTraceHeaderData->numHeaders(), myTraceHeaderData->numBytes(), value1, value2 );
+  for( int i = 0; i < myTraceHeaderData->numHeaders(); i++ ) {
+    memcpy( &value1, &hdrValueBlock[myTraceHeaderData->myByteLocationPtr[i]], 4 );
+    fprintf(stderr,"  byteLocPtr #%d: %d - INTvalue: %d\n", i, myTraceHeaderData->myByteLocationPtr[i], value1 );
+  }
+  */
 }
 void csTraceHeader::writeTraceHeaderValueBlock( char const* hdrValueBlock_in, int const* byteMap_in, int const* hdrMap_out, int numHeaders_in ) {
   char* hdrValueBlock = myTraceHeaderData->myValueBlock;
@@ -98,6 +117,9 @@ void csTraceHeader::dump( std::FILE* stream ) const {
     case cseis_geolib::TYPE_CHAR:
     case cseis_geolib::TYPE_STRING:
       fprintf( stream, "%s\n", stringValue(ihdr).c_str() );
+      break;
+    case cseis_geolib::TYPE_VECTOR:
+      fprintf( stream, "%s\n", vectorValue(ihdr).toString().c_str() );
       break;
     }
   }

@@ -53,8 +53,8 @@ public class csSegyTrcHeaderDefinition {
    */
   public void add( String name, String desc, int byteLoc, int byteSize ) {
     int index = getInsertIndex( byteLoc );
-    myByteLoc.add( index, new Integer(byteLoc) );
-    myByteSize.add( index, new Integer(byteSize) );
+    myByteLoc.add( index, byteLoc );
+    myByteSize.add( index, byteSize );
     myName.add( index, name );
     myDesc.add( index, desc );
   }

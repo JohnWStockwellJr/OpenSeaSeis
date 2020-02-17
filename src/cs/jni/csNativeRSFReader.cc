@@ -426,7 +426,7 @@ JNIEXPORT jint JNICALL Java_cseis_jni_csNativeRSFReader_native_1verticalDomain
 /*
  * Class:     cseis_jni_csNativeRSFReader
  * Method:    native_setSelection
- * Signature: (JLjava/lang/String;Ljava/lang/String;IILcseis/jni/csISelectionNotifier;)Z
+ * Signature: (JLjava/lang/String;Ljava/lang/String;IILcseis/jni/csITraceHeaderScanNotifier;)Z
  */
 JNIEXPORT jboolean JNICALL Java_cseis_jni_csNativeRSFReader_native_1setSelection
 (JNIEnv *env, jobject obj, jlong ptr_in, jstring headerValueSelectionText_in, jstring headerName_in, jint sortOrder, jint sortMethod, jobject notifier_in )
@@ -435,8 +435,8 @@ JNIEXPORT jboolean JNICALL Java_cseis_jni_csNativeRSFReader_native_1setSelection
   char const* hdrValueSelectionText = (env)->GetStringUTFChars( headerValueSelectionText_in, NULL );
   char const* headerName = (env)->GetStringUTFChars( headerName_in, NULL );
 
-  jclass class_csISelectionNotifier  = env->GetObjectClass(notifier_in);
-  jmethodID id_notify  = env->GetMethodID(class_csISelectionNotifier,"notify","(I)V");
+  jclass class_csITraceHeaderScanNotifier  = env->GetObjectClass(notifier_in);
+  jmethodID id_notify   = env->GetMethodID(class_csITraceHeaderScanNotifier,"traceHeaderScanNotify","(I)V");
   int numTracesToRead = 100;
 
   try {

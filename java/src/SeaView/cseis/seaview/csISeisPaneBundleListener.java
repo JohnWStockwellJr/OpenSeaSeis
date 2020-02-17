@@ -15,10 +15,13 @@ public interface csISeisPaneBundleListener {
    */
   public void updateBundleDisplayScalar( csSeisPaneBundle bundle );
   /**
+   * Update seismic display settings.
+   * @param bundle Seismic bundle which called this function.
    */
+  public void updateBundleDisplaySettings( csSeisPaneBundle bundle );
   /**
    * Update sample information at current mouse location.
-   * @param source Object which is responsible for this call.
+   * @param bundle Seismic bundle which called this function
    * @param sampleInfo Information about sample at current mouse location.
    */
   public void updateBundleSampleInfo( csSeisPaneBundle bundle, csSeisBundleSampleInfo sampleInfo );

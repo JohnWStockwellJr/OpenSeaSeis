@@ -25,11 +25,11 @@ namespace cseis_geolib {
   /*--------------------------------------------------------------------------------
    * Singular value decomposition, numerical recipes
    *
-   * Return ERROR if maximum number of iterations is reached
+   * Return false if maximum number of iterations is reached
    *
    */
 
-  int svd_decomposition( float** mat_a, int nrows, int ncols, float vec_w[], float** mat_v, float vec_work[] ) {
+  bool svd_decomposition( float** mat_a, int nrows, int ncols, float vec_w[], float** mat_v, float vec_work[] ) {
     int flag,i,its,j,jj,k,val,nm;
     float anorm,c,f,g,h,s,scale,x,y,z;
     nm = 0;
@@ -153,7 +153,7 @@ namespace cseis_geolib {
           }
           break;
         }
-        if (its == N_ITERATIONS) return ERROR;
+        if (its == N_ITERATIONS) return false;
         x=vec_w[val];
         nm=k-1;
         y=vec_w[nm];
@@ -204,7 +204,7 @@ namespace cseis_geolib {
         vec_w[k]=x;
       }
     }
-    return SUCCESS;
+    return true;
   }
 
 
@@ -224,11 +224,11 @@ namespace cseis_geolib {
   /*--------------------------------------------------------------------------------
    * Singular value decomposition, numerical recipes
    *
-   * Return ERROR if maximum number of iterations is reached
+   * Return false if maximum number of iterations is reached
    *
    */
 
-  int svd_decomposition( double** mat_a, int nrows, int ncols, double vec_w[], double** mat_v, double vec_work[] ) {
+  bool svd_decomposition( double** mat_a, int nrows, int ncols, double vec_w[], double** mat_v, double vec_work[] ) {
     int flag,i,its,j,jj,k,val,nm;
     double anorm,c,f,g,h,s,scale,x,y,z;
     nm = 0;
@@ -321,7 +321,7 @@ namespace cseis_geolib {
             flag=0;
             break;
           }
-          if( nm < 0 ) return ERROR;   // This can occur if there are inconsistencies in the input data
+          if( nm < 0 ) return false;   // This can occur if there are inconsistencies in the input data
           if ((double)(fabs(vec_w[nm])+anorm) == anorm) break;
         }
         if (flag) {
@@ -353,7 +353,7 @@ namespace cseis_geolib {
           }
           break;
         }
-        if (its == N_ITERATIONS) return ERROR;
+        if (its == N_ITERATIONS) return false;
         x=vec_w[val];
         nm=k-1;
         y=vec_w[nm];
@@ -404,7 +404,7 @@ namespace cseis_geolib {
         vec_w[k]=x;
       }
     }
-    return SUCCESS;
+    return true;
   }
 
 } // namespace cseis

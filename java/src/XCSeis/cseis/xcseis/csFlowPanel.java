@@ -9,6 +9,8 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -66,13 +68,13 @@ public class csFlowPanel extends JPanel implements MouseListener, DocumentListen
         myFlowView.addFlowViewListener(myXCSeis);
         myPaneFlow.remove( myTextPaneFlow );
         myPaneFlow.setViewportView( myFlowView );
-//        myFlowView.grabKeys();
+        myFlowView.grabKeys();
       }
       else {
         myPaneFlow.remove( myFlowView );
         myPaneFlow.setViewportView( myTextPaneFlow );
         myFlowView.removeFlowViewListener(myXCSeis);
-//        myFlowView.releaseKeys();
+        myFlowView.releaseKeys();
         myFlowView = null;
       }
       myPaneFlow.invalidate();
@@ -128,7 +130,7 @@ public class csFlowPanel extends JPanel implements MouseListener, DocumentListen
       final String moduleName = selectedText.substring(1);
       menu.addActionListener(new ActionListener() {
         public void actionPerformed(ActionEvent e) {
-          myXCSeis.moduleChanged(-1,moduleName);
+          myXCSeis.showModuleHelp(moduleName);
         }
       });
       popupMenu.add( menu );
@@ -162,6 +164,21 @@ public class csFlowPanel extends JPanel implements MouseListener, DocumentListen
     xpos -= myPaneFlow.getHorizontalScrollBar().getValue();
     ypos -= myPaneFlow.getVerticalScrollBar().getValue();
     myPopupMenu.show( this, xpos, ypos );
+  }
+  public void addModule( String moduleName, String moduleText ) {
+    int posCaret = myTextPaneFlow.getCaretPosition();
+    if( myIsFlowView ) {
+//      myFlowView.
+//      myFlowView = new csFlowView(this,myTextPaneFlow.getText());
+      posCaret = myFlowView.addModule( moduleName, moduleText );
+    }
+//    else {
+      try {
+        myFlowModelDoc.insertString( posCaret, moduleText, null );
+      } catch (BadLocationException ex) {
+        JOptionPane.showMessageDialog( this, "Cannot add module to flow./nWhy? ..not sure..", "Error", JOptionPane.ERROR_MESSAGE);
+      }
+//    }
   }
   public String getText() {
     return myTextPaneFlow.getText();

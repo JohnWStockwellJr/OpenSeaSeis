@@ -16,16 +16,18 @@ import cseis.seis.csTraceBuffer;
  * @author 2013 Felipe Punto
  */
 public class csVirtualSeismicReader implements csISeismicReader {
-  private csTraceBuffer myTraceBuffer;
-  private csHeaderDef[] myTraceHeaderDef;
-  private float mySampleInt;
-  private int myCurrentTraceIndex;
-  private int myPeekHeaderIndex;
-  private int myVerticalDomain;
+  protected csTraceBuffer myTraceBuffer;
+  protected csHeaderDef[] myTraceHeaderDef;
+  protected float mySampleInt;
+  protected int myCurrentTraceIndex;
+  protected int myPeekHeaderIndex;
+  protected int myVerticalDomain;
   
-  private csISelectionNotifier mySelectionNotifier;
-  private int mySelectionHdrIndex;
+  protected csITraceHeaderScanNotifier mySelectionNotifier;
+  protected int mySelectionHdrIndex;
   
+  public csVirtualSeismicReader() {   
+  }
   /**
    * 
    * @param numSamples  Number of samples per trace
@@ -152,18 +154,18 @@ public class csVirtualSeismicReader implements csISeismicReader {
   //
   @Override
   public boolean setSelection( String hdrValueSelectionText, String headerName, int sortOrder, int sortMethod,
-          csISelectionNotifier notifier ) {
+          csITraceHeaderScanNotifier notifier ) {
     // NOTE: Ignore sort method etc
     mySelectionNotifier = notifier;
     mySelectionHdrIndex = -1;
     for( int ihdr = 0; ihdr < myTraceHeaderDef.length; ihdr++ ) {
       if( myTraceHeaderDef[ihdr].name.compareTo(headerName) == 0 ) {
         mySelectionHdrIndex = ihdr;
-        mySelectionNotifier.notify( myTraceBuffer.numTraces()-1 );
+        mySelectionNotifier.traceHeaderScanNotify( myTraceBuffer.numTraces()-1 );
         return true;
       }
     }
-    mySelectionNotifier.notify( myTraceBuffer.numTraces()-1 );
+    mySelectionNotifier.traceHeaderScanNotify( myTraceBuffer.numTraces()-1 );
     return false;
   }
   @Override
@@ -184,6 +186,5 @@ public class csVirtualSeismicReader implements csISeismicReader {
     // Nothing really to do
     myTraceBuffer = null;
   }
-  
 }
 

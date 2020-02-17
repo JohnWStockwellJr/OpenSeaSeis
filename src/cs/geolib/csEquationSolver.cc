@@ -314,7 +314,7 @@ void csEquationSolver::tokenizeExpression( std::string expression, csVector<csTo
       {
         if( DEBUG_EQ_SOLVER ) printf( "Letter type: '%c'\n", c );
         int subCounter = counter + 1;
-        while( subCounter < fullLength && (isLetter( expression[ subCounter ] ) ||
+        while( subCounter < fullLength && (isLetter( expression[ subCounter ] ) || expression[ subCounter ] == '.' ||
                                            isDigit(expression[ subCounter ])) ) {
           subCounter++;
         }
@@ -325,43 +325,6 @@ void csEquationSolver::tokenizeExpression( std::string expression, csVector<csTo
         // ...is a variable:
         if( isUserConstant( newWord ) ) {
           if( DEBUG_EQ_SOLVER ) printf( "new word is user constant! %s\n", newWord.c_str() );
-          // Check if index is given in square brackets:
-          //    int saveCounter = subCounter;
-          /*
-            OLD code that uses [] for index fields
-            if( subCounter < fullLength && expression.charAt(subCounter) == '[' ) {
-            while( subCounter < fullLength && expression.charAt(subCounter) != ']' ) {
-            subCounter++;
-            }
-            if( subCounter == fullLength ) {
-            throw( new ExpressionException(
-            "Missing closing (square) bracket for variable: '" + newWord + "'",
-            new WordcsToken( USER_CONSTANT, newWord, saveCounter, saveCounter ) ) );
-            }
-            String indexText = expression.substring(saveCounter+1,subCounter);
-            if( DEBUG_EQ_SOLVER ) System.out.println( " Variable index is: " + indexText );
-            if( indexText.equalsIgnoreCase(scUserConstant.TEXT_INDEX_I) ) {
-            indexType = scUserConstant.INDEX_I;
-            }
-            else if( indexText.equalsIgnoreCase(scUserConstant.TEXT_INDEX_I_PLUS_ONE) ) {
-            indexType = scUserConstant.INDEX_I_PLUS_ONE;
-            }
-            else if( indexText.equalsIgnoreCase(scUserConstant.TEXT_INDEX_I_MINUS_ONE) ) {
-            indexType = scUserConstant.INDEX_I_MINUS_ONE;
-            }
-            else {
-            throw( new ExpressionException(
-            "Syntax error in index specifier '" + indexText + "' for variable: '" + newWord +
-            "'.\nRecognized index specifiers are:\n" +
-            scUserConstant.TEXT_INDEX_I_MINUS_ONE + ", " +
-            scUserConstant.TEXT_INDEX_I + ", " +
-            scUserConstant.TEXT_INDEX_I_PLUS_ONE + ".",
-            new WordcsToken( USER_CONSTANT, newWord, saveCounter+1, subCounter ) ) );
-            }
-            subCounter++;
-            }
-          */
-          //  tokenList.insertEnd( UserConstantcsToken( new scUserConstant( newWord, indexType), counter, subCounter ) );
           tokenList.insertEnd( csToken( newWord, USER_CONSTANT, getUserConstantIndex(newWord), counter, subCounter ) );
         }
         // ...is a math function:
@@ -374,8 +337,7 @@ void csEquationSolver::tokenizeExpression( std::string expression, csVector<csTo
           tokenList.insertEnd( csToken( mathConstant->value, NUMBER, counter, subCounter ) );
         }
         else {
-          if( DEBUG_EQ_SOLVER ) printf( "Unknown identifier\n" );
-          printf( "Unknown identifier: %s\n", newWord.c_str() );
+          if( DEBUG_EQ_SOLVER ) printf( "Unknown identifier: %s\n", newWord.c_str() );
           throw( ExpressionException( "Unknown identifier: '" + newWord + "'",
                                       csToken( " ", UNKNOWN, counter, subCounter ) ) );
         }

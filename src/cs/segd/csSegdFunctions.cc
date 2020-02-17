@@ -144,26 +144,37 @@ namespace cseis_segd {
     return (float)string2double( buffer, length );
   }
 
+  csInt64_t convert2uint64( byte const* buffer ) {
+    return( ((csInt64_t)*(buffer+7)) +
+            ((csInt64_t)*(buffer+6)<<8UL) +
+            ((csInt64_t)*(buffer+5)<<16UL) +
+            ((csInt64_t)*(buffer+4)<<24UL) +
+            ((csInt64_t)*(buffer+3)<<32UL) +
+            ((csInt64_t)*(buffer+2)<<40UL) +
+            ((csInt64_t)*(buffer+1)<<48UL) +
+            ((csInt64_t)*(buffer+0)<<56UL ) );
+  }
+
   //--------------------------------------------------------------
   int sampleBitSize( int segdFormatCode ) {
     switch( segdFormatCode ) {
     case 8015: // 20 bit binary demultiplexed
       return 20;
-    case 8022: // 	8	 bit quaternary demultiplexed
+    case 8022: //       8        bit quaternary demultiplexed
       return 8;
-    case 8024: //		16 bit quaternary demultiplexed
+    case 8024: //               16 bit quaternary demultiplexed
       return 16;
-    case 8036: //		24 bit 2's compliment integer demultiplexed
+    case 8036: //               24 bit 2's compliment integer demultiplexed
       return 24;
-    case 8038: //		32 bit 2's compliment integer demultiplexed
+    case 8038: //               32 bit 2's compliment integer demultiplexed
       return 32;
-    case 8042: //		8 bit hexadecimal demultiplexed
+    case 8042: //               8 bit hexadecimal demultiplexed
       return 8;
-    case 8044: //		16 bit hexadecimal &multiplexed
+    case 8044: //               16 bit hexadecimal &multiplexed
       return 16;
-    case 8048: //		32 bit hexadecimal demultiplexed
+    case 8048: //               32 bit hexadecimal demultiplexed
       return 32;
-    case 8058: //		32 bit IEEE demultiplexed
+    case 8058: //               32 bit IEEE demultiplexed
       return 32;
     default:
       return 0; // not supported
@@ -171,12 +182,12 @@ namespace cseis_segd {
   }
   bool isFormatCodeSupported( int segdFormatCode ) {
     switch( segdFormatCode ) {
-    case 8022: // 	8	 bit quaternary demultiplexed
-    case 8024: //		16 bit quaternary demultiplexed
-    case 8038: //		32 bit 2's compliment integer demultiplexed
-    case 8042: //		8 bit hexadecimal demultiplexed
-    case 8044: //		16 bit hexadecimal &multiplexed
-    case 8048: //		32 bit hexadecimal demultiplexed
+    case 8022: //       8        bit quaternary demultiplexed
+    case 8024: //               16 bit quaternary demultiplexed
+    case 8038: //               32 bit 2's compliment integer demultiplexed
+    case 8042: //               8 bit hexadecimal demultiplexed
+    case 8044: //               16 bit hexadecimal &multiplexed
+    case 8048: //               32 bit hexadecimal demultiplexed
       return false;
     case 8015: // 20 bit binary demultiplexed
     case 8036: // 24 bit 2's compliment integer demultiplexed
@@ -192,6 +203,8 @@ namespace cseis_segd {
     case 13:  // Sercel
     case 18:  // I/O
       return true;
+    case 20:  // Fairfield
+      return true;
     case 22:  // Geco-Prakla
       return false;
     default:
@@ -200,18 +213,20 @@ namespace cseis_segd {
   }
   int manufacturerRecordingSystem( int manufactCode ) {
     switch( manufactCode ) {
-      case 9:  // geospace
-        return RECORDING_SYSTEM_GEORES;
-      case 13:  // Sercel
-        return RECORDING_SYSTEM_SEAL;
-      case 18:  // I/O
-        return RECORDING_SYSTEM_DIGISTREAMER;
-      case 22:  // Geco Prakla
-        return RECORDING_SYSTEM_GECO;
-      case 42: // Gunlink SEGD?
-        return UNKNOWN;
-      default:
-        return UNKNOWN;
+    case 9:  // geospace
+      return RECORDING_SYSTEM_GEORES;
+    case 13:  // Sercel
+      return RECORDING_SYSTEM_SEAL;
+    case 18:  // I/O
+      return RECORDING_SYSTEM_DIGISTREAMER;
+    case 20:  // Fairfield
+      return RECORDING_SYSTEM_FAIRFIELD;
+    case 22:  // Geco Prakla
+      return RECORDING_SYSTEM_GECO;
+    case 42: // Gunlink SEGD?
+      return UNKNOWN;
+    default:
+      return UNKNOWN;
     }
   }
   void getManufacturerName( int manufactCode, string* text ) {
@@ -274,6 +289,9 @@ namespace cseis_segd {
   bool isRevisionSupported( int rev1, int rev2 ) {
     if( ((rev1 == 0 || rev1 == 1 || rev1 == 2) && rev2 == 0 ) ||
         (rev1 == 2 && rev2 == 1) || (rev1 == 0 && rev2 == 1) ) {
+      return true;
+    }
+    else if( (rev1 == 0 || (rev1==1 && (rev2 == 5 || rev2 == 6)) )) { // Rev 1.5 & 1.6 (Fairfield)
       return true;
     }
     else {

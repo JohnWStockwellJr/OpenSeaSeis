@@ -4,6 +4,7 @@
 
 package cseis.seaview;
 
+import cseis.velanal.csVelocityAnalysisManager;
 import cseis.cmapgen.csColorMapGenerator;
 import cseis.cmapgen.csIColorMapGeneratorListener;
 import cseis.cmapgen.csCustomColorMapModel;
@@ -47,8 +48,9 @@ import javax.swing.filechooser.FileNameExtensionFilter;
  * @author 2008 Bjorn Olofsson
  * @author 2013 Felipe Punto
  */
+@SuppressWarnings("serial")
 public class SeaView extends JFrame implements csFileMenuListener {
-  public static final String VERSION = "2.05";
+  public static final String VERSION = "3.00";
   public static final String PROPERTIES_FILE_NAME = "seisdisp_settings_"+VERSION+".txt";
   public static final String PROPERTIES_FREQ_FILE_NAME = "seisdisp_settings_freq_"+VERSION+".txt";
 
@@ -65,6 +67,7 @@ public class SeaView extends JFrame implements csFileMenuListener {
   public static final int FORMAT_ASCII = 4;
   public static final int FORMAT_SEGD  = 5;
   public static final int FORMAT_RSF   = 6;
+  public static final int FORMAT_JPG   = 7;
   
   /// Tool bar on top of seismic pane
   private csSeaViewToolBarTop  myToolBarTop;
@@ -85,10 +88,13 @@ public class SeaView extends JFrame implements csFileMenuListener {
   /// true if this instance of SeaView is a child process of another Java application
   private boolean myIsChildProcess;
   private csSnapShotFrame mySnapShotFrame;
+  /// Manages velocity analysis
+  private csVelocityAnalysisManager myVelocityAnalysisManager;
 
   // Progress bar which is shown when process is ongoing, such as reading in new file
   private csProgressBarWindow myProgressBar;
   private csTraceSelectionDialog myTraceSelectionDialog;
+  private csWellPathDialog myWellPathDialog;
   private boolean myIsReadProcessOngoing = false;
   private boolean myIsScalarLocked = false;
   private boolean myOpenInNewPanel = true;
@@ -157,6 +163,7 @@ public class SeaView extends JFrame implements csFileMenuListener {
     myDockPaneManager = new csDockPaneManager( true );
     myDockPaneManager.resetWindowLayout( myProperties.windowLayout, false );
     myDockPaneManager.setActivePaneFeedback( myProperties.showActivePaneFeedback );
+    myDockPaneManager.setMaxTabWidth( myProperties.maxTabWidth );
     myDockPaneButtonSelection = new csDockPaneButtonSelection();
     myDockPaneButtonSelection.scrollbars = false;
     mySeisPaneManager = new csSeisPaneManager( this, myProperties.annAttr );
@@ -164,7 +171,7 @@ public class SeaView extends JFrame implements csFileMenuListener {
     myStatusBar = new JLabel("----", JLabel.LEFT );
     mySnapShotFrame = null;
     myMenuBar = new csMenuBar( this, myProperties );
-    java.util.List list = myPreferences.getRecentFileList();
+    java.util.List<String> list = myPreferences.getRecentFileList();
     if( list != null ) {
       for( int i = list.size()-1; i >= 0; i-- ) {  // Add files backwards. Last added file goes to top of list
         myMenuBar.addRecentFile( (String)list.get(i) );
@@ -435,11 +442,33 @@ public class SeaView extends JFrame implements csFileMenuListener {
       csTraceSelectionParam.NUM_TRACES = numTraces;
     }
   }
+  public void setMaxTabWidth( int maxTabWidth ) {
+    if( maxTabWidth != myProperties.maxTabWidth ) {
+      myProperties.maxTabWidth = maxTabWidth;
+      myDockPaneManager.setMaxTabWidth(maxTabWidth);
+    }
+  }
   public void setShowFilename( boolean showFilename ) {
     if( showFilename != myProperties.showFilename ) {
       myProperties.showFilename = showFilename;
       mySeisPaneManager.setShowFilenameInView( showFilename, (csSeisPaneBundle)myDockPaneManager.getActivePanel() );
     }
+  }
+  public void manageWellPaths() {
+    if( myWellPathDialog == null ) {
+      myWellPathDialog = new csWellPathDialog( this, myProperties.wellPathDirectoryPath );
+      myWellPathDialog.addListener( new csIWellPathDialogListener() {
+        @Override
+        public void updateWellPaths( ArrayList<csWellPathAttr> wellPathAttrList, csWellPathOverlayAttr wellPathOverlayAttr ) {
+          mySeisPaneManager.updateWellPaths( wellPathAttrList, wellPathOverlayAttr );
+        }
+        @Override
+        public void updateWellPathDirectory( String directory ) {
+          myProperties.wellPathDirectoryPath = directory;
+        }
+      });
+    }
+    myWellPathDialog.setVisible(true);
   }
   public void setShowActivePaneFeedback( boolean showActivePaneFeedback ) {
     myProperties.showActivePaneFeedback = showActivePaneFeedback;
@@ -542,6 +571,9 @@ public class SeaView extends JFrame implements csFileMenuListener {
     glassPane.removeKeyListener( keyAdapter );
     glassPane.removeMouseListener( mouseAdapter );
     glassPane.setVisible( false );
+  }
+  public void updateSyncDispSettings( boolean doSync ) {
+    mySeisPaneManager.updateSyncDispSettings( doSync );
   }
   /**
    * Load seismic display settings from external file. Apply to active bundle/pane.
@@ -846,7 +878,7 @@ public class SeaView extends JFrame implements csFileMenuListener {
     try {
       FileImageOutputStream output = new FileImageOutputStream(outFile);
 
-      Iterator iter = ImageIO.getImageWritersByFormatName("JPG");
+      Iterator<ImageWriter> iter = ImageIO.getImageWritersByFormatName("JPG");
       if (iter.hasNext()) {
          ImageWriter writer = (ImageWriter)iter.next();
          ImageWriteParam iwp = writer.getDefaultWriteParam();
@@ -907,6 +939,23 @@ public class SeaView extends JFrame implements csFileMenuListener {
     });
   }
   /**
+   * Start velocity analysis setup
+   * @param reset True if velocity analysis shall be reset
+   */
+  public void openVelocityAnalysis( boolean reset ) {
+    if( myVelocityAnalysisManager == null || reset ) {
+      int numBundles = mySeisPaneManager.getNumBundles();
+      if( numBundles < 1 ) return;
+      csSeisPaneBundle[] bundleList = new csSeisPaneBundle[numBundles];
+      for( int i = 0; i < numBundles; i++ ) {
+       bundleList[i] = mySeisPaneManager.getBundle(i);
+      }
+      myVelocityAnalysisManager = new csVelocityAnalysisManager( this, bundleList, (csSeisPaneBundle)myDockPaneManager.getActivePanel(),
+        myProperties.velFieldDirectoryPath);
+    }
+    myVelocityAnalysisManager.open();
+  }
+  /**
    * Open new input file.
    * @param filename The name of the input file.
    * @return true if operation was successful.
@@ -957,6 +1006,8 @@ public class SeaView extends JFrame implements csFileMenuListener {
         "SEGD files (*.segd, *.sgd, *.gunlink, *.SEGD, *.SGD, *.raw)", "segd", "sgd", "gunlink", "SEGD", "SGD", "raw");
       FileNameExtensionFilter filterRSF = new FileNameExtensionFilter(
         "RSF files (*.rsf, *.RSF)", "rsf", "RSF");
+      FileNameExtensionFilter filterJPG = new FileNameExtensionFilter(
+        "JPEG files (*.jpg, *.jpeg, *.JPG, *.JPEG)", "jpg", "jpeg", "JPG", "JPEG");
       if( fileFormat == SeaView.FORMAT_ALL ) {
         mySeismicFileChooser.addChoosableFileFilter(filterCSEIS);
         mySeismicFileChooser.addChoosableFileFilter(filterSEGY);
@@ -964,6 +1015,7 @@ public class SeaView extends JFrame implements csFileMenuListener {
         mySeismicFileChooser.addChoosableFileFilter(filterASCII);
         mySeismicFileChooser.addChoosableFileFilter(filterSEGD);
         mySeismicFileChooser.addChoosableFileFilter(filterRSF);
+        mySeismicFileChooser.addChoosableFileFilter(filterJPG);
       }
       else if( fileFormat == SeaView.FORMAT_CSEIS ) {
         mySeismicFileChooser.addChoosableFileFilter(filterCSEIS);
@@ -987,6 +1039,10 @@ public class SeaView extends JFrame implements csFileMenuListener {
       else if( fileFormat == SeaView.FORMAT_RSF ) {
         mySeismicFileChooser.addChoosableFileFilter(filterRSF);
         mySeismicFileChooser.setFileFilter( filterRSF );
+      }
+      else if( fileFormat == SeaView.FORMAT_JPG ) {
+        mySeismicFileChooser.addChoosableFileFilter(filterJPG);
+        mySeismicFileChooser.setFileFilter( filterJPG );
       }
       myCurrentSelectedFileFormat = fileFormat;
     } // END isNew || fileformat != myCurrentSelectedFileFormat
@@ -1034,6 +1090,9 @@ public class SeaView extends JFrame implements csFileMenuListener {
         else if( filename.toLowerCase().endsWith("rsf") ) {
           fileFormat = SeaView.FORMAT_RSF;
         }
+        else if( filename.toLowerCase().endsWith("jpg") ) {
+          fileFormat = SeaView.FORMAT_JPG;
+        }
         else {   // Per default, assume it's a SEGY file:
           fileFormat = SeaView.FORMAT_SEGY;
         }
@@ -1062,16 +1121,18 @@ public class SeaView extends JFrame implements csFileMenuListener {
         case SeaView.FORMAT_ASCII:
           newReader = new csASCIIReader( filename );
           break;
+        case SeaView.FORMAT_JPG:
+          newReader = new csImageSeismicReader( filename );
+          break;
         default:  // Per default, assume it's a SEGY file:
           fileFormat = SeaView.FORMAT_SEGY;
           newReader = new csNativeSegyReader( filename, mySegyAttr.hdrMap, 200,
             mySegyAttr.endianSEGYData != endianOrder, mySegyAttr.endianSEGYHdr != endianOrder, mySegyAttr.autoScaleCoord );
       }
-      if( newReader == null ) return false;
-      if( newReader.numTraces() == 0 ) {
+      if( newReader == null || newReader.numTraces() == 0 ) {
         throw( new Exception("Input file " + filename + "\ncontains no data") );
       }
-      myMenuBar.addRecentFile( filename );
+      myMenuBar.addRecentFile( file.getAbsolutePath() );
       if( mySeismicFileChooser == null ) {
         mySeismicFileChooser = new JFileChooser();
       }
@@ -1105,6 +1166,8 @@ public class SeaView extends JFrame implements csFileMenuListener {
    * Read data set into SeaView.
    * @param reader The seismic reader object.
    * @param filenamePath The full path name to the file.
+   * @param fileFormat   Flag defining file format
+   * @param openInNewPane Open new data set in new pane (replace data in current if 'false')
    * @return true if operation was successful.
    */
   public synchronized boolean readData( csISeismicReader reader, String filenamePath, int fileFormat, boolean openInNewPane ) {
@@ -1146,6 +1209,7 @@ public class SeaView extends JFrame implements csFileMenuListener {
      
     return true;
   }
+  
   /**
    * Read seismic bundle.
    * 
@@ -1268,7 +1332,7 @@ public class SeaView extends JFrame implements csFileMenuListener {
         else {
           csSeisPaneBundle bundle = (csSeisPaneBundle)myDockPaneManager.getActivePanel();
           updateMoveButtons( bundle );
-          bundle.seisView.setMouseMode( myMouseMode );
+          bundle.setMouseMode( myMouseMode );
           if( myTraceSelectionDialog != null ) {
             myTraceSelectionDialog.updateBundle( bundle );
           }
@@ -1286,7 +1350,7 @@ public class SeaView extends JFrame implements csFileMenuListener {
    * @return new seismic bundle object.
    */
   private csSeisPaneBundle createSeismicBundle( csSeisDispSettings dispSettings, csFilename filename, int fileFormat ) {
-    csSeisView seisview = new csSeisView( this, dispSettings, myCustomColorMapModel, myColorBitType );
+    csSeisView seisview = new csBackgroundSeisView( this, dispSettings, myCustomColorMapModel, myColorBitType );
     if( myProperties.showFilename ) {
       seisview.addOverlay( new csSeisViewFilenameOverlay( filename.filename ) );
     }
@@ -1298,6 +1362,10 @@ public class SeaView extends JFrame implements csFileMenuListener {
       @Override
       public void updateBundleDisplayScalar( csSeisPaneBundle bundle ) {
         updateSeismicDisplayScalar( bundle );
+      }
+      @Override
+      public void updateBundleDisplaySettings( csSeisPaneBundle bundle ) {
+        // Nothing to be done
       }
       @Override
       public void updateBundleSampleInfo( csSeisPaneBundle bundle, csSeisBundleSampleInfo sampleInfo ) {
@@ -1414,6 +1482,9 @@ public class SeaView extends JFrame implements csFileMenuListener {
       }
       if( myFileChooserDump != null && myFileChooserDump.getCurrentDirectory() != null ) {
         myProperties.screenDumpDirectoryPath = myFileChooserDump.getCurrentDirectory().getAbsolutePath();
+      }
+      if( myVelocityAnalysisManager != null && myVelocityAnalysisManager.getVelFieldDir() != null ) {
+        myProperties.velFieldDirectoryPath = myVelocityAnalysisManager.getVelFieldDir().getAbsolutePath();
       }
       myProperties.windowLayout = myDockPaneManager.getWindowLayout();
       mySeisPaneManager.retrieveAnnotationSettings( myProperties.annAttr, (csSeisPaneBundle)myDockPaneManager.getActivePanel() );
@@ -1584,6 +1655,14 @@ public class SeaView extends JFrame implements csFileMenuListener {
       JOptionPane.showMessageDialog( null,
           e.toString() + "\n" +
           "java.library.path = " + System.getProperty( "java.library.path" ) + "\n" +
+          " - Seaview will not run.", "Error",
+          JOptionPane.ERROR_MESSAGE );
+      System.exit( -1 );
+    }
+    catch( Exception e2 ) {
+      JOptionPane.showMessageDialog( null,
+          e2.toString() + "\n" +
+          "Unknown error occurred:" + e2.getMessage() + "\n" +
           " - Seaview will not run.", "Error",
           JOptionPane.ERROR_MESSAGE );
       System.exit( -1 );

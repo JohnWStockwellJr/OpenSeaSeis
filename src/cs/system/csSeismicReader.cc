@@ -147,17 +147,24 @@ bool csSeismicReader::setHeaderToPeek( std::string const& headerName ) {
   if( !myTrcHdrDef->headerExists( headerName ) ) return false;
   int index = myTrcHdrDef->headerIndex( headerName );
   csTraceHeaderInfo const* info = myTrcHdrDef->headerInfo( index );
-  myHdrCheckType       = info->type;
-  myHdrCheckByteSize   = info->nElements * cseis_geolib::csGeolibUtils::numBytes(myHdrCheckType);
-  myHdrCheckByteOffset = myTrcHdrDef->getByteLocation( index );
-  if( myHdrCheckBuffer != NULL ) {
+
+  myHdrCheckByteOffset   = myTrcHdrDef->getByteLocation( index );
+  myHdrCheckType         = info->type;
+  int hdrCheckByteSize   = info->nElements * cseis_geolib::csGeolibUtils::numBytes(myHdrCheckType);
+
+  if( hdrCheckByteSize != myHdrCheckByteSize && myHdrCheckBuffer != NULL ) {
     delete [] myHdrCheckBuffer;
     myHdrCheckBuffer = NULL;
   }
-  myHdrCheckBuffer = new char[myHdrCheckByteSize];
+  if( myHdrCheckBuffer == NULL ) {
+    myHdrCheckByteSize =  hdrCheckByteSize;
+    myHdrCheckBuffer = new char[myHdrCheckByteSize];
+  }
   return true;
 }
-
+int csSeismicReader::getPeekByteOffset() const {
+  return myHdrCheckByteOffset;
+}
 bool csSeismicReader::peekHeaderValue( cseis_geolib::csFlexHeader* hdrValue, int traceIndex ) {
   if( myHdrCheckBuffer == NULL ) {
     throw( cseis_geolib::csException("csSeismicReader::checkHeaderValue: No header has been set for checking. This is a program bug in the calling function") );
@@ -167,6 +174,7 @@ bool csSeismicReader::peekHeaderValue( cseis_geolib::csFlexHeader* hdrValue, int
     success = myReader->peek( myHdrCheckByteOffset, myHdrCheckByteSize, myHdrCheckBuffer );
   }
   else {
+    //    fprintf(stdout,"Peek: %d %d %d\n", myHdrCheckByteOffset, myHdrCheckByteSize, traceIndex );
     success = myReader->peek( myHdrCheckByteOffset, myHdrCheckByteSize, myHdrCheckBuffer, traceIndex );
   }
   if( !success ) return false;

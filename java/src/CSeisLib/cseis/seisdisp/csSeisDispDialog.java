@@ -79,8 +79,8 @@ public class csSeisDispDialog extends JDialog implements csISeisViewListener {
   private JRadioButton myButtonAverage;
   
   // Color/color map selectors
-  private JComboBox myComboColorMapWiggle;
-  private JComboBox myComboColorMapVI;
+  private JComboBox<Object> myComboColorMapWiggle;
+  private JComboBox<Object> myComboColorMapVI;
   private JButton myButtonColorWigglePos;
   private JButton myButtonColorWiggleNeg;
   private JButton myButtonHighlightColor;
@@ -92,7 +92,7 @@ public class csSeisDispDialog extends JDialog implements csISeisViewListener {
   private JButton myButtonApply;
   private JButton myButtonCancel;
 
-  private JComboBox myComboPlotDir;
+  private JComboBox<String> myComboPlotDir;
   private JLabel myLabelPlotDir;
   //----------------------
   private JLabel myLabelMinValue;
@@ -105,7 +105,8 @@ public class csSeisDispDialog extends JDialog implements csISeisViewListener {
 
   private JLabel myLabelColorMap;
 //  private JLabel myLabelHighlightColor;
-
+  private JPanel myPanelAllDefault;
+  
   private boolean myIsUpdating = false;
   private DecimalFormat myFormat0000 = new DecimalFormat("0.0000");
   
@@ -207,7 +208,7 @@ public class csSeisDispDialog extends JDialog implements csISeisViewListener {
     myButtonColorWiggleNeg = new JButton("Select");
     myButtonHighlightColor = new JButton("Select");
 
-    myComboPlotDir = new JComboBox();
+    myComboPlotDir = new JComboBox<String>();
     myComboPlotDir.addItem( "VERTICAL" );
     myComboPlotDir.addItem( "HORIZONTAL" );
 //    myComboPlotDir.setEnabled(false);
@@ -629,14 +630,14 @@ public class csSeisDispDialog extends JDialog implements csISeisViewListener {
          GridBagConstraints.BOTH, new Insets( 0, 0, 0, 0 ), 0, 0 ) );
 
 //  Nuts and bolts
-     JPanel panelAll = new JPanel(new BorderLayout());
-     panelAll.setBorder( csStandard.DIALOG_BORDER );
+     myPanelAllDefault = new JPanel(new BorderLayout());
+     myPanelAllDefault.setBorder( csStandard.DIALOG_BORDER );
 
      yp = 0;
 
-     panelAll.add(panelUpper,BorderLayout.CENTER);
-     panelAll.add(panelButtons,BorderLayout.SOUTH);
-     this.getContentPane().add(panelAll);
+     myPanelAllDefault.add(panelUpper,BorderLayout.CENTER);
+     myPanelAllDefault.add(panelButtons,BorderLayout.SOUTH);
+     this.getContentPane().add(myPanelAllDefault,BorderLayout.CENTER);
 
      this.changedSettings( mySettings );
 
@@ -968,6 +969,12 @@ public class csSeisDispDialog extends JDialog implements csISeisViewListener {
   public void vertScrollChanged( int scrollValue ) {}
   public void horzScrollChanged( int scrollValue ) {}
   public void sizeChanged( Dimension size ) {}
+  public void addCustomPanel( JPanel panelCustom ) {
+    myPanelAllDefault.add( panelCustom, BorderLayout.NORTH );
+    pack();
+    invalidate();
+    repaint();
+  }
   //-------------------------------------------------------------------------------
   //
   //
@@ -995,6 +1002,11 @@ public class csSeisDispDialog extends JDialog implements csISeisViewListener {
     myTextZoomVertInch.setText( myFormat0000.format( convertZoomVertToInch(zoomVert) ) );
     myTextZoomHorzInch.setText( myFormat0000.format( convertZoomHorzToInch(zoomHorz) ) );
   }
+  @Override
+  public void traceBufferChanged( csISeismicTraceBuffer traceBuffer ) {
+    // Nothing to be done
+  }
+  @Override
   public void changedSettings( csSeisDispSettings ds ) {
     if( myIsUpdating ) return;
 
@@ -1228,7 +1240,7 @@ public class csSeisDispDialog extends JDialog implements csISeisViewListener {
       e.printStackTrace();
     }
     
-    csSeisView seisview = new csSeisView(null);
+    csSeisView seisview = new csSeisView(null,null);
     csSeisDispDialog dialog = new csSeisDispDialog( seisview, csColorMap.COLOR_MAP_TYPE_32BIT );
     dialog.setVisible(true);
     
@@ -1237,6 +1249,9 @@ public class csSeisDispDialog extends JDialog implements csISeisViewListener {
         System.exit( 0 );
       }
     });    
+  }
+  @Override
+  public void mouseExited() {
   }
 }
 

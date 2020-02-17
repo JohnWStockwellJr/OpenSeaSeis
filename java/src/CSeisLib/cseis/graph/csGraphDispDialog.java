@@ -20,6 +20,7 @@ import java.util.Iterator;
  * Dialog where graph settings can be changed.
  * @author Bjorn Olofsson
  */
+@SuppressWarnings("serial")
 public class csGraphDispDialog extends JDialog implements csIGraph2DListener {
   private static final int TEXT_MIN_WIDTH = 80;
   

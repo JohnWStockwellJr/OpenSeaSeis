@@ -36,7 +36,7 @@ using namespace mod_output;
 //
 //
 //*************************************************************************************************
-void init_mod_output_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_output_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   //  csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -44,7 +44,7 @@ void init_mod_output_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  env->execPhaseDef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
 
   vars->filename   = "";
   vars->writer     = NULL;
@@ -64,7 +64,7 @@ void init_mod_output_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       doOverwrite = false;
     }
     else {
-      log->line("Unknown option for user parameter overwrite: '%s'", text.c_str());
+      writer->line("Unknown option for user parameter overwrite: '%s'", text.c_str());
       env->addError();
     }
   }
@@ -82,7 +82,7 @@ void init_mod_output_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       vars->sampleByteSize = 1;
     }
     else {
-      log->line("Unknown option for user parameter compress: '%s'", text.c_str());
+      writer->line("Unknown option for user parameter compress: '%s'", text.c_str());
       env->addError();
     }
   }
@@ -90,33 +90,33 @@ void init_mod_output_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
   param->getString( "filename", &vars->filename );
   int length = (int)vars->filename.length();
   if( length < 6 || (vars->filename.substr( length-6, 6 ).compare(".cseis")) ) {
-    log->warning("Output file name does not have the standard SeaSeis extension '.cseis': '%s'\n", vars->filename.c_str());
+    writer->warning("Output file name does not have the standard SeaSeis extension '.cseis': '%s'\n", vars->filename.c_str());
     if( vars->filename.substr( length-6, 6 ).compare(".oseis") ) {
       //    if( filename.find('.') != string::npos ) {
-      log->error("SeaSeis standard file name extension '.cseis' was omitted or spelled wrong. Please add extension '.cseis' to output file name and re-run.");
+      writer->error("SeaSeis standard file name extension '.cseis' was omitted or spelled wrong. Please add extension '.cseis' to output file name and re-run.");
     }
   }
 
   if( param->exists( "ntraces_buffer" ) ) {
     param->getInt( "ntraces_buffer", &vars->numTracesBuffer );
     if( vars->numTracesBuffer <= 0 || vars->numTracesBuffer > 999999 ) {
-      log->warning("Number of buffered traces out of range (=%d). Changed to 1.", vars->numTracesBuffer);
+      writer->warning("Number of buffered traces out of range (=%d). Changed to 1.", vars->numTracesBuffer);
       vars->numTracesBuffer = 1;
     }
   }
 
   if( !doOverwrite && csFileUtils::fileExists( vars->filename ) ) {
-    log->error("File %s already exists but user parameter set to 'overwrite no'.", vars->filename.c_str() );
+    writer->error("File %s already exists but user parameter set to 'overwrite no'.", vars->filename.c_str() );
   }
   if( !csFileUtils::createDoNotOverwrite( vars->filename ) ) {
-    log->error("Cannot open SeaSeis output file '%s'", vars->filename.c_str() );
+    writer->error("Cannot open SeaSeis output file '%s'", vars->filename.c_str() );
   }
 
-  log->line("");
-  log->line("  File name:             %s", vars->filename.c_str());
-  log->line("  Sample interval [ms]:  %f", shdr->sampleInt);
-  log->line("  Number of samples:     %d", shdr->numSamples);
-  log->line("");
+  writer->line("");
+  writer->line("  File name:             %s", vars->filename.c_str());
+  writer->line("  Sample interval [ms]:  %f", shdr->sampleInt);
+  writer->line("  Number of samples:     %d", shdr->numSamples);
+  writer->line("");
 
   vars->nTracesOut = 0;
 }
@@ -127,24 +127,20 @@ void init_mod_output_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
 //
 //
 //*************************************************************************************************
-bool exec_mod_output_(
-  csTrace* trace,
+void exec_mod_output_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
   csTraceHeaderDef const* hdef = env->headerDef;
 
-  if( edef->isCleanup() ) {
-    if( vars->writer != NULL ) {
-      delete vars->writer;
-      vars->writer = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
 
   if( vars->isFirstCall ) {
     vars->isFirstCall = false;
@@ -152,12 +148,12 @@ bool exec_mod_output_(
       vars->writer = new csSeismicWriter( vars->filename, vars->numTracesBuffer, vars->sampleByteSize, true );
     }
     catch( csException& exc ) {
-      log->error("Error occurred when opening SeaSeis file. System message:\n%s", exc.getMessage() );
+      writer->error("Error occurred when opening SeaSeis file. System message:\n%s", exc.getMessage() );
     }
   }
 
 
-  if( edef->isDebug() ) log->line("Output SeaSeis trace #%d", vars->nTracesOut+1);
+  if( edef->isDebug() ) writer->line("Output SeaSeis trace #%d", vars->nTracesOut+1);
 
   float* samples = trace->getTraceSamples();
   char const* hdrValueBlock   = trace->getTraceHeader()->getTraceHeaderValueBlock();
@@ -169,16 +165,16 @@ bool exec_mod_output_(
     }
     if( success ) success = vars->writer->writeTrace( samples, hdrValueBlock );
     if( !success ) {
-      log->error("Unknown error occurred when writing to SeaSeis file.\n" );
+      writer->error("Unknown error occurred when writing to SeaSeis file.\n" );
     }
   }
   catch( csException& exc ) {
-    log->error("Error occurred when writing to SeaSeis file. System message:\n%s", exc.getMessage() );
+    writer->error("Error occurred when writing to SeaSeis file. System message:\n%s", exc.getMessage() );
   }
 
   vars->nTracesOut += 1;
 
-  return true;
+  return;
 }
 //********************************************************************************
 // Parameter definition
@@ -209,13 +205,45 @@ void params_mod_output_( csParamDef* pdef ) {
   pdef->addOption( "8bit", "Compress data samples to 8bit");
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_output_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_output::VariableStruct* vars = reinterpret_cast<mod_output::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_output_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_output::VariableStruct* vars = reinterpret_cast<mod_output::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->writer != NULL ) {
+    delete vars->writer;
+    vars->writer = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_output_( csParamDef* pdef ) {
   params_mod_output_( pdef );
 }
-extern "C" void _init_mod_output_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_output_( param, env, log );
+extern "C" void _init_mod_output_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_output_( param, env, writer );
 }
-extern "C" bool _exec_mod_output_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_output_( trace, port, env, log );
+extern "C" bool _start_exec_mod_output_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_output_( env, writer );
 }
-
+extern "C" void _exec_mod_output_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_output_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_output_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_output_( env, writer );
+}

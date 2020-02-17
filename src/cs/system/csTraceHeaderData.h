@@ -6,6 +6,7 @@
 
 #include <string>
 #include "geolib_defines.h"
+#include "csPoint3D.h"
 
 namespace cseis_geolib {
   class csAbsoluteTime;
@@ -40,6 +41,11 @@ public:
   void setFloatValue( int index, float value );
   void setDoubleValue( int index, double value );
   void setStringValue( int index, std::string value );
+  void setVectorValue( int index, cseis_geolib::csPoint3D point );
+  void setVectorValue( int index, double value, cseis_geolib::type_t type );
+  void setVectorValueX( int index, double value );
+  void setVectorValueY( int index, double value );
+  void setVectorValueZ( int index, double value );
   //------------------------------------------------------
   inline int intValue( int index ) const {
 #ifndef ARCHITECTURE_ITANIUM
@@ -77,6 +83,8 @@ public:
     return value;
 #endif
   }
+  cseis_geolib::csPoint3D vectorValue( int index ) const;
+  double vectorValue( int index, cseis_geolib::type_t type ) const;
   std::string stringValue( int index ) const;
   //------------------------------------------------------
   inline int numBytes() const { return myNumBytes; }

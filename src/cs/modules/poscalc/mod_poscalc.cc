@@ -3,6 +3,11 @@
 
 #include "cseis_includes.h"
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <assert.h>
 
 using namespace cseis_system;
 using namespace cseis_geolib;
@@ -46,21 +51,23 @@ namespace mod_poscalc {
   };
   static int const METHOD_PEAK_TROUGH   = 11;
   static int const METHOD_ZERO_CROSSING = 22;
+
+  void sub_poscalc_indv( double timeDelay, // Time delay to apply to FB picks in advance, default=0.0
+                         bool verbose,
+                         int nObs, // Number of observations
+                         double velocity,
+                         double rcvx,
+                         double rcvy,
+                         double rcvdep,
+                         double** xSrc,
+                         double* fbpTime,
+                         int nUnknowns,
+                         double* xDelta,
+                         double* xStddev );
+  void LUDecomposition( double** AA, int nIn, int* indx, double* dd );
+  void LUBackSub( double** AA, int nIn, int* indx, double* bb );
 }
 using namespace mod_poscalc;
-
-void sub_poscalc_indv( double timeDelay, // Time delay to apply to FB picks in advance, default=0.0
-                       bool verbose,
-                       int nObs, // Number of observations
-                       double velocity,
-                       double rcvx,
-                       double rcvy,
-                       double rcvdep,
-                       double** xSrc,
-                       double* fbpTime,
-                       int nUnknowns,
-                       double* xDelta,
-                       double* xStddev );
 
 //*************************************************************************************************
 // Init phase
@@ -68,7 +75,7 @@ void sub_poscalc_indv( double timeDelay, // Time delay to apply to FB picks in a
 //
 //
 //*************************************************************************************************
-void init_mod_poscalc_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_poscalc_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -76,7 +83,6 @@ void init_mod_poscalc_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
   edef->setTraceSelectionMode( TRCMODE_ENSEMBLE );
 
 
@@ -120,7 +126,7 @@ void init_mod_poscalc_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
       vars->verbose = false;
     }
     else {
-      log->line("Unknown option '%s'", text.c_str() );
+      writer->line("Unknown option '%s'", text.c_str() );
     }
   }
 
@@ -133,7 +139,7 @@ void init_mod_poscalc_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
       vars->solveReceiver = false;
     }
     else {
-      log->line("Unknown option '%s'", text.c_str() );
+      writer->line("Unknown option '%s'", text.c_str() );
     }
   }
 
@@ -144,14 +150,14 @@ void init_mod_poscalc_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
   csFlexNumber number;
   if( !number.convertToNumber( text ) ) {
     if( !hdef->headerExists(text) ) {
-      log->error("Specified velocity value is not an existing trace header name, nor a number: '%s'", text.c_str());
+      writer->error("Specified velocity value is not an existing trace header name, nor a number: '%s'", text.c_str());
     }
     vars->hdrId_velocity = hdef->headerIndex(text);
-    log->line("Read in water velocity from trace header '%s' (read in from first trace of input ensemble)", text.c_str());
+    writer->line("Read in water velocity from trace header '%s' (read in from first trace of input ensemble)", text.c_str());
   }
   else {
     vars->velocity = number.floatValue();
-    log->line("Using constant water velocity = %f", vars->velocity);
+    writer->line("Using constant water velocity = %f", vars->velocity);
   }
   //------------------------
 
@@ -164,7 +170,7 @@ void init_mod_poscalc_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
     vars->isConstantSrcDepth = false;
   }
   else {
-    log->error("Source depth must be given either in trace header sou_z, or input parameter 'sou_z'");
+    writer->error("Source depth must be given either in trace header sou_z, or input parameter 'sou_z'");
   }
   param->getInt( "num_unknowns", &vars->nUnknowns );
 
@@ -174,12 +180,12 @@ void init_mod_poscalc_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
   std::string ensHeaderName;
   param->getString( "hdr_ens", &ensHeaderName );
   if( !hdef->headerExists( ensHeaderName ) ) {
-    log->error("Ensemble trace header '%s' does not exist", ensHeaderName.c_str() );
+    writer->error("Ensemble trace header '%s' does not exist", ensHeaderName.c_str() );
   }
 
   param->getString( "header", &text );
   if( !hdef->headerExists( text ) ) {
-    log->error("Trace header '%s' does not exist", text.c_str() );
+    writer->error("Trace header '%s' does not exist", text.c_str() );
   }
   vars->hdrId        = hdef->headerIndex( text );
 
@@ -233,13 +239,13 @@ void init_mod_poscalc_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
   vars->hdrId_dy   = hdef->headerIndex( "dy" );
   vars->hdrId_dz   = hdef->headerIndex( "dz" );
   if( hdef->headerType("dx") != TYPE_FLOAT && hdef->headerType("dx") != TYPE_DOUBLE ) {
-    log->error("Trace header 'dx' exists but has wrong header type. Should be FLOAT.");
+    writer->error("Trace header 'dx' exists but has wrong header type. Should be FLOAT.");
   }
   if( hdef->headerType("dy") != TYPE_FLOAT && hdef->headerType("dy") != TYPE_DOUBLE ) {
-    log->error("Trace header 'dy' exists but has wrong header type. Should be FLOAT.");
+    writer->error("Trace header 'dy' exists but has wrong header type. Should be FLOAT.");
   }
   if( hdef->headerType("dz") != TYPE_FLOAT && hdef->headerType("dz") != TYPE_DOUBLE ) {
-    log->error("Trace header 'dz' exists but has wrong header type. Should be FLOAT.");
+    writer->error("Trace header 'dz' exists but has wrong header type. Should be FLOAT.");
   }
 
   if( vars->nUnknowns > 3 ) {
@@ -247,7 +253,7 @@ void init_mod_poscalc_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
       hdef->addHeader( TYPE_FLOAT, "dt" );
     }
     else if( hdef->headerType("dt") != TYPE_FLOAT && hdef->headerType("dt") != TYPE_DOUBLE ) {
-      log->error("Trace header 'dt' exists but has wrong header type. Should be FLOAT.");
+      writer->error("Trace header 'dt' exists but has wrong header type. Should be FLOAT.");
     }
     vars->hdrId_dt   = hdef->headerIndex( "dt" );
   }
@@ -256,7 +262,7 @@ void init_mod_poscalc_( csParamManager* param, csInitPhaseEnv* env, csLogWriter*
       hdef->addHeader( TYPE_FLOAT, "dv" );
     }
     else if( hdef->headerType("dv") != TYPE_FLOAT && hdef->headerType("dv") != TYPE_DOUBLE ) {
-      log->error("Trace header 'dv' exists but has wrong header type. Should be FLOAT.");
+      writer->error("Trace header 'dv' exists but has wrong header type. Should be FLOAT.");
     }
     vars->hdrId_dv = hdef->headerIndex( "dv" );
   }
@@ -274,41 +280,17 @@ void exec_mod_poscalc_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
 
-  if( edef->isCleanup() ) {
-    if( vars->xSrc != NULL ) {
-      for( int iobs = 0; iobs < vars->maxObs; iobs++ ) {
-        if( vars->xSrc[iobs] != NULL ) {
-          delete [] vars->xSrc[iobs];
-        }
-      }
-      delete [] vars->xSrc;
-    }
-    if( vars->xDelta != NULL ) {
-      delete [] vars->xDelta;
-      vars->xDelta = NULL;
-    }
-    if( vars->xStddev != NULL ) {
-      delete [] vars->xStddev;
-      vars->xStddev = NULL;
-    }
-    if( vars->fbpTime != NULL ) {
-      delete [] vars->fbpTime;
-      vars->fbpTime = NULL;
-    }
-    delete vars; vars = NULL;
-    return;
-  }
 
   int nTraces = traceGather->numTraces();
 
   if( nTraces >= vars->maxObs ) {
     if( vars->maxObs > 0 )
-      log->line("Info: More input traces (=%d) than specified maxobs (= %d). Enlarge arrays....", nTraces, vars->maxObs);
+      writer->line("Info: More input traces (=%d) than specified maxobs (= %d). Enlarge arrays....", nTraces, vars->maxObs);
     if( vars->xSrc != NULL ) {
       for( int iobs = 0; iobs < vars->maxObs; iobs++ ) {
         if( vars->xSrc[iobs] != NULL ) {
@@ -356,12 +338,12 @@ void exec_mod_poscalc_(
   }
 
   int rcv = trcHdr->intValue( vars->hdrId_rcv );
-  if( edef->isDebug() ) log->line("Ensemble %d XYZ:  %f %f %f", rcv, rcvx, rcvy, rcvdep );
+  if( edef->isDebug() ) writer->line("Ensemble %d XYZ:  %f %f %f", rcv, rcvx, rcvy, rcvdep );
 
   // In case velocity trace header was given: Read velocity from first input trace
   if( vars->hdrId_velocity >= 0 ) {
     vars->velocity = traceGather->trace(0)->getTraceHeader()->floatValue( vars->hdrId_velocity );
-    log->line("POSCALC: Read in water velocity = %f [m/s] from trace header of first trace, ensemble header = %d",
+    writer->line("POSCALC: Read in water velocity = %f [m/s] from trace header of first trace, ensemble header = %d",
               vars->velocity, rcv);
   }
   /*
@@ -389,7 +371,7 @@ void exec_mod_poscalc_(
 
   if( edef->isDebug() ) {
     for( int i = 0; i < nTraces; i++ ) {
-      log->line( "%d  %f  %f %f %f\n", i, vars->fbpTime[i], vars->xSrc[i][0], vars->xSrc[i][1], vars->xSrc[i][2] );
+      writer->line( "%d  %f  %f %f %f\n", i, vars->fbpTime[i], vars->xSrc[i][0], vars->xSrc[i][1], vars->xSrc[i][2] );
     }
   }
 
@@ -409,7 +391,7 @@ void exec_mod_poscalc_(
   
 
   for( int k = 0; k < vars->nUnknowns; k++) {
-    log->write("%d  %d  %-11.3f %-11.3f %-11.3f (Solution for unknown %d (x,dx,stdev))\n",
+    writer->write("%d  %d  %-11.3f %-11.3f %-11.3f (Solution for unknown %d (x,dx,stdev))\n",
                rcv,k,vars->xSrc[k][0],vars->xDelta[k],vars->xStddev[k], k);
     //    fprintf(stdout,"%d  %d  %-11.3f %-11.3f %-11.3f (Solution for unknown %d (x,dx,stdev))\n",
     //        rcv,k,vars->xSrc[k][0],vars->xDelta[k],vars->xStddev[k], k);
@@ -470,15 +452,65 @@ void params_mod_poscalc_( csParamDef* pdef ) {
   pdef->addOption( "source", "Solve for source XYZ" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_poscalc_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_poscalc::VariableStruct* vars = reinterpret_cast<mod_poscalc::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_poscalc_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_poscalc::VariableStruct* vars = reinterpret_cast<mod_poscalc::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->xSrc != NULL ) {
+    for( int iobs = 0; iobs < vars->maxObs; iobs++ ) {
+      if( vars->xSrc[iobs] != NULL ) {
+        delete [] vars->xSrc[iobs];
+      }
+    }
+    delete [] vars->xSrc;
+  }
+  if( vars->xDelta != NULL ) {
+    delete [] vars->xDelta;
+    vars->xDelta = NULL;
+  }
+  if( vars->xStddev != NULL ) {
+    delete [] vars->xStddev;
+    vars->xStddev = NULL;
+  }
+  if( vars->fbpTime != NULL ) {
+    delete [] vars->fbpTime;
+    vars->fbpTime = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_poscalc_( csParamDef* pdef ) {
   params_mod_poscalc_( pdef );
 }
-extern "C" void _init_mod_poscalc_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_poscalc_( param, env, log );
+extern "C" void _init_mod_poscalc_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_poscalc_( param, env, writer );
 }
-extern "C" void _exec_mod_poscalc_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_poscalc_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_poscalc_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_poscalc_( env, writer );
 }
+extern "C" void _exec_mod_poscalc_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_poscalc_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_poscalc_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_poscalc_( env, writer );
+}
+
 
 
 /*
@@ -540,18 +572,7 @@ extern "C" void _exec_mod_poscalc_( csTraceGather* traceGather, int* port, int* 
  *
  */
 
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <iostream>
-#include <assert.h>
-#include <cmath>
-
-using namespace std;
-
-void ludcmpBO( double ** AA, int nIn, int * indx, double * dd ); // From numerical recipes in C
-void lubksbBO( double ** AA, int nIn, int * indx, double bb[] ); // From numerical recipes in C
-
+namespace mod_poscalc {
 void sub_poscalc_indv( double timeDelay, // Time delay to apply to FB picks in advance, default=0.0
                        bool verbose,
                        int nObs, // Number of observations
@@ -732,12 +753,12 @@ void sub_poscalc_indv( double timeDelay, // Time delay to apply to FB picks in a
     }
   }
 
-  ludcmpBO(LUmatrix,nUnknowns,indxTmp,&dTmp);
+  LUDecomposition(LUmatrix,nUnknowns,indxTmp,&dTmp);
 
   for( int j = 0; j < nUnknowns; j++) {
     for( int k = 0; k < nUnknowns; k++) colTmp[k] = 0.0;
     colTmp[j] = 1.0;
-    lubksbBO(LUmatrix,nUnknowns,indxTmp,colTmp);
+    LUBackSub(LUmatrix,nUnknowns,indxTmp,colTmp);
     for( int k = 0; k < nUnknowns; k++) NNinv[k][j] = colTmp[k];
   }
 
@@ -853,13 +874,73 @@ void sub_poscalc_indv( double timeDelay, // Time delay to apply to FB picks in a
   }
 }
 
-void lubksbBO( double ** AA, int nIn, int * indx, double bb[])
+#define TINY 1.0e-10;
+#define FREE_ARG char*
+
+void LUDecomposition( double** AA, int nIn, int* indx, double* dd )
+{
+  float dum, sum, temp;
+  unsigned int imax = 0;
+  unsigned int nIn_unsigned = (unsigned int)nIn;
+
+  float* vv = new float[ nIn_unsigned ];
+  if( !vv ) fprintf(stderr,"Allocation failure in ludcmpBO\n");
+
+  *dd = 1.0;
+  for( unsigned int i = 0; i < nIn_unsigned; i++ ) {
+    float big = 0.0;
+    for( unsigned int j = 0; j < nIn_unsigned; j++ ) {
+      if ((temp = fabs(AA[i][j])) > big) big = temp;
+    }
+    if (big == 0.0) fprintf(stderr,"Singular matrix in routine ludcmpBO\n");
+    vv[i] = 1.0 / big;
+  }
+
+  for( unsigned int j = 0; j < nIn_unsigned; j++ ) {
+    for( unsigned int i = 0; i < j; i++ ) {
+      sum = AA[i][j];
+      for( unsigned int k = 0; k < i; k++) sum -= AA[i][k]*AA[k][j];
+      AA[i][j] = sum;
+    }
+    float big = 0.0;
+    for( unsigned int i = j; i < nIn_unsigned; i++ ) {
+      sum = AA[i][j];
+      for( unsigned int k = 0; k < j; k++ ) {
+        sum -= AA[i][k]*AA[k][j];
+      }
+      AA[i][j] = sum;
+      if( (dum = vv[i]*fabs(sum)) >= big ) {
+        big = dum;
+        imax = i;
+      }
+    }
+    if( j != imax ) {
+      for( unsigned int k = 0; k < nIn_unsigned; k++ ) {
+        dum = AA[imax][k];
+        AA[imax][k] = AA[j][k];
+        AA[j][k] = dum;
+      }
+      *dd = -(*dd);
+      vv[imax] = vv[j];
+    }
+    indx[j] = imax;
+    if( AA[j][j] == 0.0 ) AA[j][j] = 1.0e-10;
+    if( j != nIn_unsigned ) {
+      dum = 1.0 / AA[j][j];
+      for( unsigned int i = j+1; i < nIn_unsigned; i++ ) AA[i][j] *= dum;
+    }
+  }
+
+  delete [] vv;
+}
+
+void LUBackSub( double** AA, int nIn, int* indx, double* bb )
 {
   int ii = -1;
 
   for( int i = 0; i < nIn; i++ ) {
     int ip = indx[i];
-    double sum = bb[ip];
+    float sum = bb[ip];
     bb[ip] = bb[i];
     if( ii != -1 ) {
       for( int j = ii; j <= i-1; j++ ) sum -= AA[i][j]*bb[j];
@@ -870,69 +951,9 @@ void lubksbBO( double ** AA, int nIn, int * indx, double bb[])
     bb[i] = sum;
   }
   for( int i = nIn-1; i >= 0; i-- ) {
-    double sum = bb[i];
+    float sum = bb[i];
     for( int j = i+1; j < nIn; j++ ) sum -= AA[i][j]*bb[j];
     bb[i] = sum/AA[i][i];
   }
 }
-
-#define TINY 1.0e-10;
-#define FREE_ARG char*
-
-void ludcmpBO( double** AA, int nIn, int* indx, double* dd)
-{
-  double dum, sum, temp;
-  int imax = 0;
-
-  double* vv = (double *) malloc( (size_t) (nIn * sizeof(double)) );
-  if (!vv) fprintf(stdout,"Allocation failure in ludcmpBO\n");
-
-  *dd = 1.0;
-  for( int i = 0; i < nIn; i++ ) {
-    double big = 0.0;
-    for( int j = 0; j < nIn; j++ ) {
-      if ((temp = fabs(AA[i][j])) > big) big = temp;
-    }
-    if (big == 0.0) fprintf(stdout,"Singular matrix in routine ludcmp!\n");
-    vv[i] = 1.0 / big;
-  }
-
-  for( int j = 0; j < nIn; j++ ) {
-    for( int i = 0; i < j; i++ ) {
-      sum = AA[i][j];
-      for( int k = 0; k < i; k++) sum -= AA[i][k]*AA[k][j];
-      AA[i][j] = sum;
-    }
-    double big = 0.0;
-    for( int i = j; i < nIn; i++ ) {
-      sum = AA[i][j];
-      for( int k = 0; k < j; k++ ) {
-        sum -= AA[i][k]*AA[k][j];
-      }
-      AA[i][j] = sum;
-      if( (dum = vv[i]*fabs(sum)) >= big ) {
-        big = dum;
-        imax = i;
-      }
-    }
-    if( j != imax ) {
-      for( int k = 0; k < nIn; k++ ) {
-        dum = AA[imax][k];
-        AA[imax][k] = AA[j][k];
-        AA[j][k] = dum;
-      }
-      *dd = -(*dd);
-      vv[imax] = vv[j];
-    }
-    indx[j] = imax;
-    if( AA[j][j] == 0.0 ) AA[j][j] = TINY;
-    if( j != nIn ) {
-      dum = 1.0 / AA[j][j];
-      for( int i = j+1; i < nIn; i++ ) AA[i][j] *= dum;
-    }
-  }
-
-  free( (FREE_ARG) (vv) );
-
-}
-
+} // END namespace

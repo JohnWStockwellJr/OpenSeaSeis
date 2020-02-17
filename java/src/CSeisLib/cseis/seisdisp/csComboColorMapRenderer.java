@@ -13,13 +13,14 @@ import javax.swing.JList;
  * Renderer for JComboBox containing color maps.
  * @author Bjorn Olofsson
  */
+@SuppressWarnings("serial")
 public class csComboColorMapRenderer extends DefaultListCellRenderer {
   public csComboColorMapRenderer() {
 //      setOpaque(true);
   }
   @Override
   public Component getListCellRendererComponent(
-      JList list,
+      JList<?> list,
       Object value,
       int index,
       boolean isSelected,

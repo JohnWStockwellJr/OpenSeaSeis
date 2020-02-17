@@ -27,6 +27,7 @@ import javax.swing.event.ChangeListener;
  * Values may be shifted and scaled to fit them into the min/max range of the vertical domain.
  * @author 2010 Bjorn Olofsson
  */
+@SuppressWarnings("serial")
 public class csOverlayDialog extends JDialog {
   private static final int TEXT_MIN_WIDTH = 50;
   private static final int MAX_TRACE_INTERVAL = 20;
@@ -40,11 +41,13 @@ public class csOverlayDialog extends JDialog {
   private JCheckBox[] myCheckItem;
   private JCheckBox myBoxShowLabels;
   private csColorButton[] myColorButton;
-  private JComboBox[] myComboHdrNames;
   private JTextField[] myTextAddValue;
   private JTextField[] myTextMultValue;
   private csHeaderOverlay[] myHeaderOverlay;
-  private JComboBox[] myComboType;
+//  private JComboBox[] myComboHdrNames;
+//  private JComboBox[] myComboType;
+  private ArrayList<JComboBox<csHeaderDef>> myComboHdrNames;
+  private ArrayList<JComboBox<String>> myComboType;
 
   csHeaderDef[] myTraceHeaderDef;
 
@@ -71,8 +74,10 @@ public class csOverlayDialog extends JDialog {
     myNumItems  = 8;
     myCheckItem     = new JCheckBox[myNumItems];
     myColorButton   = new csColorButton[myNumItems];
-    myComboHdrNames = new JComboBox[myNumItems];
-    myComboType     = new JComboBox[myNumItems];
+    myComboHdrNames = new ArrayList<JComboBox<csHeaderDef>>(myNumItems);
+    myComboType     = new ArrayList<JComboBox<String>>(myNumItems);
+//    myComboHdrNames = new JComboBox[myNumItems];
+//    myComboType     = new JComboBox[myNumItems];
     myTextAddValue  = new JTextField[myNumItems];
     myTextMultValue = new JTextField[myNumItems];
     myHeaderOverlay = new csHeaderOverlay[myNumItems];
@@ -97,14 +102,14 @@ public class csOverlayDialog extends JDialog {
 
       myCheckItem[item]     = new JCheckBox();
       myCheckItem[item].setSelected(false);
-      myComboHdrNames[item] = new JComboBox();
+      myComboHdrNames.add( new JComboBox<csHeaderDef>() );
       myTextAddValue[item]  = new JTextField("" + attr.addValue);
       myTextMultValue[item] = new JTextField("" + attr.multValue);
-      myComboType[item] = new JComboBox();
-      myComboType[item].setModel( new DefaultComboBoxModel(csHeaderOverlay.TYPE_TEXT_FIELDS) );
-      myComboType[item].setSelectedIndex(0);
+      myComboType.add( new JComboBox<String>() );
+      myComboType.get(item).setModel( new DefaultComboBoxModel<String>(csHeaderOverlay.TYPE_TEXT_FIELDS) );
+      myComboType.get(item).setSelectedIndex(0);
 
-      myComboHdrNames[item].setPreferredSize( new Dimension(120,20) );
+      myComboHdrNames.get(item).setPreferredSize( new Dimension(120,20) );
       myTextAddValue[item].setPreferredSize( new Dimension( TEXT_MIN_WIDTH, height ) );
       myTextMultValue[item].setPreferredSize( new Dimension( TEXT_MIN_WIDTH, height ) );
 
@@ -167,12 +172,12 @@ public class csOverlayDialog extends JDialog {
  */
         }
       });
-      myComboHdrNames[item].addItemListener(new ItemListener() {
+      myComboHdrNames.get(item).addItemListener(new ItemListener() {
         public void itemStateChanged(ItemEvent e) {
-          JComboBox box = (JComboBox)e.getSource();
+          JComboBox<?> box = (JComboBox<?>)e.getSource();
           int itemCurrent = -1;
           for( int item = 0; item < myNumItems; item++ ) {
-            if( myComboHdrNames[item].equals(box) ) {
+            if( myComboHdrNames.get(item).equals(box) ) {
               itemCurrent = item;
               break;
             }
@@ -183,19 +188,19 @@ public class csOverlayDialog extends JDialog {
           }
         }
       });
-      myComboType[item].addItemListener(new ItemListener() {
+      myComboType.get(item).addItemListener(new ItemListener() {
         public void itemStateChanged(ItemEvent e) {
-          JComboBox box = (JComboBox)e.getSource();
+          JComboBox<?> box = (JComboBox<?>)e.getSource();
           int itemCurrent = -1;
           for( int item = 0; item < myNumItems; item++ ) {
-            if( myComboType[item].equals(box) ) {
+            if( myComboType.get(item).equals(box) ) {
               itemCurrent = item;
               break;
             }
           }
           if( itemCurrent < 0 ) return;
           if( e.getStateChange() == ItemEvent.SELECTED ) {
-            myHeaderOverlay[itemCurrent].setType( myComboType[itemCurrent].getSelectedIndex() );
+            myHeaderOverlay[itemCurrent].setType( myComboType.get(itemCurrent).getSelectedIndex() );
             mySeisView.repaint();
           }
         }
@@ -231,9 +236,9 @@ public class csOverlayDialog extends JDialog {
     mySliderTraceInterval = new JSlider( JSlider.HORIZONTAL, 1, csOverlayDialog.MAX_TRACE_INTERVAL, 1 );
     mySliderTraceInterval.setToolTipText("Trace interval between travel time curve points");
     Hashtable<Integer,JLabel> labelsSliderInterval = new Hashtable<Integer,JLabel>();
-    labelsSliderInterval.put( new Integer( 1 ), new JLabel("1") );
+    labelsSliderInterval.put( 1, new JLabel("1") );
     for( int i = 5; i <= csOverlayDialog.MAX_TRACE_INTERVAL; i += 5 ) {
-      labelsSliderInterval.put( new Integer( i ), new JLabel(""+i) );
+      labelsSliderInterval.put( i, new JLabel(""+i) );
     }
     mySliderTraceInterval.setLabelTable( labelsSliderInterval );
     mySliderTraceInterval.setMinorTickSpacing(1);
@@ -249,8 +254,8 @@ public class csOverlayDialog extends JDialog {
     mySliderTransparency.setToolTipText("Brightness/opacity of symbols/lines");
 
     Hashtable<Integer,JLabel> labelsSlider = new Hashtable<Integer,JLabel>();
-    labelsSlider.put( new Integer( 50 ), new JLabel("Dim") );
-    labelsSlider.put( new Integer( 255 ), new JLabel("Bright") );
+    labelsSlider.put( 50, new JLabel("Dim") );
+    labelsSlider.put( 255, new JLabel("Bright") );
     mySliderTransparency.setLabelTable( labelsSlider );
     mySliderTransparency.setPaintLabels(true);
     mySliderTransparency.setSnapToTicks(false);
@@ -386,7 +391,7 @@ public class csOverlayDialog extends JDialog {
       panelSelect.add( myCheckItem[item], new GridBagConstraints(
           xp++, item, 1, 1, 0.0, 0.0, GridBagConstraints.WEST,
           GridBagConstraints.HORIZONTAL, new Insets( 0, 5, 0, 5 ), 0, 0 ) );
-      panelSelect.add( myComboHdrNames[item], new GridBagConstraints(
+      panelSelect.add( myComboHdrNames.get(item), new GridBagConstraints(
           xp++, item, 1, 1, 1.0, 0.0, GridBagConstraints.WEST,
           GridBagConstraints.HORIZONTAL, new Insets( 0, 0, 0, 0 ), 0, 0 ) );
       panelSelect.add( new JLabel(" * "), new GridBagConstraints(
@@ -404,7 +409,7 @@ public class csOverlayDialog extends JDialog {
       panelSelect.add( myColorButton[item], new GridBagConstraints(
           xp++, item, 1, 1, 0.0, 0.0, GridBagConstraints.WEST,
           GridBagConstraints.NONE, new Insets( 0, 5, 0, 5 ), 0, 0 ) );
-      panelSelect.add( myComboType[item], new GridBagConstraints(
+      panelSelect.add( myComboType.get(item), new GridBagConstraints(
           xp++, item, 1, 1, 1.0, 0.0, GridBagConstraints.WEST,
           GridBagConstraints.HORIZONTAL, new Insets( 0, 0, 0, 0 ), 0, 0 ) );
     }
@@ -421,8 +426,8 @@ public class csOverlayDialog extends JDialog {
     if( trcInterval < 1 ) trcInterval = 1;
     if( trcInterval > csOverlayDialog.MAX_TRACE_INTERVAL ) trcInterval = csOverlayDialog.MAX_TRACE_INTERVAL;
     int transparency = mySliderTransparency.getValue();
-    if( transparency < 50 ) trcInterval = 50;
-    if( transparency > 255 ) trcInterval = 255;
+    if( transparency < 50 ) transparency = 50;
+    if( transparency > 255 ) transparency = 255;
     boolean showLabel = myBoxShowLabels.isSelected();
     int symbolSize  = 0;
     float lineWidth = 0;
@@ -460,7 +465,7 @@ public class csOverlayDialog extends JDialog {
     else {
       mySeisView.addOverlay(myHeaderOverlay[item]);
     }
-    if( myComboHdrNames[item].getSelectedIndex() < 0 ) {
+    if( myComboHdrNames.get(item).getSelectedIndex() < 0 ) {
 //      JOptionPane.showMessageDialog( this,
 //        "No valid trace header selected in drop-down box #" + (item+1) + ".\n",
 //        "Error message",
@@ -479,7 +484,7 @@ public class csOverlayDialog extends JDialog {
         JOptionPane.ERROR_MESSAGE);
       return false;
     }
-    String hdrName = myComboHdrNames[item].getSelectedItem().toString();
+    String hdrName = myComboHdrNames.get(item).getSelectedItem().toString();
     for( int ihdr = 0; ihdr < myTraceHeaderDef.length; ihdr++ ) {
       if( myTraceHeaderDef[ihdr].name.compareTo( hdrName ) == 0 ) {
         myHeaderOverlay[item].setHeader( hdrName, ihdr );
@@ -504,16 +509,16 @@ public class csOverlayDialog extends JDialog {
     }
     java.util.Arrays.sort( newHeaders );
     for( int item = 0; item < myNumItems; item++ ) {
-      if( myComboHdrNames[item] != null && myComboHdrNames[item].getSelectedIndex() >= 0 ) {
-        String hdrName = myComboHdrNames[item].getSelectedItem().toString();
-        myComboHdrNames[item].setModel( new DefaultComboBoxModel(newHeaders) );
-        myComboHdrNames[item].setSelectedIndex(-1);
+      if( myComboHdrNames.get(item) != null && myComboHdrNames.get(item).getSelectedIndex() >= 0 ) {
+        String hdrName = myComboHdrNames.get(item).getSelectedItem().toString();
+        myComboHdrNames.get(item).setModel( new DefaultComboBoxModel<csHeaderDef>(newHeaders) );
+        myComboHdrNames.get(item).setSelectedIndex(-1);
         for( int ihdr = 0; ihdr < myTraceHeaderDef.length; ihdr++ ) {
           if( myTraceHeaderDef[ihdr].name.compareTo( hdrName ) == 0 ) {
             myHeaderOverlay[item].setHeader(hdrName, ihdr);
             for( int ihdr2 = 0; ihdr2 < newHeaders.length; ihdr2++ ) {
               if( newHeaders[ihdr2].name.compareTo( hdrName ) == 0 ) {
-                myComboHdrNames[item].setSelectedIndex( ihdr2 );
+                myComboHdrNames.get(item).setSelectedIndex( ihdr2 );
                 break;
               }
             }
@@ -522,8 +527,8 @@ public class csOverlayDialog extends JDialog {
         } // END: for ihdr
       }
       else {
-        myComboHdrNames[item].setModel( new DefaultComboBoxModel(newHeaders) );
-        myComboHdrNames[item].setSelectedIndex(-1);
+        myComboHdrNames.get(item).setModel( new DefaultComboBoxModel<csHeaderDef>(newHeaders) );
+        myComboHdrNames.get(item).setSelectedIndex(-1);
       }
     } // END: for item
   }

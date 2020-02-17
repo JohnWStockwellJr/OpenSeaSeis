@@ -17,8 +17,8 @@ namespace cseis_geolib {
 * @param mat_v   (o) Output matrix 'V', NCOLS x NCOLS
 * @param vec_work(io) Help vector, needed during SVD decomposition, NROWS
 */
-int svd_decomposition( float** mat_a, int nrows, int ncols, float vec_w[], float** mat_v, float vec_work[] );
-int svd_decomposition( double** mat_a, int nrows, int ncols, double vec_w[], double** mat_v, double vec_work[] );
+bool svd_decomposition( float** mat_a, int nrows, int ncols, float vec_w[], float** mat_v, float vec_work[] );
+bool svd_decomposition( double** mat_a, int nrows, int ncols, double vec_w[], double** mat_v, double vec_work[] );
 
 /**
 * Solve linear equation system via SVD decomposition
@@ -45,13 +45,13 @@ void svd_linsolve(double **mat_u, double vec_w[], double **mat_v, int nrows, int
 * @param forceOrigin (i) 'True' if 3D line shall pass through origin point (0,0,0)
 * @param vec_out     (o) Output (XYZ) vector giving 3D line direction
 */
-int linefit_3d( float* xSamples,
-                float* ySamples,
-                float* zSamples,
-                int firstSample,
-                int lastSample,
-                int force_origin,
-                float* vec_out );
+bool linefit_3d( float* xSamples,
+                 float* ySamples,
+                 float* zSamples,
+                 int firstSample,
+                 int lastSample,
+                 int force_origin,
+                 float* vec_out );
 
 /**
 * Fit 3D line to data points
@@ -65,25 +65,25 @@ int linefit_3d( float* xSamples,
 * @param vec_axes    (o) Size of major, minor, and second minor axes of best fit spheroid
 * @param vec_minor   (o) 3D vector of minor spheroid axis
 */
-int linefit_3d_all( float* xSamples,
-                    float* ySamples,
-                    float* zSamples,
-                    int firstSample,
-                    int lastSample,
-                    int force_origin,
-                    float* vec_out,
-                    float* vec_axes,
-                    float* vec_minor );  // Size of major, minor, and second minor axes of best fit spheroid
+bool linefit_3d_all( float* xSamples,
+                     float* ySamples,
+                     float* zSamples,
+                     int firstSample,
+                     int lastSample,
+                     int force_origin,
+                     float* vec_out,
+                     float* vec_axes,
+                     float* vec_minor );  // Size of major, minor, and second minor axes of best fit spheroid
 /**
 * ...not working
 */
-int linefit_3d_2step( float* xSamples,
-                      float* ySamples,
-                      float* zSamples,
-                      int nSamples,
-                      int method,
-                      int force_origin,
-                      float* vec_out );
+bool linefit_3d_2step( float* xSamples,
+                       float* ySamples,
+                       float* zSamples,
+                       int nSamples,
+                       int method,
+                       int force_origin,
+                       float* vec_out );
 
 /**
  * Returns polarity (+/-1) of wavelet inside specified time window

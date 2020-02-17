@@ -19,8 +19,8 @@ import javax.swing.event.ListDataListener;
  * Test color map generation.
  * @author 2013 Felipe Punto
  */
+@SuppressWarnings("serial")
 public class TestColorMapGenerator extends JFrame implements csIColorMapGeneratorListener, ListDataListener {
-  private csColorMapGenerator myGenerator;
   private csColorMapComboBox myCombo;
   private csManagerCustomMapList myList;
   private csCustomColorMapModel myCustomColorMapModel;

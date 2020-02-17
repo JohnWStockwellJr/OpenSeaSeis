@@ -2,7 +2,7 @@ MODULE_NAME = mirror
 
 MODDIR    = $(SRCDIR)/cs/modules/$(MODULE_NAME)/
 MODULE    = $(MODDIR)/mod_$(MODULE_NAME).cc
-OBJS      = $(OBJDIR)/mod_$(MODULE_NAME).o $(OBJDIR)/csLine3D.o $(OBJDIR)/csProfile.o
+OBJS      = $(OBJDIR)/mod_$(MODULE_NAME).o
 LIB_v1.0  = libmod_$(MODULE_NAME).so.1.0
 OBJS_GRID = $(OBJDIR)/main_grid2D.o $(OBJDIR)/grid2D.o
 GRID2D    = $(BINDIR)/grid2D
@@ -22,12 +22,6 @@ bleach: clean
 $(OBJDIR)/mod_$(MODULE_NAME).o: $(MODULE)
 	$(CPP) -c $(ALL_FLAGS) $(MODULE) -o $(OBJDIR)/mod_$(MODULE_NAME).o
 
-$(OBJDIR)/csLine3D.o: $(MODDIR)/csLine3D.h $(MODDIR)/csLine3D.cc
-	$(CPP) -c $(ALL_FLAGS) $(MODDIR)/csLine3D.cc -o $(OBJDIR)/csLine3D.o
-
-$(OBJDIR)/csProfile.o: $(MODDIR)/csProfile.h $(MODDIR)/csProfile.cc
-	$(CPP) -c $(ALL_FLAGS) $(MODDIR)/csProfile.cc -o $(OBJDIR)/csProfile.o
-
 $(LIBDIR)/$(LIB_v1.0): $(OBJS)
 	$(CPP) -shared -Wl,-$(SONAME),$(LIB_v1.0) -o $(LIBDIR)/$(LIB_v1.0) $(OBJS) -L$(LIBDIR) -lc -lgeolib -lcseis_system
 
@@ -35,7 +29,7 @@ $(OBJDIR)/grid2D.o: $(MODDIR)/grid2D.cc
 	$(CPP) -c $(MODDIR)/grid2D.cc -o $(OBJDIR)/grid2D.o $(INCS) $(ALL_FLAGS)
 
 $(OBJDIR)/main_grid2D.o: $(MODDIR)/main_grid2D.cc
-	$(CPP) -c $(MODDIR)/main_grid2D.cc -o $(OBJDIR)/main_grid2D.o $(INCS) $(ALL_FLAGS)
+	$(CPP) -c $(MODDIR)/main_grid2D.cc -o $(OBJDIR)/main_grid2D.o $(INCS) $(ALL_FLAGS) -lgeolib
 
 ${GRID2D}: $(OBJS_GRID)
-	$(CPP) $(OBJS_GRID) -Wl,-rpath,$(LIBDIR) -o $(GRID2D) -L$(LIBDIR) -lgeolib
+	$(CPP) $(LD_FLAGS) $(OBJS_GRID) -Wl,-rpath,$(LIBDIR) -o $(GRID2D) -L$(LIBDIR) -lgeolib

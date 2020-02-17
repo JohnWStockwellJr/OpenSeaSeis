@@ -134,7 +134,7 @@ void csP190Reader::setFilePointerToStartOfLine( int lineNum ) {
     myFile->seekg( 0, std::ios::beg); // back to the start
     myCurrentLineNumber = 0;
   }
-  fprintf(stderr,"Line number: requested=%d, current=%d, EOF: %d\n", lineNum, myCurrentLineNumber, myFile->eof());
+  //  fprintf(stderr,"Line number: requested=%d, current=%d, EOF: %d\n", lineNum, myCurrentLineNumber, myFile->eof());
   for( int iline = myCurrentLineNumber; iline < lineNum; iline++ ) {
     if( myFile->eof() ) throw( cseis_geolib::csException("Unexpected end of file encountered in input P190 file. Line number = %d", iline+1) );
     if( !myFile->ignore( std::numeric_limits<std::streamsize>::max(), myFile->widen('\n') ) ) {

@@ -37,7 +37,7 @@ using namespace mod_bin;
 //
 //
 //*************************************************************************************************
-void init_mod_bin_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_bin_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   csSuperHeader*    shdr = env->superHeader;
@@ -45,7 +45,8 @@ void init_mod_bin_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
   vars->method        = -1;
   vars->hdrId_bin_x   = -1;
@@ -70,7 +71,7 @@ void init_mod_bin_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
       vars->method = METHOD_BINXY_TO_ROWCOL;
     }
     else {
-      log->error("Unknown option: '%s'", text.c_str());
+      writer->error("Unknown option: '%s'", text.c_str());
     }
   }
 
@@ -79,7 +80,7 @@ void init_mod_bin_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
     param->getDouble( "grid_orig_xy", &shdr->grid_orig_y, 1 );
   }
   else if( vars->method == METHOD_DEFINE ) {
-    log->line("Required user parameter not specified: 'grid_orig_xy'");
+    writer->line("Required user parameter not specified: 'grid_orig_xy'");
     env->addError();
   }
 
@@ -90,7 +91,7 @@ void init_mod_bin_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
   else if( vars->method == METHOD_DEFINE ) {
     shdr->grid_orig_il = 1;
     shdr->grid_orig_xl = 1;
-    //    log->line("Required user parameter not specified: 'grid_orig_rowcol'");
+    //    writer->line("Required user parameter not specified: 'grid_orig_rowcol'");
     //    env->addError();
   }
 
@@ -99,7 +100,7 @@ void init_mod_bin_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
     param->getDouble( "grid_binsize", &shdr->grid_binsize_xl, 1 );
   }
   else if( vars->method == METHOD_DEFINE ) {
-    log->line("Required user parameter not specified: 'grid_binsize'");
+    writer->line("Required user parameter not specified: 'grid_binsize'");
     env->addError();
   }
 
@@ -114,7 +115,7 @@ void init_mod_bin_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
         shdr->grid_azim_xl = shdr->grid_azim_il - 90.0;
       }
       else {
-        log->line("Unknown option: '%s'", text.c_str());
+        writer->line("Unknown option: '%s'", text.c_str());
         env->addError();
       }
     }
@@ -123,13 +124,13 @@ void init_mod_bin_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
     }
   }
   else if( vars->method == METHOD_DEFINE ) {
-    log->line("Required user parameter not specified: 'grid_binsize'");
+    writer->line("Required user parameter not specified: 'grid_binsize'");
     env->addError();
   }
 
   if( vars->method != METHOD_DEFINE ) {
     if( shdr->grid_binsize_il == 0.0 || shdr->grid_binsize_xl == 0.0 ) {
-      log->error("Bin size found to be zero. Before binning can be performed, a survey grid has to be defined using parameter 'method', set to 'define'.");
+      writer->error("Bin size found to be zero. Before binning can be performed, a survey grid has to be defined using parameter 'method', set to 'define'.");
     }
     string headerName_row("row");
     string headerName_col("col");
@@ -147,16 +148,16 @@ void init_mod_bin_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
 
     if( vars->method == METHOD_BINXY_TO_ROWCOL ) {
       if( !hdef->headerExists( headerName_binx ) ) {
-        log->error("Trace header '%s' does not exist.", headerName_binx.c_str());
+        writer->error("Trace header '%s' does not exist.", headerName_binx.c_str());
       }
       else if( hdef->headerType( headerName_binx ) != TYPE_DOUBLE ) {
-        log->error("Trace header '%s' exists but has wrong type. Should be of type DOUBLE.", headerName_binx.c_str());
+        writer->error("Trace header '%s' exists but has wrong type. Should be of type DOUBLE.", headerName_binx.c_str());
       }
       if( !hdef->headerExists( headerName_biny ) ) {
-        log->error("Trace header '%s' does not exist.", headerName_biny.c_str());
+        writer->error("Trace header '%s' does not exist.", headerName_biny.c_str());
       }
       else if( hdef->headerType( headerName_biny ) != TYPE_DOUBLE ) {
-        log->error("Trace header '%s' exists but has wrong type. Should be of type DOUBLE.", headerName_biny.c_str());
+        writer->error("Trace header '%s' exists but has wrong type. Should be of type DOUBLE.", headerName_biny.c_str());
       }
       if( !hdef->headerExists( headerName_row ) ) {
         hdef->addHeader(TYPE_INT, headerName_row,"Row number, survey grid");
@@ -167,10 +168,10 @@ void init_mod_bin_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
     }
     else if( vars->method == METHOD_ROWCOL_TO_BINXY ) {
       if( !hdef->headerExists( headerName_row ) ) {
-        log->error("Trace header '%s' does not exist.", headerName_row.c_str());
+        writer->error("Trace header '%s' does not exist.", headerName_row.c_str());
       }
       if( !hdef->headerExists( headerName_col ) ) {
-        log->error("Trace header '%s' does not exist.", headerName_col.c_str());
+        writer->error("Trace header '%s' does not exist.", headerName_col.c_str());
       }
       if( !hdef->headerExists( headerName_binx ) ) {
         hdef->addHeader(TYPE_DOUBLE,headerName_binx,"Bin X coordinate [m]");
@@ -187,7 +188,7 @@ void init_mod_bin_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
     vars->hdrId_bin_y = hdef->headerIndex(headerName_biny);
   }
 
-  shdr->dump( log->getFile() );
+  shdr->dump( writer->getFile() );
 }
 
 //*************************************************************************************************
@@ -196,19 +197,18 @@ void init_mod_bin_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
 //
 //
 //*************************************************************************************************
-bool exec_mod_bin_(
-  csTrace* trace,
+void exec_mod_bin_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup()){
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
 
   csTraceHeader* trcHdr = trace->getTraceHeader();
 
@@ -274,7 +274,7 @@ bool exec_mod_bin_(
       row = (double)trcHdr->floatValue( vars->hdrId_row );
       break;
     default:
-      log->error("Program bug: Row number trace header has wrong type");
+      writer->error("Program bug: Row number trace header has wrong type");
     }
     switch( vars->hdrType_col ) {
     case TYPE_INT:
@@ -290,7 +290,7 @@ bool exec_mod_bin_(
       col = (double)trcHdr->floatValue( vars->hdrId_col );
       break;
     default:
-      log->error("Program bug: Col number trace header has wrong type");
+      writer->error("Program bug: Col number trace header has wrong type");
     }
 
     double dx1 = ( row - (double)shdr->grid_orig_il ) * shdr->grid_binsize_xl / sin(an_xl_rad-an_il_rad);
@@ -304,7 +304,7 @@ bool exec_mod_bin_(
     trcHdr->setDoubleValue( vars->hdrId_bin_y, bin_y );
   }
 
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -314,6 +314,8 @@ bool exec_mod_bin_(
 //*************************************************************************************************
 void params_mod_bin_( csParamDef* pdef ) {
   pdef->setModule( "BIN", "Perform binning" );
+
+  pdef->addDoc("Note that binning is performed to bin centers, i.e. bin_x & bin_y after binning are bin centers.");
 
   pdef->addParam( "method", "Binning method", NUM_VALUES_FIXED,
                   "If new grid is defined (option 'define'), all parameters named 'grid_...' must be specified. For the other options, any or all grid parameter may be redefined. Grid parameters that are not redefined are taken from the existing input super header" );
@@ -337,8 +339,8 @@ void params_mod_bin_( csParamDef* pdef ) {
   pdef->addValue( "1", VALTYPE_NUMBER, "Origin crossline/col number" );
 
   pdef->addParam( "grid_binsize", "Grid bin/cell size", NUM_VALUES_FIXED );
-  pdef->addValue( "", VALTYPE_NUMBER, "Bin/cell size in inline/row direction [m]", "" );
-  pdef->addValue( "", VALTYPE_NUMBER, "Bin/cell size in crossline/col direction [m]", "" );
+  pdef->addValue( "", VALTYPE_NUMBER, "Bin/cell size in inline/row direction [m]    = distance between crosslines", "" );
+  pdef->addValue( "", VALTYPE_NUMBER, "Bin/cell size in crossline/col direction [m] = distance between inlines", "" );
 
   pdef->addParam( "hdr_rowcol", "Trace header names for row & column output", NUM_VALUES_FIXED );
   pdef->addValue( "row", VALTYPE_STRING, "Inline/row output trace header name" );
@@ -349,13 +351,41 @@ void params_mod_bin_( csParamDef* pdef ) {
   pdef->addValue( "bin_y", VALTYPE_STRING, "Bin Y output trace header name" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_bin_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_bin::VariableStruct* vars = reinterpret_cast<mod_bin::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_bin_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_bin::VariableStruct* vars = reinterpret_cast<mod_bin::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_bin_( csParamDef* pdef ) {
   params_mod_bin_( pdef );
 }
-extern "C" void _init_mod_bin_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_bin_( param, env, log );
+extern "C" void _init_mod_bin_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_bin_( param, env, writer );
 }
-extern "C" bool _exec_mod_bin_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_bin_( trace, port, env, log );
+extern "C" bool _start_exec_mod_bin_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_bin_( env, writer );
 }
-
+extern "C" void _exec_mod_bin_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_bin_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_bin_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_bin_( env, writer );
+}

@@ -122,8 +122,7 @@ public class csSeismicData {
     myDCAmplitude   = sum / myNumSamples;
     myMaxAmplitude  = max;
     myMinAmplitude  = min;
-
-//    System.out.println("Amplitudes " + itrc + " " + (sum / myNumSamples) + " " + min + " " + max );
+    myAreAmplitudesComputed = true;
   }
 }
 

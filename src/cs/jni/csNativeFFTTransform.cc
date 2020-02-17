@@ -5,6 +5,7 @@
 #include <algorithm>
 #include "geolib_methods.h"
 #include "cseis_jni_csNativeFFTTransform.h"
+//#include "csFFT.h"
 
 bool Powerof2( int nx, int* m, int* twopm);
 bool fft(int dir,int m,double *x,double *y);
@@ -26,9 +27,17 @@ using namespace std;
 JNIEXPORT void JNICALL Java_cseis_jni_csNativeFFTTransform_native_1performFFT
 (JNIEnv *env, jobject obj, jint direction, jdoubleArray samples, jint numSamples )
 {
+  /*
+  int fftDataType = cseis_geolib::FX_AMP;
+  cseis_geolib::csFFT fft( numSamples );
+
+  float* bufferInOut = new float[numSamples];
+  env->GetDoubleArrayRegion( samples, 0, numSamples, bufferInOut );
+  fft.forwardTransform( bufferInOut, bufferInOut, fftDataType );
+  */
+    
   int twoPower;
   int two_power_m;
-  
   Powerof2( numSamples, &twoPower, &two_power_m );
   if( two_power_m != numSamples ) {
     fprintf(stderr,"Wrong number of samples input. Must be power of 2\n");
@@ -39,18 +48,6 @@ JNIEXPORT void JNICALL Java_cseis_jni_csNativeFFTTransform_native_1performFFT
   double* bufferImag = new double[numSamples];
 
   env->GetDoubleArrayRegion( samples, 0, numSamples, bufferReal );
-  // Apply 50-point cosine taper to input data
-  /*
-  int nSteps = std::min( 50, numSamples/2 );
-  for( int i = 0; i < nSteps; i++ ) {
-    float scalar = cos( M_PI_2 * (float)(nSteps-i)/(float)nSteps );
-    bufferReal[i] *= scalar;
-  }
-  for( int i = numSamples-nSteps; i < numSamples; i++ ) {
-    float scalar = cos( M_PI_2 * (float)(nSteps-numSamples+i+1)/(float)nSteps );
-    bufferReal[i] *= scalar;
-  }
-  */
   for( int i = 0; i < numSamples; i++ ) {
     bufferImag[i] = 0;
   }

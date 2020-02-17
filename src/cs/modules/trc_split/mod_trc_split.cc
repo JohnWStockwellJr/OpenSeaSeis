@@ -28,6 +28,7 @@ namespace mod_trc_split {
     int numSamplesIn;
     int numSamplesOut;
 
+    // Absolute reference time: Start times are offset from reference time
     bool isRefTime;
     int hdrID_ens;
     int hdrType_ens;
@@ -63,7 +64,7 @@ using namespace mod_trc_split;
 //
 //
 //*************************************************************************************************
-void init_mod_trc_split_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_trc_split_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -71,7 +72,6 @@ void init_mod_trc_split_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
   VariableStruct*   vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
 
   vars->numTraces        = 0;
   vars->numSamplesIn     = shdr->numSamples;
@@ -94,7 +94,7 @@ void init_mod_trc_split_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
   float traceLengthMS_in = shdr->numSamples*shdr->sampleInt;
 
   if( (int)(shdr->sampleInt * 1000 + 0.5) % 1000 != 0 ) {
-    log->error("Sample interval is not an integer multiple of 1ms. This can not be handled by the current version of this module.");
+    writer->error("Sample interval is not an integer multiple of 1ms. This can not be handled by the current version of this module.");
   }
 
   //---------------------------------------------------------
@@ -102,7 +102,7 @@ void init_mod_trc_split_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
     mode = MODE_NTRACES;
     param->getInt("ntraces", &vars->numTraces);
     if( vars->numTraces <= 1 ) {
-      log->error("Specified number of traces ('ntraces') too small: %d", vars->numTraces );
+      writer->error("Specified number of traces ('ntraces') too small: %d", vars->numTraces );
     }
     vars->numSamplesOut = (int)( shdr->numSamples / vars->numTraces );
     vars->newTraceLengthMS = (int)(shdr->sampleInt * (float)vars->numSamplesOut);
@@ -118,7 +118,7 @@ void init_mod_trc_split_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
       vars->inputMode = INPUT_ENSEMBLE;
     }
     else {
-      log->error("Unknown option: %s", text.c_str() );
+      writer->error("Unknown option: %s", text.c_str() );
     }
   }
   if( vars->inputMode == INPUT_TRACE ) {
@@ -131,20 +131,20 @@ void init_mod_trc_split_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
   //---------------------------------------------------------
   if( param->exists("length") ) {
     if( mode == MODE_NTRACES ) {
-      log->error("Only one of the two user parameters 'length' or 'ntraces' can be specified");
+      writer->error("Only one of the two user parameters 'length' or 'ntraces' can be specified");
     }
     mode = MODE_LENGTH;
     param->getInt("length", &vars->newTraceLengthMS);
     vars->numSamplesOut = (int)(vars->newTraceLengthMS/shdr->sampleInt);
     if( vars->newTraceLengthMS < 0 || vars->numSamplesOut >= vars->numSamplesIn ) {
-      log->error("Inconsistent new trace length specified: %f. Current trace length: %f", vars->newTraceLengthMS, traceLengthMS_in );
+      writer->error("Inconsistent new trace length specified: %f. Current trace length: %f", vars->newTraceLengthMS, traceLengthMS_in );
     }
     vars->numTraces = (int)((vars->numSamplesIn-1) / vars->numSamplesOut) + 1;
   }
   //---------------------------------------------------------
   if( param->exists("ref_time") ) {
     if( mode != MODE_LENGTH ) {
-      //      log->error("Reference time only works in combination with selection mode 'length'. Mode 'ntraces' was specified");
+      //      writer->error("Reference time only works in combination with selection mode 'length'. Mode 'ntraces' was specified");
     }
     string text;
     param->getString("ref_time", &text);
@@ -155,7 +155,7 @@ void init_mod_trc_split_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
       vars->isRefTime = true;
       vars->numSamplesOut = (int)(vars->newTraceLengthMS/shdr->sampleInt + 0.5);
       if( vars->newTraceLengthMS < 0 || vars->numSamplesOut >= vars->numSamplesIn ) {
-        log->error("Inconsistent output trace length specified: %f. Current trace length: %f", vars->newTraceLengthMS, traceLengthMS_in );
+        writer->error("Inconsistent output trace length specified: %f. Current trace length: %f", vars->newTraceLengthMS, traceLengthMS_in );
       }
       vars->numTraces = (int)((vars->numSamplesIn-1) / vars->numSamplesOut) + 1;
     }
@@ -164,11 +164,11 @@ void init_mod_trc_split_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
   //---------------------------------------------------------
   if( param->exists("start_times") ) {
     if( mode != MODE_LENGTH ) {
-      log->line("Error: List of start times only works in combination with selection mode 'length'. Mode 'ntraces' was specified");
+      writer->line("Error: List of start times only works in combination with selection mode 'length'. Mode 'ntraces' was specified");
       env->addError();
     }
     if( vars->isRefTime ) {
-      log->line("Error: List of start times cannot be used in conjunction with UNIX reference time (user parameter 'ref_time').");
+      writer->line("Error: List of start times cannot be used in conjunction with UNIX reference time (user parameter 'ref_time').");
       env->addError();
     }
     int numLines = param->getNumLines("start_times");
@@ -178,7 +178,7 @@ void init_mod_trc_split_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
     }
 
     if( vars->numStartTimes <= 0 ) {
-      log->line("no start times specified for user parameter 'start_times'. List is empty.");
+      writer->line("no start times specified for user parameter 'start_times'. List is empty.");
       env->addError();
     }
     else {
@@ -193,9 +193,9 @@ void init_mod_trc_split_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
       vars->numTraces = vars->numStartTimes;
       csSort<int>().simpleSort( vars->startTimes_s, vars->numStartTimes );
       if( edef->isDebug() ) {
-        log->line("Start times: ");
+        writer->line("Start times: ");
         for( int i = 0; i < vars->numStartTimes; i++ ) {
-          log->line("Start time #%3d: %d", i+1, vars->startTimes_s[i] );
+          writer->line("Start time #%3d: %d", i+1, vars->startTimes_s[i] );
         }
       }
     }
@@ -207,26 +207,26 @@ void init_mod_trc_split_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
   //---------------------------------------------------------
   /*  if( param->exists("ens_hdr") ) {
     if( mode != MODE_LENGTH ) {
-      log->warning("Ensemble header will be ignored for mode 'ntraces'");
+      writer->warning("Ensemble header will be ignored for mode 'ntraces'");
     }
     else {
       string headerName;
       param->getString("ens_hdr", &headerName);
       if( !hdef->headerExists( headerName ) ) {
-        log->error("Specified ensemble header does not exist: '%s'.", headerName.c_str() );
+        writer->error("Specified ensemble header does not exist: '%s'.", headerName.c_str() );
       }
       vars->hdrType_ens = hdef->headerType( headerName );
     }
     //    if( vars->hdrType_ens != TYPE_INT && vars->hdrType_ens != TYPE_FLOAT && vars->hdrType_ens != TYPE_DOUBLE ) {
-    //  log->error("Ensemble header can only be of number type, not a string or array type.");
+    //  writer->error("Ensemble header can only be of number type, not a string or array type.");
     // }
     } */
 
   if( mode == MODE_NONE ) {
-    log->error("None of the two mandatory user paramters 'length' or 'ntraces' have been specified");
+    writer->error("None of the two mandatory user paramters 'length' or 'ntraces' have been specified");
   }
   if( !vars->isRefTime && vars->inputMode != INPUT_TRACE ) {
-    log->error("Ensemble input mode is currently only available in conjunction with reference time. This is a limitation of the current implementation");
+    writer->error("Ensemble input mode is currently only available in conjunction with reference time. This is a limitation of the current implementation");
   }
   vars->currentSplitTime  = 0;
   vars->currentSplitTrace = -1;
@@ -239,10 +239,10 @@ void init_mod_trc_split_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
 
   shdr->numSamples = vars->numSamplesOut;
   
-  log->line("Old/new number of samples:  %d --> %d", vars->numSamplesIn, vars->numSamplesOut );
-  log->line("Number of output traces:    %d", vars->numTraces);
-  log->line("Number of residual samples: %d  (samples at end will be set to zero)", vars->numTraces*vars->numSamplesOut - vars->numSamplesIn );
-  log->line("Sample int:    %f", shdr->sampleInt );
+  writer->line("Old/new number of samples:  %d --> %d", vars->numSamplesIn, vars->numSamplesOut );
+  writer->line("Number of output traces:    %d", vars->numTraces);
+  writer->line("Number of residual samples: %d  (samples at end will be set to zero)", vars->numTraces*vars->numSamplesOut - vars->numSamplesIn );
+  writer->line("Sample int:    %f", shdr->sampleInt );
 }
 
 //*************************************************************************************************
@@ -256,25 +256,13 @@ void exec_mod_trc_split_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
   csTraceHeaderDef const* hdef = env->headerDef;
 
-  if( edef->isCleanup() ) {
-    //    if( vars->ensValue == NULL ) {
-    //   delete vars->ensValue;
-    //  vars->ensValue = NULL;
-    // }
-    if( vars->startTimes_s != NULL ) {
-      delete [] vars->startTimes_s;
-      vars->startTimes_s = NULL;
-    }
-    delete vars; vars = NULL;
-    return;
-  }
 
   if( traceGather->numTraces() == 0 ) return;
   int numTracesIn = traceGather->numTraces();
@@ -283,12 +271,13 @@ void exec_mod_trc_split_(
   int time_samp1_us_in = trcHdrOrig->intValue( vars->hdrID_time_samp1_us );
 
   if( time_samp1_us_in % 1000 != 0 ) {
-    log->error("TRC_SPLIT: Time of first sample in input file must be an integer number of milliseconds. This is a limitation of the current implementation");
+    writer->error("TRC_SPLIT: Time of first sample in input file must be an integer number of milliseconds. This is a limitation of the current implementation");
   }
   else if( (time_samp1_us_in / 1000 ) % (int)(shdr->sampleInt + 0.5) != 0 ) {
-    log->warning("TRC_SPLIT: Time of first sample is not an integer number of sample intervals (%dms). This is a limitation of the current implementation.\nOutput data may be shifted by up to 1/2 sample interval due to that.", (int)(shdr->sampleInt+0.5));
+    writer->warning("TRC_SPLIT: Time of first sample is not an integer number of sample intervals (%dms). This is a limitation of the current implementation.\nOutput data may be shifted by up to 1/2 sample interval due to that.", (int)(shdr->sampleInt+0.5));
   }
   //---------------------------------------------------------------------
+  // No reference time used:
   //
   if( !vars->isRefTime ) {
     int reference_time_s     = time_samp1_s_in;
@@ -297,7 +286,7 @@ void exec_mod_trc_split_(
     trcHdrOrig->setIntValue( vars->hdrID_subTrace, 1 );
 
     if( vars->numStartTimes == 0 ) {
-      traceGather->createTraces( 1, vars->numTraces, hdef, shdr->numSamples );
+      traceGather->createTraces( 1, vars->numTraces-1, hdef, shdr->numSamples );
       for( int itrc = 1; itrc < vars->numTraces; itrc++ ) {
         int tref_firstSamp_currentTrace_ms = tref_firstSamp_ms_in + itrc*vars->newTraceLengthMS;
         float* samplesOut = traceGather->trace( itrc )->getTraceSamples();
@@ -311,7 +300,7 @@ void exec_mod_trc_split_(
     }
     // Start times were given. Cut input data into traces only for matching start times
     else {
-      if( edef->isDebug() ) log->line( "Start times: %d, time_samp1: %d", vars->numStartTimes, time_samp1_s_in );
+      if( edef->isDebug() ) writer->line( "Start times: %d, time_samp1: %d", vars->numStartTimes, time_samp1_s_in );
       int counterFirst = 0;
       int timeFirstSamplePlus_s = time_samp1_s_in;
       if( time_samp1_us_in > 0 ) timeFirstSamplePlus_s += 1;
@@ -343,10 +332,10 @@ void exec_mod_trc_split_(
       }
 
       if( edef->isDebug() ) {
-        log->line( "Start time indices: %d - %d", counterFirst, counterLast );
-        log->line( "Number of actual output traces: %d, input traces: %d", numActualTraces, numTracesIn );
-        log->line( "First/last start time: %d %d", vars->startTimes_s[indexFirstStartTime], vars->startTimes_s[indexFirstStartTime+numActualTraces-1] );
-        log->flush();
+        writer->line( "Start time indices: %d - %d", counterFirst, counterLast );
+        writer->line( "Number of actual output traces: %d, input traces: %d", numActualTraces, numTracesIn );
+        writer->line( "First/last start time: %d %d", vars->startTimes_s[indexFirstStartTime], vars->startTimes_s[indexFirstStartTime+numActualTraces-1] );
+        writer->flush();
       }
 
       for( int itrc = 0; itrc < numActualTraces; itrc++ ) {
@@ -381,7 +370,7 @@ void exec_mod_trc_split_(
         trcHdr->setIntValue( vars->hdrID_time_samp1_us, ( tref_firstSamp_currentTrace_ms % 1000 ) * 1000 );
       }
     } // END: if( StartTimes )
-  }
+  } // END: NO reference time used
   //---------------------------------------------------------------------
   //
   else if ( vars->currentSplitTrace <= 0 ) { // New input trace(s). Compute all variables and output first split traces
@@ -390,7 +379,7 @@ void exec_mod_trc_split_(
       int time_samp1_s_tmp  = trcHdrTmp->intValue( vars->hdrID_time_samp1_s );
       int time_samp1_us_tmp = trcHdrTmp->intValue( vars->hdrID_time_samp1_us );
       if( time_samp1_s_tmp != time_samp1_s_in || time_samp1_us_tmp != time_samp1_us_in ) {
-        log->error("Absolute time of first sample not equal for all traces in input ensemble. This is currently not supported");
+        writer->error("Absolute time of first sample not equal for all traces in input ensemble. This is currently not supported");
       }
     }
 
@@ -416,7 +405,7 @@ void exec_mod_trc_split_(
     vars->numTracesOut = (vars->tred_samp1_trcN_ms_out - vars->tred_samp1_trc1_ms_out) / vars->newTraceLengthMS + 1;
 
     vars->numLeadingZeros = (int) ( (double)vars->residual_time_ms / shdr->sampleInt + 0.5 );
-    if( vars->numLeadingZeros < 0 ) log->error("Module TRC_SPLIT: Unknown program bug... numLeadingZeros: %d", vars->numLeadingZeros);
+    if( vars->numLeadingZeros < 0 ) writer->error("Module TRC_SPLIT: Unknown program bug... numLeadingZeros: %d", vars->numLeadingZeros);
 
     vars->currentSplitTrace = 1;
     
@@ -445,7 +434,7 @@ void exec_mod_trc_split_(
       fprintf(stderr,"Reference times:      %ds / %ds  --  %dms / %dms\n", vars->reference_time_s, time_samp1_s_in, vars->tred_samp1_trc1_ms_out, vars->tred_samp1_trcN_ms_out );
       fprintf(stderr,"Old/New trace length: %dms / %dms\n", vars->oldTraceLengthMS, vars->newTraceLengthMS );
       fprintf(stderr,"numTracesOut: %d\n", vars->numTracesOut );
-      log->line("Start in: %d, start1: %d, startN: %d, num traces: %d, leading zeros: %d\n",
+      writer->line("Start in: %d, start1: %d, startN: %d, num traces: %d, leading zeros: %d\n",
                 time_samp1_s_in, vars->tred_samp1_trc1_ms_out, vars->tred_samp1_trcN_ms_out, vars->numTracesOut, vars->numLeadingZeros );
     }
     *numTrcToKeep = numTracesIn;
@@ -526,14 +515,49 @@ void params_mod_trc_split_( csParamDef* pdef ) {
 }
 
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_trc_split_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_trc_split::VariableStruct* vars = reinterpret_cast<mod_trc_split::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_trc_split_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_trc_split::VariableStruct* vars = reinterpret_cast<mod_trc_split::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  //    if( vars->ensValue == NULL ) {
+  //   delete vars->ensValue;
+  //  vars->ensValue = NULL;
+  // }
+  if( vars->startTimes_s != NULL ) {
+    delete [] vars->startTimes_s;
+    vars->startTimes_s = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_trc_split_( csParamDef* pdef ) {
   params_mod_trc_split_( pdef );
 }
-extern "C" void _init_mod_trc_split_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_trc_split_( param, env, log );
+extern "C" void _init_mod_trc_split_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_trc_split_( param, env, writer );
 }
-extern "C" void _exec_mod_trc_split_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_trc_split_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_trc_split_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_trc_split_( env, writer );
 }
-
-
+extern "C" void _exec_mod_trc_split_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_trc_split_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_trc_split_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_trc_split_( env, writer );
+}

@@ -26,12 +26,14 @@ import javax.swing.JTextField;
  * SeaView preferences dialog. Set some specific default parameters for the application.
  * @author 2013 Felipe Punto
  */
+@SuppressWarnings("serial")
 public class csPreferencesDialog extends JDialog {
   private SeaView mySeaView;
   
   private JTextField myTextNumTraces;
   private JCheckBox  myBoxShowFilename;
   private JCheckBox  myBoxShowActivePaneFeedback;
+  private JTextField myTextMaxTabWidth;
 
   private JButton myButtonApply;
   private JButton myButtonClose;
@@ -40,6 +42,8 @@ public class csPreferencesDialog extends JDialog {
     super( seaview, "SeaView preferences", true );
     mySeaView = seaview;
 
+    myTextMaxTabWidth = new JTextField( "" + properties.maxTabWidth );
+    myTextMaxTabWidth.setToolTipText("Maximum width of tab label [in pixels]");
     myTextNumTraces  = new JTextField( "" + properties.numTraces );
     myTextNumTraces.setToolTipText("Number of traces to read in at once for new input files");
     myBoxShowFilename = new JCheckBox( "Show filename as label on seismic data", properties.showFilename );
@@ -58,6 +62,12 @@ public class csPreferencesDialog extends JDialog {
         0, yp, 1, 1, 0.0, 0.0, GridBagConstraints.WEST,
         GridBagConstraints.NONE, new Insets( 0, 10, 0, 0 ), 0, 0 ) );
     panelSet.add( myTextNumTraces, new GridBagConstraints(
+        1, yp++, 1, 1, 1.0, 0.0, GridBagConstraints.WEST,
+        GridBagConstraints.HORIZONTAL, new Insets( 0, 0, 0, 5 ), 0, 0 ) );
+    panelSet.add( new JLabel("Maximum tab width:"), new GridBagConstraints(
+        0, yp, 1, 1, 0.0, 0.0, GridBagConstraints.WEST,
+        GridBagConstraints.NONE, new Insets( 0, 10, 0, 0 ), 0, 0 ) );
+    panelSet.add( myTextMaxTabWidth, new GridBagConstraints(
         1, yp++, 1, 1, 1.0, 0.0, GridBagConstraints.WEST,
         GridBagConstraints.HORIZONTAL, new Insets( 0, 0, 0, 5 ), 0, 0 ) );
     panelSet.add( myBoxShowFilename, new GridBagConstraints(
@@ -124,6 +134,12 @@ public class csPreferencesDialog extends JDialog {
     try {
       int numTraces = Integer.parseInt( myTextNumTraces.getText() );
       mySeaView.setDefaultNumTraces( numTraces );
+    }
+    catch( NumberFormatException exc ) {
+    }
+    try {
+      int maxTabWidth = Integer.parseInt( myTextMaxTabWidth.getText() );
+      mySeaView.setMaxTabWidth( maxTabWidth );
     }
     catch( NumberFormatException exc ) {
     }

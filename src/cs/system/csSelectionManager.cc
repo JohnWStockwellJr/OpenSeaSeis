@@ -24,6 +24,7 @@ csSelectionManager::csSelectionManager() {
   myHeaderNames = NULL;
   myValues      = NULL;
   mySelection   = NULL;
+  myStringSelectionText = "";
 }
 //--------------------------------------------------------------
 //
@@ -54,7 +55,11 @@ void csSelectionManager::set( cseis_geolib::csVector<std::string> const* headerL
       myHeaderIndex[k] = hdef->headerIndex( name.c_str() );
       myHeaderType[k]  = hdef->headerType( name.c_str() );
       if( myHeaderType[k] != cseis_geolib::TYPE_INT && myHeaderType[k] != cseis_geolib::TYPE_FLOAT && myHeaderType[k] != cseis_geolib::TYPE_DOUBLE ) {
-        throw cseis_geolib::csException( "Trace header '%s': Selection is only supported for number headers.", name.c_str() );
+        if( myNumHeaders == 1 && myHeaderType[k] == cseis_geolib::TYPE_STRING ) {
+          myStringSelectionText= *selectionText;
+          return;
+        }
+        throw cseis_geolib::csException( "Trace header '%s': Selection using multiple headers is only supported for number headers.", name.c_str() );
       }
     }
     else {
@@ -73,13 +78,15 @@ bool csSelectionManager::contains( cseis_system::csTraceHeader const* trcHeader 
   for( int i = 0; i < myNumHeaders; i++ ) {
     if( myHeaderType[i] == cseis_geolib::TYPE_FLOAT ) {
       myValues[i].setDoubleValue( trcHeader->floatValue(myHeaderIndex[i]) );
-//      myValues[i].setFloatValue( trcHeader->floatValue(myHeaderIndex[i]) );
     }
     else if( myHeaderType[i] == cseis_geolib::TYPE_DOUBLE ) {
       myValues[i].setDoubleValue( trcHeader->doubleValue(myHeaderIndex[i]) );
     }
-    else { // TYPE_INT
+    else if( myHeaderType[i] == cseis_geolib::TYPE_INT ) {
       myValues[i].setIntValue( trcHeader->intValue( myHeaderIndex[i] ) );
+    }
+    else { // TYPE_STRING
+      return( strcmp( myStringSelectionText.c_str(), trcHeader->stringValue(myHeaderIndex[i]).c_str() ) == 0 );
     }
   }
   if( mySelection != NULL ) {
@@ -93,13 +100,15 @@ bool csSelectionManager::contains( cseis_geolib::csFlexHeader const* hdrValue ) 
   for( int i = 0; i < myNumHeaders; i++ ) {
     if( myHeaderType[i] == cseis_geolib::TYPE_FLOAT ) {
       myValues[i].setDoubleValue( hdrValue->floatValue() );
-//      myValues[i].setFloatValue( trcHeader->floatValue(myHeaderIndex[i]) );
     }
     else if( myHeaderType[i] == cseis_geolib::TYPE_DOUBLE ) {
       myValues[i].setDoubleValue( hdrValue->doubleValue());
     }
-    else { // TYPE_INT
+    else if( myHeaderType[i] == cseis_geolib::TYPE_INT ) {
       myValues[i].setIntValue( hdrValue->intValue() );
+    }
+    else { // TYPE_STRING
+      return false; // Not sure what to do here...
     }
   }
   if( mySelection != NULL ) {

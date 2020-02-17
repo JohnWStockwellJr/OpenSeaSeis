@@ -61,6 +61,32 @@ JNIEXPORT jstring JNICALL Java_cseis_jni_csNativeModuleHelp_native_1moduleHtmlEx
 
   return (env)->NewStringUTF(text.c_str());
 }
+/*
+ * Class:     cseis_jni_csNativeModuleHelp
+ * Method:    native_moduleExample
+ * Signature: (Ljava/lang/String;)Ljava/lang/String;
+ */
+JNIEXPORT jstring JNICALL Java_cseis_jni_csNativeModuleHelp_native_1moduleExample
+(JNIEnv *env, jobject obj, jstring moduleName_in ) {
+  char const* moduleName = (env)->GetStringUTFChars( moduleName_in, NULL );
+
+  cseis_system::csParamDef pdef;
+  try {
+    cseis_system::csMethodRetriever::getParamMethod( moduleName )( &pdef );
+  }
+  catch( cseis_geolib::csException& e ) {
+    return (env)->NewStringUTF(e.getMessage());
+  }
+  catch( ... ) {
+    return (env)->NewStringUTF("NOT FOUND");
+  }
+
+  cseis_system::csHelp helpObj;
+  std::string text = "";
+  helpObj.moduleExample( false, pdef, text );
+
+  return (env)->NewStringUTF(text.c_str());
+}
 
 /*
  * Class:     cseis_jni_csNativeModuleHelp

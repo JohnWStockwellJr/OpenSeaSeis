@@ -131,7 +131,7 @@ void csTraceHeaderData::clearMemory() {
 //
 void csTraceHeaderData::setIntValue( int index, int value ) {
 #ifdef CS_DEBUG
-  if( myByteLocationPtr[index] >= myNumBytes ) throw csException("csTraceHeaderData::setIntValue: myByteLocation is wrong...");
+  if( myByteLocationPtr[index] >= myNumBytes ) throw cseis_geolib::csException("csTraceHeaderData::setIntValue: myByteLocation is wrong...");
 #endif
 #ifdef ARCHITECTURE_ITANIUM
   memcpy( &myValueBlock[myByteLocationPtr[index]], &value, 4 );
@@ -144,7 +144,7 @@ void csTraceHeaderData::setIntValue( int index, int value ) {
 //
 void csTraceHeaderData::setInt64Value( int index, csInt64_t value ) {
 #ifdef CS_DEBUG
-  if( myByteLocationPtr[index] >= myNumBytes ) throw csException("csTraceHeaderData::setInt64Value: myByteLocation is wrong...");
+  if( myByteLocationPtr[index] >= myNumBytes ) throw cseis_geolib::csException("csTraceHeaderData::setInt64Value: myByteLocation is wrong...");
 #endif
 #ifdef ARCHITECTURE_ITANIUM
   memcpy( &myValueBlock[myByteLocationPtr[index]], &value, 8 );
@@ -156,7 +156,7 @@ void csTraceHeaderData::setInt64Value( int index, csInt64_t value ) {
 //
 void csTraceHeaderData::setFloatValue( int index, float value ) {
 #ifdef CS_DEBUG
-  if( myByteLocationPtr[index] >= myNumBytes ) throw csException("csTraceHeaderData::setFloatValue: myByteLocation is wrong...");
+  if( myByteLocationPtr[index] >= myNumBytes ) throw cseis_geolib::csException("csTraceHeaderData::setFloatValue: myByteLocation is wrong...");
 #endif
 #ifdef ARCHITECTURE_ITANIUM
   memcpy( &myValueBlock[myByteLocationPtr[index]], &value, 4 );
@@ -168,7 +168,7 @@ void csTraceHeaderData::setFloatValue( int index, float value ) {
 //
 void csTraceHeaderData::setDoubleValue( int index, double value ) {
 #ifdef CS_DEBUG
-  if( myByteLocationPtr[index]/4 >= myNumBytes ) throw csException("csTraceHeaderData::setDoubleValue: myByteLocation is wrong...");
+  if( myByteLocationPtr[index]/4 >= myNumBytes ) throw cseis_geolib::csException("csTraceHeaderData::setDoubleValue: myByteLocation is wrong...");
 #endif
 #ifdef ARCHITECTURE_ITANIUM
   memcpy( &myValueBlock[myByteLocationPtr[index]], &value, 8 );
@@ -204,3 +204,39 @@ std::string csTraceHeaderData::stringValue( int index ) const {
   return text;
 }
 
+void csTraceHeaderData::setVectorValueX( int index, double value ) {
+  *((double*)&myValueBlock[myByteLocationPtr[index]])    = value;
+}
+void csTraceHeaderData::setVectorValueY( int index, double value ) {
+  *((double*)&myValueBlock[myByteLocationPtr[index+8]])    = value;
+}
+void csTraceHeaderData::setVectorValueZ( int index, double value ) {
+  *((double*)&myValueBlock[myByteLocationPtr[index+16]])   = value;
+}
+void csTraceHeaderData::setVectorValue( int index, double value, cseis_geolib::type_t type ) {
+  int add = 0;
+  if( type == cseis_geolib::TYPE_VECTOR_Y ) add = 8;
+  else if( type == cseis_geolib::TYPE_VECTOR_Z ) add = 16;
+  *((double*)&myValueBlock[myByteLocationPtr[index]+add])   = value;
+}
+
+void csTraceHeaderData::setVectorValue( int index, cseis_geolib::csPoint3D value ) {
+  *((double*)&myValueBlock[myByteLocationPtr[index]])    = value.x;  // ATTENTION: THIS WON'T WORK ON SGI!
+  *((double*)&myValueBlock[myByteLocationPtr[index]+8])  = value.y;
+  *((double*)&myValueBlock[myByteLocationPtr[index]+16]) = value.z;
+}
+cseis_geolib::csPoint3D csTraceHeaderData::vectorValue( int index ) const {
+  cseis_geolib::csPoint3D value;
+  memcpy( &value.x, &myValueBlock[myByteLocationPtr[index]], 8 );
+  memcpy( &value.y, &myValueBlock[myByteLocationPtr[index]+8], 8 );
+  memcpy( &value.z, &myValueBlock[myByteLocationPtr[index]+16], 8 );
+  return value;
+}
+double csTraceHeaderData::vectorValue( int index, cseis_geolib::type_t type ) const {
+  double value;
+  int add = 0;
+  if( type == cseis_geolib::TYPE_VECTOR_Y ) add = 8;
+  else if( type == cseis_geolib::TYPE_VECTOR_Z ) add = 16;
+  memcpy( &value, &myValueBlock[myByteLocationPtr[index]+add], 8 );
+  return value;
+}

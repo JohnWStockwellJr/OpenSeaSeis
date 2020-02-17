@@ -6,17 +6,23 @@ package cseis.seaview;
 
 import cseis.general.csColorBarPanel;
 import cseis.general.csColorMap;
+import cseis.general.csUnits;
 import cseis.jni.csNativeSegyReader;
 import cseis.jni.csNativeSeismicReader;
 import cseis.seis.*;
 import cseis.seisdisp.csSeisDispProperties;
 import cseis.seisdisp.csSeisDispSettings;
+import cseis.seisdisp.csWellPathAttr;
+import cseis.seisdisp.csWellPathOverlay;
+import cseis.seisdisp.csWellPathOverlayAttr;
+
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.imageio.ImageIO;
@@ -192,7 +198,7 @@ public class PlotImage {
   //
   public void generatePlot( int width, int height, boolean evenTraceSpacing, int fontsize, String headerName,
       float minTime, float maxTime, boolean convert2db, int colorBarOption, int colorBarSize, int colorBarAnnOption, int colorBarAnnSize,
-      int maxDecimals, int hdrDateType ) throws Exception {
+      int maxDecimals, int hdrDateType, csWellPathOverlayAttr wellPathOverlayAttr, ArrayList<csWellPathAttr> wellPathAttrList ) throws Exception {
     myNumMaxDecimals = maxDecimals;
     myFontSize = fontsize;
 
@@ -288,6 +294,7 @@ public class PlotImage {
         }
       }
     }
+
     mySeisView = new csPlotImageSeisView( null, myTraceBuffer, myReader.sampleInt() );
     
     csSeisDispSettings settings = mySeisView.getDispSettings();
@@ -330,6 +337,15 @@ public class PlotImage {
       colorBarPanel.setMinMax( settings.minValue, settings.maxValue );
     }
 
+    if( wellPathAttrList.size()> 0 ) {
+      csWellPathOverlay wellPathOverlay = new csWellPathOverlay( mySeisView );
+      int hdrIndex_x = getTraceHeaderIndex( wellPathOverlayAttr.hdrName_binx );
+      int hdrIndex_y = getTraceHeaderIndex( wellPathOverlayAttr.hdrName_biny );
+      wellPathOverlay.updateHeaders( hdrIndex_x, hdrIndex_y );
+      wellPathOverlay.update( wellPathOverlayAttr, wellPathAttrList );
+      mySeisView.addOverlay( wellPathOverlay );
+    }
+    
     double minorInc = mySeisView.getDispSettings().timeLineMinorInc;
     minorInc = ( (int)( minorInc / (double)mySeisView.getSampleInt() + 0.51 ) ) * (double)mySeisView.getSampleInt();
     recomputeDecimals( minorInc );
@@ -361,6 +377,7 @@ public class PlotImage {
 
     mySeisView.paintImage( graphics );
 
+    graphics.setStroke( new BasicStroke(2) );
     graphics.setColor( Color.white );
     graphics.fillRect( 0, 0, myMarginLeftRight-2, height );
     graphics.fillRect( width-myMarginLeftRight+4-myColorBarWidth, 0, myMarginLeftRight-4+myColorBarWidth, height );
@@ -394,6 +411,9 @@ public class PlotImage {
     else if( myReader.isFrequencyDomain() ) {
       label = "Frequency [Hz]";
     }
+    else if( myReader.verticalDomain() == csUnits.DOMAIN_DEPTH ) {
+      label = "Depth (kilometers)";
+    }
     FontMetrics metrics = graphics.getFontMetrics( graphics.getFont() );
     graphics.rotate( -Math.PI/2 );
     int labelWidth  = metrics.stringWidth( label );
@@ -406,6 +426,14 @@ public class PlotImage {
       ex.printStackTrace();
       Logger.getLogger( PlotImage.class.getName() ).log( Level.SEVERE, null, ex );
     }
+  }
+  private int getTraceHeaderIndex( String headerName ) throws Exception {
+    for( int i = 0; i < myTraceHeaders.length; i++ ) {
+      if( headerName.compareTo( myTraceHeaders[i].name ) == 0 ) {
+        return i;
+      }
+    }
+    throw( new Exception("Trace header not defined in input file: " + headerName ) );
   }
   //---------------------------------------------------
   //
@@ -471,33 +499,36 @@ public class PlotImage {
     }
   }
   private void exchangeTitleHeaders( csSeisDispSettings s ) {
-    String title      = s.title;
-    int counter = 0;
-    title.replace( '_', ' ' );
-    while( counter < title.length() ) {
-      if( title.charAt( counter ) == '%' ) {
-        int pos1 = counter;
-        counter += 1;
-        while( counter < title.length() && title.charAt( counter ) != '%') {
-          counter += 1;
+    String titleIn  = s.title;
+    String titleOut = s.title;
+    int counterIn  = 0;
+    int counterOut = 0;
+    titleOut.replace( '_', ' ' );
+    while( counterIn < titleIn.length() ) {
+      if( titleIn.charAt( counterIn ) == '%' ) {
+        int pos1 = counterIn;
+        counterIn += 1;
+        while( counterIn < titleIn.length() && titleIn.charAt( counterIn ) != '%') {
+          counterIn += 1;
         }
-        if( counter == title.length() ) return;
-        String headerName = title.substring( pos1+1, counter );
+        if( counterIn == titleIn.length() ) return;
+        String headerName = titleIn.substring( pos1+1, counterIn );
         for( int ihdr = 0; ihdr < myTraceHeaders.length; ihdr++ ) {
           if( myTraceHeaders[ihdr].name.compareTo( headerName ) == 0 ) {
-            if( counter < title.length()-1 ) {
-              title = title.substring( 0, pos1 ) + myTraceBuffer.headerValues( 0)[ihdr].toString() + title.substring( counter+1 );
-            }
-            else {
-              title = title.substring( 0, pos1 ) + myTraceBuffer.headerValues( 0)[ihdr].toString();
+            String newText = myTraceBuffer.headerValues( 0)[ihdr].toString();
+            titleOut = titleOut.substring( 0, counterOut ) + newText;
+            counterOut += newText.length() - 1;
+            if( counterIn < titleIn.length()-1 ) {
+              titleOut += titleIn.substring( counterIn+1 );
             }
             break;
           }
         }
       }
-      counter += 1;
+      counterIn  += 1;
+      counterOut += 1;
     }
-    s.title = title;
+    s.title = titleOut;
   }
   private void setNumDecimals( int numDecimals ) {
     myNumDecimals = numDecimals;
@@ -544,7 +575,7 @@ public class PlotImage {
     System.out.println(" -width <width>:           Width of image on pixels");
     System.out.println(" -header <headerName>:     Name of trace header to use for trace annotation");
     System.out.println(" -fontsize <fontsize>:     Font size in pixels");
-    System.out.println(" -trace_spacing [auto,even]:  Automatic trace spacing, or integer number of pixels per trace (even)");
+    System.out.println(" -trace_spacing [auto|even]:  Automatic trace spacing, or integer number of pixels per trace (even)");
     System.out.println("                              For 'even' trace spacing, image width may be adjusted");
     System.out.println(" -min_time <minTime>:      Minimum time to display [ms] (or [Hz] for f-x plot)");
     System.out.println(" -max_time <maxTime>:      Maximum time to display [ms] (or [Hz] for f-x plot)");
@@ -553,6 +584,10 @@ public class PlotImage {
     System.out.println(" -color_bar <bottom|right><size> : Display color bar");
     System.out.println(" -color_bar <simple|fancy><size> : Color bar annotation");
     System.out.println(" -hdr_date_type [h|d|m|y]:        Convert trace header value to date. h: Hours, d: Julian day, m: Day/Month, Day/Month/Year");
+    System.out.println(" -well_param <lineSize>,<maxDistance>,<transparency>,<hdrX>,<hdrY>,<plotShadow[yes|no]>,<shadowDepth> : Well path plot parameters");
+    System.out.println("    lineSize: Line size [pixels], maxDistance: Max distance from seismic to plot [m], transparency: 0: Min, 100: Max");
+    System.out.println("    hdrX,hdrY: Trace header names/XY coordinates, plotShadow: Plot well 'shadow'?, shadowDepth: 0: Min, 100: Max");
+    System.out.println(" -well_path <filename>,<color> : Well path plot, file name and plot color. Can specify multiple well paths");
   }
 //--------------------------------------------------------------------------------
 //
@@ -610,6 +645,9 @@ public class PlotImage {
     int colorBarAnnSize = 0;
     int maxDecimals = 3;
     int hdrDateType = PlotImage.DATE_NONE;
+    csWellPathOverlayAttr wellPathOverlayAttr = new csWellPathOverlayAttr();
+    ArrayList<csWellPathAttr> wellPathAttrList = new ArrayList<csWellPathAttr>();
+
     while( counterArg < args.length ) {
       char letter = args[counterArg].charAt(0);
       if( letter == '-' ) {
@@ -695,6 +733,51 @@ public class PlotImage {
             help();
             System.exit(0);
           }
+        }
+        else if( word.compareTo( "well_path" ) == 0 ) {
+          counterArg += 1;
+          String[] wellPathParamList = args[counterArg].split(",");
+          if( wellPathParamList.length < 2 ) {
+            System.out.println("Too few parameters provided for well path" + args[counterArg] );
+            help();
+            System.exit(0);
+          }
+          csWellPathAttr attr = new csWellPathAttr();
+          wellPathAttrList.add( attr );
+          int yp = 0;
+          attr.showWell = true;
+          attr.filename = wellPathParamList[yp++];
+          attr.path     = attr.filename;
+          String colorStr = wellPathParamList[yp++];
+          if( colorStr.compareTo("red") == 0 ) attr.color = Color.red;
+          else if( colorStr.compareTo("red") == 0 ) attr.color = Color.blue;
+          else if( colorStr.compareTo("yellow") == 0 ) attr.color = Color.yellow;
+          else if( colorStr.compareTo("orange") == 0 ) attr.color = Color.orange;
+          else if( colorStr.compareTo("black") == 0 ) attr.color = Color.black;
+          else if( colorStr.compareTo("white") == 0 ) attr.color = Color.white;
+          else if( colorStr.compareTo("gray") == 0 ) attr.color = Color.gray;
+          else if( colorStr.compareTo("green") == 0 ) attr.color = Color.green;
+          else if( colorStr.compareTo("blue") == 0 ) attr.color = Color.blue;
+          if( !csWellPathDialog.readFile( null, attr ) ) { System.out.println("Cannot read well path ASCII file " + attr.filename); System.exit(0); }
+        }
+        else if( word.compareTo( "well_path_param" ) == 0 ) {
+          counterArg += 1;
+          String[] wellPathParamList = args[counterArg].split(",");
+          if( wellPathParamList.length < 7 ) {
+            System.out.println("Too few parameters provided for well_path_param" + args[counterArg] );
+            help();
+            System.exit(0);
+          }
+          int yp = 0;
+          wellPathOverlayAttr.lineSize = Integer.parseInt( wellPathParamList[yp++] );
+          wellPathOverlayAttr.maxDisplayDistance = Integer.parseInt( wellPathParamList[yp++] );
+          wellPathOverlayAttr.transparency = ( Integer.parseInt( wellPathParamList[yp++] ) * (csWellPathOverlayAttr.MAX_TRANSPARENCY - csWellPathOverlayAttr.MIN_TRANSPARENCY) ) / 100 + csWellPathOverlayAttr.MIN_TRANSPARENCY;
+          wellPathOverlayAttr.hdrName_binx = wellPathParamList[yp++];
+          wellPathOverlayAttr.hdrName_biny = wellPathParamList[yp++];
+          String showShadowStr = wellPathParamList[yp++];
+          if( showShadowStr.compareTo("yes") == 0 ) wellPathOverlayAttr.showShadow = true;
+          if( showShadowStr.compareTo("no") == 0 ) wellPathOverlayAttr.showShadow = false;
+          wellPathOverlayAttr.shadowDepth = ( Integer.parseInt( wellPathParamList[yp++] ) * (csWellPathOverlayAttr.MAX_SHADOW_DEPTH- csWellPathOverlayAttr.MIN_SHADOW_DEPTH) ) / 100 + csWellPathOverlayAttr.MIN_SHADOW_DEPTH;
         }
         else if( word.compareTo( "min_time" ) == 0 ) {
           counterArg += 1;
@@ -783,7 +866,8 @@ public class PlotImage {
     
     try {
       plot.generatePlot( width, height, evenTraceSpacing, fontsize, headerName, minTime, maxTime,
-          convert2db, colorBarOption, colorBarSize, colorBarAnnOption, colorBarAnnSize, maxDecimals, hdrDateType );
+          convert2db, colorBarOption, colorBarSize, colorBarAnnOption, colorBarAnnSize, maxDecimals, hdrDateType,
+          wellPathOverlayAttr, wellPathAttrList );
       plot.closeFiles();
     }
     catch( Exception e ) {
@@ -794,5 +878,4 @@ public class PlotImage {
 
     System.exit( 0 );
   }
-
 }

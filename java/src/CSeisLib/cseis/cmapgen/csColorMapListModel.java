@@ -14,7 +14,8 @@ import javax.swing.*;
  * Implementation of AbstractListModel to enable listing color maps in Java GUI objects.<br>
  * @author 2013 Felipe Punto
  */
-public class csColorMapListModel extends AbstractListModel {
+@SuppressWarnings("serial")
+public class csColorMapListModel extends AbstractListModel<csColorMapListItem> {
   private ArrayList<csColorMapListItem> myItemList;
 
   public csColorMapListModel() {
@@ -22,8 +23,8 @@ public class csColorMapListModel extends AbstractListModel {
   }
   public csColorMapListModel( java.util.List<csCustomColorMap> list ) {
     myItemList = new ArrayList<csColorMapListItem>( list.size() );
-    for( int i = 0; i < list.size(); i++ ) {
-      myItemList.add( csColorMapListItem.createStandardItem(list.get(i)) );
+    for( csCustomColorMap list1 : list ) {
+      myItemList.add(csColorMapListItem.createStandardItem(list1));
     }
   }
   public void updateColorMapType( int colorMapType ) {

@@ -204,8 +204,8 @@ bool csSeismicReader_ver::peek( int byteOffset, int byteSize, char* buffer, int 
     throw( cseis_geolib::csException("csSeismicReader_ver::peek: File size unknown. This may be due to a compatibility problem of this compiled version of the program on the current platform." ) );
   }
 
-  myCurrentPeekByteOffset = byteOffset;
-  myCurrentPeekByteSize   = byteSize;
+  //  fprintf(stdout,"peekHeader: offset %d --> %d (inProgress: %s)   %d  or  %d\n", myCurrentPeekByteOffset, byteOffset, myPeekIsInProgress ? "yes" : "no",
+  //        (traceIndex - myCurrentPeekTraceIndex) * myTraceByteSize  - myCurrentPeekByteSize + (byteOffset-myCurrentPeekByteOffset), (traceIndex - myCurrentTraceIndex) * myTraceByteSize + byteOffset);
 
   if( traceIndex < 0 && myCurrentTraceIndex >= myNumTraces && myBufferCurrentTrace == myBufferNumTraces ) {
     //    fprintf(stderr,"Seismic_ver: PEEK LAST TRACE  %d %d %d\n", myNumTraces, myBufferCurrentTrace, myBufferNumTraces );
@@ -219,12 +219,13 @@ bool csSeismicReader_ver::peek( int byteOffset, int byteSize, char* buffer, int 
     csInt64_t bytePosRelative = 0;
   
     if( myPeekIsInProgress ) {      // subsequent peeks, jump from header block offset     
-      bytePosRelative = (csInt64_t)(traceIndex - myCurrentPeekTraceIndex) * (csInt64_t)myTraceByteSize - byteSize;
+      bytePosRelative = (csInt64_t)(traceIndex - myCurrentPeekTraceIndex) * (csInt64_t)myTraceByteSize - myCurrentPeekByteSize + (byteOffset-myCurrentPeekByteOffset);
     } 
     else {                          // 1st peek, sets file pointer to offset in header block    
       bytePosRelative = (csInt64_t)(traceIndex - myCurrentTraceIndex) * (csInt64_t)myTraceByteSize + (csInt64_t)byteOffset;
       myPeekIsInProgress = true;
     }  
+    //    fprintf(stdout,"--> bytePosRelative:  %lld\n", bytePosRelative);
     if( bytePosRelative > (csInt64_t)std::numeric_limits<int>::max() ) {
       if( !seekg_relative(bytePosRelative) ) return false;  
     }
@@ -256,6 +257,8 @@ bool csSeismicReader_ver::peek( int byteOffset, int byteSize, char* buffer, int 
   else {
     memcpy( buffer, &myDataBuffer[myBufferCurrentTrace*myTraceByteSize + byteOffset], byteSize );
   }
+  myCurrentPeekByteOffset = byteOffset;
+  myCurrentPeekByteSize   = byteSize;
   
 //  fprintf(stderr, "buffer [%s] [%d]\n", buffer, *(int*)buffer);   
 

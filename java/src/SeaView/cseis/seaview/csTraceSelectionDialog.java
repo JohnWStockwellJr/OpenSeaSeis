@@ -66,7 +66,7 @@ public class csTraceSelectionDialog extends JDialog {
   private JRadioButton myButtonDisplayHeader;
 
   private JTextField myTextScanHdrName;
-  private JComboBox myComboScanHdr;
+  private JComboBox<csHeaderDef> myComboScanHdr;
   private JButton myButtonScan;
   private JProgressBar myProgressScan;
   private csColorRadioButton myButtonScanFlag;
@@ -148,7 +148,7 @@ public class csTraceSelectionDialog extends JDialog {
     mySliderFirstEns.setPaintTicks(true);
     mySliderFirstEns.setPaintLabels(true);
     mySliderFirstEns.setValue( 0 );
-    Dictionary table = mySliderFirstEns.createStandardLabels(1);
+    Dictionary<Integer,JComponent> table = mySliderFirstEns.createStandardLabels(1);
     mySliderFirstEns.setLabelTable( table );
 
     mySliderHeaderValue = new JSlider(JSlider.HORIZONTAL);
@@ -161,7 +161,7 @@ public class csTraceSelectionDialog extends JDialog {
     table = mySliderHeaderValue.createStandardLabels(1);
     mySliderHeaderValue.setLabelTable( table );
 
-    myComboScanHdr = new JComboBox();
+    myComboScanHdr = new JComboBox<csHeaderDef>();
     myButtonScan = new JButton( TEXT_BUTTON_SCAN );
     myButtonScan.setEnabled( false );
     myProgressScan = new JProgressBar();
@@ -616,16 +616,16 @@ public class csTraceSelectionDialog extends JDialog {
     mySliderFirstEns.setMinimum( 0 );
     mySliderFirstEns.setMaximum( numEns-1 );
     int increment = Math.max( 1, numEns-1 );
-    Dictionary table = mySliderFirstEns.createStandardLabels( increment );
-    Enumeration<Object> ee = table.keys();
+    Dictionary<Integer,JComponent> table = mySliderFirstEns.createStandardLabels( increment );
+    Enumeration<Integer> ee = table.keys();
     while( ee.hasMoreElements() ) {
       table.remove( ee.nextElement() );
     }
-    table.put( new Integer( 0 ), new JLabel("" + myScanHeaderInfo.getEnsValue(0) + " (#1)" ) );
+    table.put( 0, new JLabel("" + myScanHeaderInfo.getEnsValue(0) + " (#1)" ) );
     int num = (numEns-1)/2;
-    table.put( new Integer( num ), new JLabel("" + myScanHeaderInfo.getEnsValue(num) +
+    table.put( num, new JLabel("" + myScanHeaderInfo.getEnsValue(num) +
             " (#" + (num+1) + ")" ) );
-    table.put( new Integer( numEns-1 ), new JLabel("" + myScanHeaderInfo.getEnsValue(numEns-1) +
+    table.put( numEns-1, new JLabel("" + myScanHeaderInfo.getEnsValue(numEns-1) +
             " (#" + numEns + ")" ) );
     mySliderFirstEns.setLabelTable( table );
   }
@@ -633,16 +633,16 @@ public class csTraceSelectionDialog extends JDialog {
     mySliderHeaderValue.setMinimum( 0 );
     mySliderHeaderValue.setMaximum( numHeaders-1 );
     int increment = Math.max( 1, numHeaders-1 );
-    Dictionary table = mySliderHeaderValue.createStandardLabels( increment );
-    Enumeration<Object> ee = table.keys();
+    Dictionary<Integer,JComponent> table = mySliderHeaderValue.createStandardLabels( increment );
+    Enumeration<Integer> ee = table.keys();
     while( ee.hasMoreElements() ) {
       table.remove( ee.nextElement() );
     }
-    table.put( new Integer( 0 ), new JLabel("" + myScanHeaderInfo.getSortedHeaderValue(0) + " (#1)" ) );
+    table.put( 0, new JLabel("" + myScanHeaderInfo.getSortedHeaderValue(0) + " (#1)" ) );
     int num = (numHeaders-1)/2;
-    table.put( new Integer( num ), new JLabel("" + myScanHeaderInfo.getSortedHeaderValue(num) +
+    table.put( num, new JLabel("" + myScanHeaderInfo.getSortedHeaderValue(num) +
             " (#" + (num+1) + ")" ) );
-    table.put( new Integer( numHeaders-1 ), new JLabel("" + myScanHeaderInfo.getSortedHeaderValue(numHeaders-1) +
+    table.put( numHeaders-1, new JLabel("" + myScanHeaderInfo.getSortedHeaderValue(numHeaders-1) +
             " (#" + numHeaders + ")" ) );
     mySliderHeaderValue.setLabelTable( table );
   }
@@ -652,7 +652,7 @@ public class csTraceSelectionDialog extends JDialog {
     mySliderFirstTrace.setMaximum( numTraces );
     mySliderFirstTrace.setMajorTickSpacing( numTraces / 10 );
     if( numTraces > 1 ) {
-      Dictionary table = mySliderFirstTrace.createStandardLabels(numTraces-1);
+      Dictionary<Integer,JComponent> table = mySliderFirstTrace.createStandardLabels(numTraces-1);
       table.put( numTraces/2, new JLabel(""+numTraces/2) );
       mySliderFirstTrace.setLabelTable( table );
     }
@@ -738,7 +738,7 @@ public class csTraceSelectionDialog extends JDialog {
           }
         }
         if( renewCombo ) {
-          myComboScanHdr.setModel( new DefaultComboBoxModel(headerDef) );
+          myComboScanHdr.setModel( new DefaultComboBoxModel<csHeaderDef>(headerDef) );
         }
         myComboScanHdr.setSelectedIndex( paramNew.selectedHdrIndex );
         myTextScanHdrName.setText( paramNew.selectedHdrName );

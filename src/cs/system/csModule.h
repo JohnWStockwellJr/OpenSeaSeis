@@ -41,19 +41,25 @@ class csMemoryPoolManager;
 */
 class csModule {
 public:
-  csModule( std::string const& name, int id_number, csMemoryPoolManager* memManager );
+  csModule( std::string const& name, int id_number, csMemoryPoolManager* memManager, int mpiProcID, int mpiNumProc );
   ~csModule();
   /// Get parameter definition. These are option names and values that can be specified by the user in job flow
   void getParamDef( csParamDef* paramDef );
   /// Submit init phase
-  void submitInitPhase( csParamManager* paramManager, csLogWriter* log, cseis_geolib::csTable const** tables, int numTables );
-  /// Return true if module is ready to submit exec phase (depends on state of trace buffer)
-  bool isReadyToSubmitExec( bool forceToRun ) const;
-  /// Submit exec phase. Return false if no trace was processed.
-  bool submitExecPhase( bool forceToProcess, csLogWriter* log, int& port );
-  /// Submit clean-up phase. Returning false means there was some unspecified error, probably a program bug.
-  bool submitCleanupPhase( csLogWriter* log );
+  void submitInitPhase( csParamManager* paramManager, csLogWriter* writer, cseis_geolib::csTable const** tables, int numTables );
 
+  /// Submit start exec phase. Return false if error occurred.
+  bool submitExecStartPhase( csLogWriter* writer );
+  /// Return true if module is ready to submit exec phase (depends on state of trace buffer)
+  bool isReadyToSubmitExecPhase( bool forceToRun ) const;
+  /// Submit exec phase. Return false if no trace was processed.
+  bool submitExecPhase( bool forceToProcess, csLogWriter* writer, int& port );
+
+  void mpi_decompressInitPhaseObjects( char const* dataSuperHdr, char const* dataHdrDef );
+  bool mpi_submitExecPhase( csLogWriter* writer, int& port );
+  /// Submit clean-up phase. Returning false means there was some unspecified error, probably a program bug.
+  void submitCleanupPhase( csLogWriter* writer, bool reportMissing = true );
+  
   /// Move seismic traces from module 'module' that is connected to this module at input port 'inPort'
   void moveTracesFrom( csModule* module, int inPort );
   /// Call to clean up last module in flow. Call after each exec phase submission
@@ -70,6 +76,8 @@ public:
   inline std::string const* getNameString() const { return &myName; }
   /// @return module type
   inline int getType() const { return myModuleType; }
+  /// @return module type
+  void setExecType( int execType );
   /// @return module type
   int getExecType() const;
   /// @return trace header definition object
@@ -98,8 +106,20 @@ public:
   void setVersion( int major, int minor ) { myVersion[MAJOR] = major; myVersion[MINOR] = minor; }
   /// @return version string
   std::string versionString() const;
-
-private:
+  /**
+   * Set number of MPI processors
+   */
+  void mpiSetNumProc( int mpiNumProc );
+  /**
+   * Set MPI support ON/OFF
+   */
+  void setMPISupport( bool isMPISupported );
+  /**
+   * Does this module support MPI?
+   * @return true: Yes, false: No
+   */
+  bool isMPISupported() const;
+ private:
   /// Disabled copy constructor
   csModule( csModule const& module );  
   /// Initialize. Method is called by constructors
@@ -137,6 +157,8 @@ private:
   //-----------------------------------------------------------------------------------------
   // Fields relating to ensemble breaks -- maybe these could be wrapped up in another class? Maybe csExecPhaseDef?
 
+  void mpi_distribute_traces_before_exec_phase( csLogWriter* writer );
+  void mpi_distribute_traces_after_exec_phase( csLogWriter* writer );
   /**
   * Helper method: Add new trace to trace gather object
   * @param trace: Trace to add
@@ -180,10 +202,12 @@ private:
   MParamPtr myMethodParam;
   /// INIT phase method (function pointer)
   MInitPtr myMethodInit;
-  /// EXEC phase method for single trace modules (function pointer)
-  MExecSingleTracePtr myMethodExecSingleTrace;
-  /// EXEC phase method for multi trace modules (function pointer)
-  MExecMultiTracePtr myMethodExecMultiTrace;
+  /// EXEC START phase method (function pointer)
+  MExecStartPtr myMethodExecStart;
+  /// EXEC phase method (function pointer)
+  MExecPtr myMethodExec;
+  /// CLEANUP phase method (function pointer)
+  MCleanupPtr myMethodCleanup;
   //--------------------
   // Module structure  
   //
@@ -205,9 +229,15 @@ private:
   long myTotalNumProcessedTraces;
   /// Total number of incoming traces
   long myTotalNumIncomingTraces;
-
+//---------------------------------------------------------------
+// MPI variables
+  /// Number of MPI processors
+  int myMPINumProc;
+  /// MPI process number
+  int myMPIProcID;
+  /// For FIXED-trace modules: Number of traces to collect before running exec phase
+  int myNumFixedTracesToCollect;
 };
 
 } // namespace
 #endif
-

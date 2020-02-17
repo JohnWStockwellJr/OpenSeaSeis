@@ -17,36 +17,36 @@ public class csHeader {
   
   public csHeader() {
     myType   = csJNIDef.TYPE_DOUBLE;
-    myNumber = new Double(0);
+    myNumber = 0.0;  // Double
     myText   = "";
   }
   public csHeader( csHeader hdr ) {
     myType   = hdr.myType;
     switch( hdr.myType ) {
       case csJNIDef.TYPE_INT:
-        myNumber = new Integer(hdr.intValue());
+        myNumber = hdr.intValue();
         break;
       case csJNIDef.TYPE_LONG:
-        myNumber = new Long(hdr.longValue());
+        myNumber = hdr.longValue();
         break;
       case csJNIDef.TYPE_FLOAT:
-        myNumber = new Double(hdr.floatValue());
+        myNumber = hdr.floatValue();
         break;
       case csJNIDef.TYPE_DOUBLE:
-        myNumber = new Double(hdr.doubleValue());
+        myNumber = hdr.doubleValue();
         break;
       default:
-        myNumber = new Integer(0);
+        myNumber = 0;
     }
     myText   = hdr.myText;
   }
   public csHeader( int value ) {
     myType   = csJNIDef.TYPE_INT;
-    myNumber = new Integer(value);
+    myNumber = value;
   }
   public csHeader( long value ) {
     myType   = csJNIDef.TYPE_LONG;
-    myNumber = new Long(value);
+    myNumber = value;
   }
   public csHeader( String value ) {
     myType   = csJNIDef.TYPE_STRING;
@@ -56,29 +56,29 @@ public class csHeader {
     myNumber = value;
   }
   public void setValue( int value ) {
-    myNumber = new Integer(value);
+    myNumber = value;
     myType   = csJNIDef.TYPE_INT;
     myText   = "";
   }
   public void setValue( long value ) {
-    myNumber = new Long(value);
+    myNumber = value;
     myType   = csJNIDef.TYPE_LONG;
     myText   = "";
   }
   public void setValue( float value ) {
-    myNumber = new Float(value);
+    myNumber = value;
     myType   = csJNIDef.TYPE_FLOAT;
     myText   = "";
   }
   public void setValue( double value ) {
-    myNumber = new Double(value);
+    myNumber = value;
     myType   = csJNIDef.TYPE_DOUBLE;
     myText   = "";
   }
   public void setValue( String value ) {
     myText = value;
     myType = csJNIDef.TYPE_STRING;
-    myNumber = new Double(0);
+    myNumber = 0.0; // Double
   }
 
   public Object value() {

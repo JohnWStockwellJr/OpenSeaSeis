@@ -31,7 +31,7 @@ using namespace mod_split;
 //
 //
 //*************************************************************************************************
-void init_mod_split_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
+void init_mod_split_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
   //  csSuperHeader*    shdr = env->superHeader;
@@ -50,7 +50,7 @@ void init_mod_split_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
     
     param->getAll( "header", &valueList );
     if( valueList.size() == 0 ) {
-      log->warning("%s: Wrong number of parameters for option 'header'. Expected: > 0, found: %d.", edef->moduleName().c_str(), valueList.size());
+      writer->warning("%s: Wrong number of parameters for option 'header'. Expected: > 0, found: %d.", edef->moduleName().c_str(), valueList.size());
       env->addError();
     }
 
@@ -63,12 +63,11 @@ void init_mod_split_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* l
     }
     catch( csException& e ) {
       vars->selectionManager = NULL;
-      log->error( "%s: %s", edef->moduleName().c_str(), e.getMessage() );
+      writer->error( "%s: %s", edef->moduleName().c_str(), e.getMessage() );
     }
     if( edef->isDebug() ) vars->selectionManager->dump();
   }
 
-  env->execPhaseDef->setExecType( EXEC_TYPE_MULTITRACE );
   edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
 }
 
@@ -83,18 +82,13 @@ void exec_mod_split_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
 
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csTraceHeaderDef const* hdef = env->headerDef;
 
-  if( edef->isCleanup() ) {
-    if( vars->selectionManager ) delete vars->selectionManager; vars->selectionManager = NULL;
-    delete vars; vars = NULL;
-    return;
-  }
 
   int numTraces = traceGather->numTraces();
   if( numTraces == 0 ) return;
@@ -157,14 +151,45 @@ void params_mod_split_( csParamDef* pdef ) {
     "List of selection strings, one for each specified header. See documentation for more detailed description of selection syntax" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_split_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_split::VariableStruct* vars = reinterpret_cast<mod_split::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_split_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_split::VariableStruct* vars = reinterpret_cast<mod_split::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->selectionManager ) {
+    delete vars->selectionManager;
+    vars->selectionManager = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_split_( csParamDef* pdef ) {
   params_mod_split_( pdef );
 }
-extern "C" void _init_mod_split_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_split_( param, env, log );
+extern "C" void _init_mod_split_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_split_( param, env, writer );
 }
-extern "C" void _exec_mod_split_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_split_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_split_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_split_( env, writer );
 }
-
-
+extern "C" void _exec_mod_split_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_split_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_split_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_split_( env, writer );
+}

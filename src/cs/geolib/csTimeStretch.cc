@@ -6,6 +6,7 @@
 #include "csTimeStretch.h"
 #include "csInterpolation.h"
 #include "geolib_methods.h"
+#include "csException.h"
 #include <iostream>
 #include <cstdio>
 #include <cstdlib>
@@ -18,7 +19,6 @@ csTimeStretch::csTimeStretch( double sampleInt_ms, int numSamples ) {
 csTimeStretch::csTimeStretch( double sampleInt_ms, int numSamples, int methodSampleInterpolation ) {
   init( sampleInt_ms, numSamples, methodSampleInterpolation );
 }
-
 void csTimeStretch::init( double sampleInt_ms, int numSamples, int methodSampleInterpolation ) {
   myIsBottomStretch = false;
   myLayerInterpolationMethod = csTimeStretch::LAYER_INTERPOL_LIN;
@@ -26,6 +26,11 @@ void csTimeStretch::init( double sampleInt_ms, int numSamples, int methodSampleI
   myNumSamples          = numSamples;
   myTimeOfLastSample    = (myNumSamples-1)*mySampleInt;
   mySampleInterpolationMethod = methodSampleInterpolation;
+
+  myIndexBufferOut = NULL;
+  myTimeDepthFunc  = NULL;
+  myInterpol_timeDepthConversion = NULL;
+
   if( mySampleInterpolationMethod == csTimeStretch::SAMPLE_INTERPOL_SINC ) {
     mySampleInterpolation = new csInterpolation( numSamples, (float)sampleInt_ms );
   }
@@ -38,6 +43,15 @@ csTimeStretch::~csTimeStretch() {
   if( mySampleInterpolation != NULL ) {
     delete mySampleInterpolation;
     mySampleInterpolation = NULL;
+  }
+  if( myIndexBufferOut != NULL ) {
+    delete [] myIndexBufferOut; myIndexBufferOut = NULL;
+  }
+  if( myTimeDepthFunc != NULL ) {
+    delete [] myTimeDepthFunc; myTimeDepthFunc = NULL;
+  }
+  if( myInterpol_timeDepthConversion != NULL ) {
+    delete myInterpol_timeDepthConversion; myInterpol_timeDepthConversion = NULL;
   }
 }
 
@@ -117,114 +131,99 @@ void csTimeStretch::applyTimeInterval( float const* samplesIn, float const* tIn,
   }
 }
 
+//void csTimeStretch::applyDepthTimeConversion( float* samplesInOut, float const* velFunc, float sampleInt_velFunc_m, int numSamp_velFunc, float sampleInt_out ) {
 
-/*
-
-// Old methods. After proper testing these methods did not seem to work as expected. Remove in future releases
-
-void csTimeStretch::process( float const* samplesIn, float const* times_ms, float const* stretch_ms, int numTimes, float* samplesOut )
-{
-  int numLayers = numTimes - 1;
-  int ilay = 0;
-  float t1 = times_ms[ilay];
-  float dt = times_ms[ilay+1] - t1;
-  float stretch = stretch_ms[ilay];
-  float timeNew;
-  float timeOld;
-
-  // (1) Top data: Just copy from input trace to output trace
-  int isamp = (int)( t1 / mySampleInt );
-  if( isamp > 0 ) {
-    memcpy( samplesOut, samplesIn, isamp*sizeof(float) );
+void csTimeStretch::initialize_timeDepthConversion( int numSamplesOut, float sampleIntOut ) {
+  if( myIndexBufferOut != NULL ) {
+    delete [] myIndexBufferOut;
   }
+  if( myTimeDepthFunc != NULL ) {
+    delete [] myTimeDepthFunc;
+  }
+  myNumSamplesOut  = numSamplesOut;
+  mySampleIntOut   = sampleIntOut;
+  myIndexBufferOut = new float[myNumSamplesOut];
+  myTimeDepthFunc  = new float[myNumSamplesOut];
   
-  // (2) Layers that shall be squeezed/stretched
-  while( isamp < myNumSamples ) {
-    timeNew = isamp * mySampleInt;
-    timeOld = (dt*timeNew + stretch*t1)/(dt + stretch);
-    if( timeOld > times_ms[ilay+1] ) {
-      ilay += 1;
-      if( ilay == numLayers ) {
-        break;
-      }
-      t1 = times_ms[ilay];
-      dt = times_ms[ilay+1] - t1;
-      stretch = stretch_ms[ilay];
-    }
-    else {
-      if( mySampleInterpolationMethod == csTimeStretch::SAMPLE_INTERPOL_SINC ) {
-        samplesOut[isamp] = mySampleInterpolation->valueAt( timeOld, samplesIn );
-      }
-      else if( mySampleInterpolationMethod == csTimeStretch::SAMPLE_INTERPOL_QUAD ) {
-        samplesOut[isamp] = getQuadAmplitudeAtSample( samplesIn, timeOld/mySampleInt, myNumSamples );
-      }
-      else {
-        samplesOut[isamp] = getLinAmplitudeAtSample( samplesIn, timeOld/mySampleInt, myNumSamples );
-      }
-      isamp += 1;
-    }
+  if( myInterpol_timeDepthConversion != NULL ) {
+    delete myInterpol_timeDepthConversion;
   }
-
-  // (3) Bottom data: Move data (interpolate if necessary)
-  while( isamp < myNumSamples ) {
-    timeNew = isamp * mySampleInt;
-   // printf(" ***Time new, old: %d  %f %f    %f\n", isamp, timeNew, timeOld, stretch );
-    if( mySampleInterpolationMethod == csTimeStretch::SAMPLE_INTERPOL_SINC ) {
-      samplesOut[isamp] = mySampleInterpolation->valueAt( timeOld, samplesIn );
-    }
-    else {
-      samplesOut[isamp] = getQuadAmplitudeAtSample( samplesIn, timeOld/mySampleInt, myNumSamples );
-    }
-    isamp   += 1;
-    timeOld += mySampleInt;
-  }
+  myInterpol_timeDepthConversion = new csInterpolation( myNumSamples, csInterpolation::METHOD_SINC, mySampleInt );
 }
 
-void csTimeStretch::process2( float const* samplesIn, float const* tIn, float const* tOut, int numTimes, float* samplesOut )
-{
-  int numLayers = numTimes - 1;
-  int ilay = 0;
-  float tTopIn  = tIn[ilay];
-  float tBotIn  = tIn[ilay+1];
-  float tTopOut = tOut[ilay];
-  float tBotOut = tOut[ilay+1];
-  float dtIn  = tBotIn  -  tTopIn;  // Input layer thickness in [ms]
-  float dtOut = tBotOut - tTopOut; // Output layer thickness in [ms]
-  float timeLast = (myNumSamples-1) * mySampleInt;
+void csTimeStretch::apply_timeDepthConversion( float const* samplesIn, float const* velFunc, float sampleIntVel_m, int numSamplesVel, float* samplesOut, bool isTime2Depth ) {
+  if( myIndexBufferOut == NULL ) {
+    throw( csException("csTimeStretch::apply_timeDepthConversion(%d):: Function not initialized. This is a bug in the calling function", isTime2Depth) );
+  }
+  float* depthTimeFunc = new float[numSamplesVel];
+  // 1) Compute time-depth function from velocity-depth function
+  depthTimeFunc[0] = 0;
+  for( int isamp = 1; isamp < numSamplesVel; isamp++ ) {
+    depthTimeFunc[isamp] = depthTimeFunc[isamp-1] + 2.0 * 1000.0 * sampleIntVel_m / velFunc[isamp-1];   // 2x for TWT
+  }
 
-  for( int isamp = 0; isamp < myNumSamples; isamp++ ) {
-    float timeOut = isamp * mySampleInt;
-    while( ilay < numLayers && timeOut > tBotOut ) {
-      ilay += 1;
-      tTopIn = tBotIn;
-      tTopOut = tBotOut;
-      if( ilay < numLayers ) {
-        tBotIn  = tIn[ilay+1];
-        tBotOut = tOut[ilay+1];
-      }
-      else {
-        tBotIn  = timeLast; //myNumSamples * mySampleInt;
-        tBotOut = timeLast; //myNumSamples * mySampleInt;
-      }
-      dtIn  = tBotIn  -  tTopIn;  // Input layer thickness in [ms]
-      dtOut = tBotOut - tTopOut; // Output layer thickness in [ms]
-    }
-    float timeIn = timeOut;
-    if( dtOut != 0.0 ) {
-      timeIn = tTopIn + (dtIn/dtOut) * ( timeOut - tTopOut );
-      if( timeIn < 0.0 ) timeIn = 0.0;
-      else if( timeIn > timeLast ) timeIn = timeLast;
-    }
-    if( mySampleInterpolationMethod == csTimeStretch::SAMPLE_INTERPOL_SINC ) {
-      samplesOut[isamp] = mySampleInterpolation->valueAt( timeIn, samplesIn );
-    }
-    else if( mySampleInterpolationMethod == csTimeStretch::SAMPLE_INTERPOL_QUAD ) {
-      samplesOut[isamp] = getQuadAmplitudeAtSample( samplesIn, timeIn/mySampleInt, myNumSamples );
-    }
-    else {
-      samplesOut[isamp] = getLinAmplitudeAtSample( samplesIn, timeIn/mySampleInt, myNumSamples );
+  csInterpolation interpol( numSamplesVel, csInterpolation::METHOD_LIN, sampleIntVel_m );
+  if( isTime2Depth ) {
+    for( int isampOut = 0; isampOut < myNumSamplesOut; isampOut++ ) {
+      float time = interpol.valueAt( isampOut*mySampleIntOut, depthTimeFunc );
+      myIndexBufferOut[isampOut] = time/mySampleInt;
     }
   }
+  else {
+    interpol.timeAt_lin( depthTimeFunc, mySampleIntOut, myNumSamplesOut, myTimeDepthFunc );
+    for( int isampOut = 0; isampOut < myNumSamplesOut; isampOut++ ) {
+      myIndexBufferOut[isampOut] = myTimeDepthFunc[isampOut]/mySampleInt;
+    }
+  }
+
+  myInterpol_timeDepthConversion->process( 1.0, 0.0, samplesIn, myIndexBufferOut, samplesOut, myNumSamplesOut );
+
+  delete [] depthTimeFunc;
+}
+/*
+void csTimeStretch::convert_depth2time( float const* samplesIn, float const* velFunc, float sampleIntVel_m, int numSamplesVel, float* samplesOut ) {
+  if( myIndexBufferOut == NULL ) {
+    throw( csException("csTimeStretch::convert_depth2time:: Function not initialized. This is a bug in the calling function") );
+  }
+  float* depthTimeFunc = new float[numSamplesVel];
+  // 1) Compute time-depth function from velocity-depth function
+  depthTimeFunc[0] = 0;
+  for( int isamp = 1; isamp < numSamplesVel; isamp++ ) {
+    depthTimeFunc[isamp] = depthTimeFunc[isamp-1] + 2.0 * 1000.0 * sampleIntVel_m / velFunc[isamp-1];   // 2x for TWT
+  }
+
+  csInterpolation interpol_timeDepth( numSamplesVel, csInterpolation::METHOD_LIN, sampleIntVel_m );
+  interpol_timeDepth.timeAt_lin( depthTimeFunc, mySampleIntOut, myNumSamplesOut, myTimeDepthFunc );
+
+  for( int isampOut = 0; isampOut < myNumSamplesOut; isampOut++ ) {
+    myIndexBufferOut[isampOut] = myTimeDepthFunc[isampOut]/mySampleInt;
+  }
+  myInterpol_timeDepthConversion->process( 1.0, 0.0, samplesIn, myIndexBufferOut, samplesOut, myNumSamplesOut );
+
+  delete [] depthTimeFunc;
+}
+
+
+void csTimeStretch::convert_time2depth( float const* samplesIn, float const* velFunc, float sampleIntVel_m, int numSamplesVel, float* samplesOut ) {
+  if( myIndexBufferOut == NULL ) {
+    throw( csException("csTimeStretch::convert_time2depth:: Function not initialized. This is a bug in the calling function") );
+  }
+  float* depthTimeFunc = new float[numSamplesVel];
+
+  // 1) Compute time-depth function from velocity-depth function
+  depthTimeFunc[0] = 0;
+  for( int isamp = 1; isamp < numSamplesVel; isamp++ ) {
+    depthTimeFunc[isamp] = depthTimeFunc[isamp-1] + 2.0 * 1000.0 * sampleIntVel_m / velFunc[isamp-1];   // 2x for TWT
+  }
+
+  csInterpolation interpol_depthTime( numSamplesVel, csInterpolation::METHOD_LIN, sampleIntVel_m );
+  for( int isampOut = 0; isampOut < myNumSamplesOut; isampOut++ ) {
+    float time = interpol_depthTime.valueAt( isampOut*mySampleIntOut, depthTimeFunc );
+    myIndexBufferOut[isampOut] = time/mySampleInt;
+  }
+
+  myInterpol_timeDepthConversion->process( 1.0, 0.0, samplesIn, myIndexBufferOut, samplesOut, myNumSamplesOut );
+
+  delete [] depthTimeFunc;
 }
 */
-

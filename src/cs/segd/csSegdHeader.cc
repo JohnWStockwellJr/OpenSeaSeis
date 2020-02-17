@@ -51,8 +51,13 @@ void csGeneralHeader1::extractHeaders( byte const* buffer ) {
 }
 
 //----------------------------------------------------------
-csGeneralHeader2::csGeneralHeader2() : csBaseHeader() {}
+csGeneralHeader2::csGeneralHeader2() : csBaseHeader() {
+  myNumBytes_externalHdrBlocks = 2;
+}
 csGeneralHeader2::~csGeneralHeader2() {}
+void csGeneralHeader2::set( int numBytes_externalHdrBlocks ) {
+  myNumBytes_externalHdrBlocks = numBytes_externalHdrBlocks;
+}
 void csGeneralHeader2::extractHeaders( byte const* buffer )
 {
 
@@ -60,6 +65,11 @@ void csGeneralHeader2::extractHeaders( byte const* buffer )
   numExtendedChanSets            = UINT16(&buffer[3]);
   numExtendedHdrBlocks           = UINT16(&buffer[5]);
   numExternalHdrBlocks           = UINT16(&buffer[7]);
+  if( myNumBytes_externalHdrBlocks == 3 ) {
+    int numExternalHdrBlocks_NEW = UINT24(&buffer[7]);
+    // fprintf(stderr,"External header blocks: %d --> %d\n", numExternalHdrBlocks, numExternalHdrBlocks_NEW );
+    numExternalHdrBlocks = numExternalHdrBlocks_NEW;
+  }
   revisionNum[0]                 = buffer[10];
   revisionNum[1]                 = buffer[11];
   numGeneralTrailerBlocks        = UINT16(&buffer[12]);
@@ -160,13 +170,16 @@ void csSampleSkew::extractHeaders( byte const* buffer ) {
 
 //----------------------------------------------------------
 csExtendedHeader::csExtendedHeader() : csBaseHeader() {}
-int csExtendedHeader::nanoSeconds() const {
-  return 0;
-}
 csExtendedHeader::~csExtendedHeader() {}
 void csExtendedHeader::extractHeaders( byte const* buffer) {
 }
 void csExtendedHeader::extractHeaders( byte const* buffer, int totalNumBytes ) {
+}
+int csExtendedHeader::nanoSeconds() const {
+  return 0;
+}
+int csExtendedHeader::numTraces() const {
+  return 0;
 }
 
 //----------------------------------------------------------
@@ -215,6 +228,12 @@ int csTraceHeaderExtension::getNumSamples() const {
 }
 int csTraceHeaderExtension::numBlocks() const {
   return myNumBlocks;
+}
+int csTraceHeaderExtension::nanoSeconds() const {
+  return 0;
+}
+csInt64_t csTraceHeaderExtension::timeSamp1_us() const {
+  return 0;
 }
 void csTraceHeaderExtension::extractHeaders( byte const* buffer, commonTraceHeaderStruct* comTrcHdr ) {
   comTrcHdr->rcvLineNumber  = UINT24(&buffer[0]);
@@ -325,7 +344,7 @@ void csChanSetHeader::dump( std::ostream& cs )
   "third notch filter frequency     : " << thirdNotchFilterFreq << " 1/10 Hz\n" <<
   "extended channel set number      : " << extendedChanSetNum << '\n' <<
   "extended header flag             : " << extendedHeaderFlag << '\n' <<
-  "number of trace header extensions (rev2 only): " << numTraceHeaderExtensions_rev2 << '\n' <<
+  "number of trc hdr ext (rev >=1.5): " << numTraceHeaderExtensions_rev2 << '\n' <<
   "vertical stack                   : " << verticalStack << '\n' <<
   "streamer cable number            : " << streamerCableNum << '\n' <<
   "array forming                    : " << arrayForming << endl <<

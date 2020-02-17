@@ -2,11 +2,13 @@
 /* All rights reserved.                       */
 
 #include "cseis_includes.h"
-#include "csFlexNumber.h"
 #include "csTableAll.h"
 #include "csTableManagerNew.h"
 #include "csFlexNumber.h"
+#include "csStandardHeaders.h"
+#include "csSort.h"
 #include <cmath>
+#include <cstring>
 
 using namespace cseis_system;
 using namespace cseis_geolib;
@@ -34,8 +36,13 @@ namespace mod_mute {
     int taperType;
     int hdrId_time;
     int hdrId_taper;
+    int hdrId_mute;
     int windowStartSample;
     int windowEndSample;
+    bool isMedian;
+    float* sortValues;
+    cseis_geolib::csSort<float>* sortObj;
+    bool isBackwardCompatible;
   };
   static int const TAPER_LINEAR = 1;
   static int const TAPER_COSINE = 2;
@@ -48,7 +55,7 @@ using mod_mute::VariableStruct;
 //
 //
 //*************************************************************************************************
-void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   csTraceHeaderDef* hdef = env->headerDef;
@@ -56,7 +63,8 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
   vars->mode         = MUTE_FRONT;
   vars->tableManager        = NULL;
@@ -69,9 +77,14 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
   vars->taperType       = mod_mute::TAPER_COSINE;
   float taperLength     = 0; // See below
   vars->hdrId_time  = -1;
+  vars->hdrId_mute  = -1;
   vars->hdrId_taper = -1;
   vars->windowStartSample = 0; // By default, apply mute to full trace length
   vars->windowEndSample   = shdr->numSamples-1; // By default, apply mute to full trace length
+  vars->isMedian = false;
+  vars->sortValues = NULL;
+  vars->sortObj = NULL;
+  vars->isBackwardCompatible = false;
 
 //---------------------------------------------
 // Retrieve mute table
@@ -85,16 +98,16 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
     try {
       vars->tableManager = new csTableManagerNew( text, csTableAll::TABLE_TYPE_UNIQUE_KEYS, hdef );
       if( vars->tableManager->valueName().compare("time") ) {
-        log->error("Mute table must contain 'value' column labelled 'time', for example: '@%s time'. Value label found: '%s'",
+        writer->error("Mute table must contain 'value' column labelled 'time', for example: '@%s time'. Value label found: '%s'",
                    vars->tableManager->numKeys() > 0 ? vars->tableManager->keyName(0).c_str() : "offset",
                    vars->tableManager->valueName().c_str() );
       }
     }
     catch( csException& exc ) {
-      log->error("Error when initializing input table '%s': %s\n", text.c_str(), exc.getMessage() );
+      writer->error("Error when initializing input table '%s': %s\n", text.c_str(), exc.getMessage() );
     }
     if( vars->tableManager->numKeys() < 1 ) {
-      log->error("Number of table keys = %d. Specify table key by placing the character '%c' in front of the key name. Example: %csource time vel  (source is a table key)",
+      writer->error("Number of table keys = %d. Specify table key by placing the character '%c' in front of the key name. Example: %csource time vel  (source is a table key)",
                  csTableAll::KEY_CHAR, csTableAll::KEY_CHAR);
     }
 
@@ -116,27 +129,18 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
       vars->mode = MUTE_END;
     }
     else {
-      log->error("Unknown mode option: '%s'", text.c_str());
+      writer->error("Unknown mode option: '%s'", text.c_str());
     }
   }
   if( param->exists("window") ) {
-    param->getString("window",&text);
-    if( !text.compare("no") ) {
-      // Nothing
-    }
-    else if( !text.compare("yes") ) {
-      float startTime;
-      float endTime;
-      param->getFloat( "window", &startTime, 1 );
-      param->getFloat( "window", &endTime, 2 );
-      vars->windowStartSample = std::max( 0, (int)round( startTime / (float)shdr->sampleInt ) );
-      vars->windowEndSample   = std::min( shdr->numSamples-1, (int)round( endTime / (float)shdr->sampleInt ) );
-      if( vars->windowStartSample >= shdr->numSamples ) log->error("Window start time (=%f) exceeds trace length (=%f)", startTime, shdr->numSamples );
-      if( vars->windowEndSample <= vars->windowStartSample ) log->error("Window start time (=%f) exceeds or equals window end time (=%f)", startTime, endTime );
-    }
-    else {
-      log->error("Unknown mode option: '%s'", text.c_str());
-    }
+    float startTime;
+    float endTime;
+    param->getFloat( "window", &startTime, 0 );
+    param->getFloat( "window", &endTime, 1 );
+    vars->windowStartSample = std::max( 0, (int)round( startTime / (float)shdr->sampleInt ) );
+    vars->windowEndSample   = std::min( shdr->numSamples-1, (int)round( endTime / (float)shdr->sampleInt ) );
+    if( vars->windowStartSample >= shdr->numSamples ) writer->error("Window start time (=%f) exceeds trace length (=%f)", startTime, shdr->numSamples );
+    if( vars->windowEndSample <= vars->windowStartSample ) writer->error("Window start time (=%f) exceeds or equals window end time (=%f)", startTime, endTime );
   }
 
   if( param->exists("kill") ) {
@@ -148,7 +152,7 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
       vars->killZeroTraces = false;
     }
     else {
-      log->error("Unknown option: '%s'", text.c_str());
+      writer->error("Unknown option: '%s'", text.c_str());
     }
   }
   if( param->exists("indicate") ) {
@@ -180,7 +184,20 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
       vars->taperType = mod_mute::TAPER_LINEAR;
     }
     else {
-      log->error("Unknown option: %s", text.c_str());
+      writer->error("Unknown option: %s", text.c_str());
+    }
+  }
+
+  if( param->exists("back_comp") ) {
+    param->getString("back_comp", &text);
+    if( !text.compare("yes") ) {
+      vars->isBackwardCompatible = true;
+    }
+    else if( !text.compare("no") ) {
+      vars->isBackwardCompatible = false;
+    }
+    else {
+      writer->error("Unknown option: %s", text.c_str());
     }
   }
 
@@ -195,23 +212,58 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
       float recordLength = (float)shdr->numSamples * shdr->sampleInt;
       int sampleIndex = (int)( vars->mute_time / shdr->sampleInt );
 
-      if( vars->mute_time < 0 || vars->mute_time > recordLength ) {
-        log->error("Specified mute time (%.0fms) is outside of valid range (0-%.0fms).",
-                   vars->mute_time, shdr->numSamples*shdr->sampleInt );
+      if( sampleIndex < 0 ) {
+        writer->warning("Specified mute time (%.1fms) is negative. Set to 0ms.", vars->mute_time );
+        vars->mute_time = 0;
+        sampleIndex = 0;
+      }
+      else if( sampleIndex >= shdr->numSamples ) {
+        writer->warning("Specified mute time (%.1fms) is outside of valid range (0-%.1fms). Set to %.1fms.",
+                     vars->mute_time, recordLength, recordLength );
+        vars->mute_time = recordLength;
+        sampleIndex = shdr->numSamples-1;
       }
       if( vars->mode == MUTE_FRONT ) {
         vars->mute_start_samp = 0;
-        vars->mute_end_samp   = sampleIndex-1;
+        vars->mute_end_samp   = sampleIndex;
+        if( vars->isBackwardCompatible ) vars->mute_end_samp -= 1;
       }
       else {
-        vars->mute_start_samp = sampleIndex+1;
+        vars->mute_start_samp = sampleIndex;
         vars->mute_end_samp   = shdr->numSamples-1;
+        if( vars->isBackwardCompatible ) vars->mute_start_samp += 1;
       }
     }
   }
 
-//----------------------------------------------
+  if( param->exists("mute_value") ) {
+    param->getString("mute_value", &text );
+    if( !text.compare("zero") ) {
+      vars->isMedian = false;
+    }
+    else if( !text.compare("median") ) {
+      vars->isMedian = true;
+      vars->sortObj = new csSort<float>();
+      vars->sortValues = new float[shdr->numSamples];
+    }
+    else {
+      writer->error("Unknown option: %s", text.c_str());
+    }
+  }
 
+
+//----------------------------------------------
+  csHeaderInfo info;
+  if( vars->mode == MUTE_FRONT ) {
+    info = cseis_geolib::HDR_MUTE_START;
+  }
+  else {
+    info = cseis_geolib::HDR_MUTE_END;
+  }
+  if( !hdef->headerExists(info.name) ) {
+    hdef->addStandardHeader(info.name);
+  }
+  vars->hdrId_mute = hdef->headerIndex(info.name);
 }
 
 //*************************************************************************************************
@@ -220,24 +272,20 @@ void init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* lo
 //
 //
 //*************************************************************************************************
-bool exec_mod_mute_(
-  csTrace* trace,
+void exec_mod_mute_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
   //  csTraceHeaderDef const* hdef = env->headerDef;
 
-  if( edef->isCleanup()){
-    if( vars->tableManager != NULL ) {
-      delete vars->tableManager;
-      vars->tableManager = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
 
   float* samples = trace->getTraceSamples();
   csTraceHeader* trcHdr = trace->getTraceHeader();
@@ -247,13 +295,15 @@ bool exec_mod_mute_(
     int sampleIndex = (int)( vars->mute_time / shdr->sampleInt );
     if( vars->mode == MUTE_FRONT ) {
       vars->mute_start_samp = 0;
-      vars->mute_end_samp   = std::min( shdr->numSamples-1,sampleIndex-1);
+      vars->mute_end_samp   = std::min( shdr->numSamples-1,sampleIndex);
+      if( vars->isBackwardCompatible ) vars->mute_end_samp = std::min( shdr->numSamples-1,sampleIndex-1);
     }
     else { // MUTE_END
-      vars->mute_start_samp = std::max( 0, sampleIndex+1 );
+      vars->mute_start_samp = std::max( 0, sampleIndex );
       vars->mute_end_samp   = shdr->numSamples-1;
+      if( vars->isBackwardCompatible ) vars->mute_start_samp = std::max( 0, sampleIndex+1 );
     }
-    if( edef->isDebug() ) log->line("Mute time: %f  Start/end sample: %d %d", vars->mute_time, vars->mute_start_samp, vars->mute_end_samp );
+    if( edef->isDebug() ) writer->line("Mute time: %f  Start/end sample: %d %d", vars->mute_time, vars->mute_start_samp, vars->mute_end_samp );
   }
   else {
     // Read in values from trace headers if necessary
@@ -269,11 +319,13 @@ bool exec_mod_mute_(
       int sampleIndex = (int)( vars->mute_time / shdr->sampleInt );
       if( vars->mode == MUTE_FRONT ) {
         vars->mute_start_samp = 0;
-        vars->mute_end_samp   = sampleIndex-1;
+        vars->mute_end_samp   = sampleIndex;
+        if( vars->isBackwardCompatible ) vars->mute_end_samp -= 1;
       }
       else {
-        vars->mute_start_samp = sampleIndex+1;
+        vars->mute_start_samp = sampleIndex;
         vars->mute_end_samp   = shdr->numSamples-1;
+        if( vars->isBackwardCompatible ) vars->mute_start_samp += 1;
       }
     }
   }
@@ -285,7 +337,7 @@ bool exec_mod_mute_(
   }
 
   if( edef->isDebug() ) {
-    log->line("Mute time sample index: %d %d (nsamp: %d)", vars->mute_start_samp, vars->mute_end_samp, shdr->numSamples);
+    writer->line("Mute time sample index: %d %d (nsamp: %d)", vars->mute_start_samp, vars->mute_end_samp, shdr->numSamples);
   }
 
   if( vars->indicate ) {
@@ -295,21 +347,42 @@ bool exec_mod_mute_(
     for( int isamp = startSamp; isamp < endSamp; isamp++ ) {
       samples[isamp] = vars->indicateValue;
     }
+    if( vars->mode == MUTE_FRONT ) {
+      trcHdr->setFloatValue( vars->hdrId_mute, startSamp * shdr->sampleInt );
+    }
+    else {
+      trcHdr->setFloatValue( vars->hdrId_mute, endSamp * shdr->sampleInt );
+    }
+    return;
   }
   else {
     if( vars->killZeroTraces && vars->mute_end_samp >= shdr->numSamples-1 && vars->mute_start_samp <= 1 ) {
-      return false;
+      traceGather->freeAllTraces();
+      return;
     }
     int startSamp = std::max( vars->windowStartSample, vars->mute_start_samp);
     int endSamp   = std::min( vars->windowEndSample, vars->mute_end_samp );
+    float muteValue = 0.0f;
     for( int isamp = startSamp; isamp <= endSamp; isamp++ ) {
       samples[isamp] = 0.0;
     }
     if( vars->mode == MUTE_FRONT ) {
       int startSampTaper = vars->mute_end_samp+1;
-      startSamp = std::max( vars->windowStartSample, startSampTaper );
+      startSamp = std::max( std::max( vars->windowStartSample, startSampTaper ), 0 );
       endSamp   = std::min( vars->windowEndSample+1, std::min( vars->mute_end_samp+1+vars->taperLengthSamples, shdr->numSamples ) );
-      if( edef->isDebug() ) log->line("Start/end sample of taper: %d %d", startSamp, endSamp);
+      if( edef->isDebug() ) writer->line("Start/end sample of taper: %d %d", startSamp, endSamp);
+
+      if( vars->isMedian ) {
+        int ns = endSamp-startSamp+1;
+        memcpy( vars->sortValues, &samples[startSamp], ns*sizeof(float) );
+        vars->sortObj->treeSort( vars->sortValues, ns );
+        muteValue = vars->sortValues[ns/2];
+        for( int isamp = startSamp; isamp < endSamp; isamp++ ) {
+          samples[isamp] -= muteValue;
+        }
+      }
+
+      trcHdr->setFloatValue( vars->hdrId_mute, startSamp * shdr->sampleInt );
       if( vars->taperType == mod_mute::TAPER_LINEAR ) {
         for( int isamp = startSamp; isamp < endSamp; isamp++ ) {
           float weight = (float)(isamp-startSampTaper+1)/(float)vars->taperLengthSamples;
@@ -317,7 +390,7 @@ bool exec_mod_mute_(
         }
       }
       else { // COSINE taper
-        for( int isamp = std::max(startSamp,0); isamp < endSamp; isamp++ ) {
+        for( int isamp = startSamp; isamp < endSamp; isamp++ ) {
           float phase  = ( ( (float)(isamp-startSampTaper) / (float)vars->taperLengthSamples ) - 1.0 ) * M_PI;
           float weight = 0.5 * (cos(phase) + 1.0);
           samples[isamp] *= weight;
@@ -328,7 +401,19 @@ bool exec_mod_mute_(
       startSamp = std::max( vars->windowStartSample, std::max( 0, vars->mute_start_samp-vars->taperLengthSamples ) );
       int endSampTaper = std::min( vars->mute_start_samp, shdr->numSamples );
       endSamp   = std::min( vars->windowEndSample+1, endSampTaper );
-      if( edef->isDebug() ) log->line("Start/end sample of taper: %d %d", startSamp, endSamp);
+
+      if( vars->isMedian ) {
+        int ns = endSamp-startSamp+1;
+        memcpy( vars->sortValues, &samples[startSamp], ns*sizeof(float) );
+        vars->sortObj->treeSort( vars->sortValues, ns );
+        muteValue = vars->sortValues[ns/2];
+        for( int isamp = startSamp; isamp < endSamp; isamp++ ) {
+          samples[isamp] -= muteValue;
+        }
+      }
+
+      trcHdr->setFloatValue( vars->hdrId_mute, endSamp * shdr->sampleInt );
+      if( edef->isDebug() ) writer->line("Start/end sample of taper: %d %d", startSamp, endSamp);
       if( vars->taperType == mod_mute::TAPER_LINEAR ) {
         for( int isamp = startSamp; isamp < endSamp; isamp++ ) {
           float weight = (float)(endSampTaper-isamp)/(float)vars->taperLengthSamples;
@@ -342,10 +427,26 @@ bool exec_mod_mute_(
           samples[isamp] *= weight;
         }
       }
-    }
+    } // if END mute
+
+    if( vars->isMedian ) {
+      for( int isamp = startSamp; isamp < endSamp; isamp++ ) {
+        samples[isamp] += muteValue;
+      }
+      if( vars->mode == MUTE_FRONT ) {
+        for( int isamp = 0; isamp < startSamp; isamp++ ) {
+          samples[isamp] = muteValue;
+        }
+      }
+      else {
+        for( int isamp = endSamp; isamp < shdr->numSamples; isamp++ ) {
+          samples[isamp] = muteValue;
+        }
+      }
+    } // END if isMedian
   }
 
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -379,11 +480,8 @@ void params_mod_mute_( csParamDef* pdef ) {
   pdef->addOption( "cos", "Apply cosine taper" );
 
   pdef->addParam( "window", "Restrict mute to certain window?", NUM_VALUES_FIXED, "If specified, mute will not be applied outside of the specified window, including no tapering" );
-  pdef->addValue( "no", VALTYPE_OPTION);
-  pdef->addOption( "no", "Do not restrict mute to a window: Apply mute over full trace length" );
-  pdef->addOption( "yes", "Apply mute only inside  specified window" );
-  pdef->addValue( "", VALTYPE_NUMBER, "Start time" );
-  pdef->addValue( "", VALTYPE_NUMBER, "End time" );
+  pdef->addValue( "0", VALTYPE_NUMBER, "Start time" );
+  pdef->addValue( "99999", VALTYPE_NUMBER, "End time" );
 
   pdef->addParam( "kill", "Kill zero traces?", NUM_VALUES_FIXED );
   pdef->addValue( "no", VALTYPE_OPTION );
@@ -394,15 +492,65 @@ void params_mod_mute_( csParamDef* pdef ) {
                   "Input data will not be muted. Instead, spikes are placed at the mute times, with the given amplitude." );
   pdef->addValue( "0", VALTYPE_NUMBER, "Value that mute samples are set to." );
   pdef->addValue( "1", VALTYPE_NUMBER, "Width in samples to indicate with given value." );
+
+  pdef->addParam( "mute_value", "Mute value", NUM_VALUES_FIXED );
+  pdef->addValue( "zero", VALTYPE_OPTION );
+  pdef->addOption( "zero", "Set fully muted values to zero" );
+  pdef->addOption( "median", "Use median value determined over taper zone" );
+
+  pdef->addParam( "back_comp", "Backward compatibility?", NUM_VALUES_FIXED );
+  pdef->addValue( "no", VALTYPE_OPTION );
+  pdef->addOption( "no", "Use latest implementation" );
+  pdef->addOption( "yes", "Use 'previous' implementation" );
+}
+
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_mute_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_mute::VariableStruct* vars = reinterpret_cast<mod_mute::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_mute_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_mute::VariableStruct* vars = reinterpret_cast<mod_mute::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->tableManager != NULL ) {
+    delete vars->tableManager;
+    vars->tableManager = NULL;
+  }
+  if( vars->sortObj != NULL ) {
+    delete vars->sortObj;
+    vars->sortObj = NULL;
+  }
+  if( vars->sortValues != NULL ) {
+    delete [] vars->sortValues;
+    vars->sortValues = NULL;
+  }
+  delete vars; vars = NULL;
 }
 
 extern "C" void _params_mod_mute_( csParamDef* pdef ) {
   params_mod_mute_( pdef );
 }
-extern "C" void _init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_mute_( param, env, log );
+extern "C" void _init_mod_mute_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_mute_( param, env, writer );
 }
-extern "C" bool _exec_mod_mute_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_mute_( trace, port, env, log );
+extern "C" bool _start_exec_mod_mute_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_mute_( env, writer );
 }
-
+extern "C" void _exec_mod_mute_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_mute_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_mute_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_mute_( env, writer );
+}

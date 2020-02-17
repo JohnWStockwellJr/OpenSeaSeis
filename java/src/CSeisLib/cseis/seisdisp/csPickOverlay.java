@@ -19,6 +19,9 @@ import java.util.ArrayList;
 import javax.swing.SwingUtilities;
 
 /**
+ * Horizon pick overlay over seismic view.
+ * - Display picked time horizon(s)
+ * - Horizon picking functionality
  */
 public class csPickOverlay implements csISeisOverlay, MouseMotionListener, MouseListener, csIKeyListener {
   public static int MODE_PEAK   = 0;
@@ -34,95 +37,147 @@ public class csPickOverlay implements csISeisOverlay, MouseMotionListener, Mouse
   };
   public static final float NO_VALUE = -1.0f;
   private final csSeisView mySeisView;
-  private Float myPicks[];
-  private final ArrayList<Float[]> myPickList;
-  private final ArrayList<csPickAttr> myPickAttrList;
+  private boolean myIsActive;
+  /// List of horizon objects
+  private final ArrayList<csHorizon>  myHorizonList;
+  /// List of horizon attributes
+  private final ArrayList<csHorizonAttr> myHorizonAttrList;
+  /// Local copy of pick array objects for currently displayed traces
+  private final ArrayList<csHorizonPickArray> myCurrentPickArrayList;
+  /// Index of active horizon (the one that is currently being picked)
   private int myActiveHorizonIndex;
   private boolean myDoInterpolate;
   private int myPrevPickTrace;
 
   public csPickOverlay( csSeisView seisView ) {
     mySeisView  = seisView;
-    myPickList = new ArrayList();
-    myPickAttrList = new ArrayList();
-    myPicks     = null; //new Float[mySeisView.getTraceBuffer().numTraces()];
+    myHorizonAttrList = new ArrayList<csHorizonAttr>();
+
+    myHorizonList = new ArrayList<csHorizon>();
+    myCurrentPickArrayList = new ArrayList<csHorizonPickArray>();
+
     myActiveHorizonIndex = -1;
     myDoInterpolate = true;
     myPrevPickTrace = -1;
+    myIsActive = false;
   }
   public int getNumTraces() {
     return mySeisView.getTraceBuffer().numTraces();
+  }
+  public double getSampleInt() {
+    return mySeisView.getSampleInt();
+  }
+  public void traceBufferChanged( csISeismicTraceBuffer traceBuffer ) {
+    if( myIsActive ) storePicksToHorizons();
+    loadPicksFromHorizons( traceBuffer );
   }
   public void activate() {
     mySeisView.addMouseListener( this );
     mySeisView.addMouseMotionListener( this );
     mySeisView.getEventHandler().addKeyListener( this );
-    if( myPicks == null ) {
-      myPicks = new Float[mySeisView.getTraceBuffer().numTraces()];
-      for( int i = 0; i < myPicks.length; i++ ) {
-        myPicks[i] = csPickOverlay.NO_VALUE;
-      }
-    }
+    myIsActive = true;
   }
   public void deactivate() {
+    storePicksToHorizons();
     mySeisView.removeMouseListener( this );
     mySeisView.removeMouseMotionListener( this );
+    mySeisView.getEventHandler().removeKeyListener( this );
+    myIsActive = false;
   }
-  public void updateActive( int id ) {
-    for( int i = 0; i < myPickAttrList.size(); i++ ) {
-      if( myPickAttrList.get(i).getID() == id ) {
+  /**
+   * Load (=copy) time picks from horizon objects into local pick arrays
+   * @param traceBuffer 
+   */
+  private void loadPicksFromHorizons( csISeismicTraceBuffer traceBuffer ) {
+    int numVisibleTraces = traceBuffer.numTraces();
+    int firstTraceNumber = traceBuffer.originalTraceNumber(0);
+    int lastTraceNumber  = traceBuffer.originalTraceNumber( numVisibleTraces-1 );
+    for( int ihor = 0; ihor < myHorizonList.size(); ihor++ ) {
+      csHorizonPickArray pickArray = myHorizonList.get( ihor ).getPickArray( firstTraceNumber, lastTraceNumber );
+      myCurrentPickArrayList.set( ihor, pickArray );
+    }
+  }
+  /**
+   * Store local picks to horizon objects
+   */
+  private void storePicksToHorizons() {
+    for( int ihor = 0; ihor < myHorizonList.size(); ihor++ ) {
+      myHorizonList.get( ihor ).updatePickArray( myCurrentPickArrayList.get(ihor) );
+    }
+  }
+  private csHorizonPickArray createPickArray() {
+    csISeismicTraceBuffer traceBuffer = mySeisView.getTraceBuffer();
+    int numVisibleTraces = traceBuffer.numTraces();
+    int firstTraceNumber = traceBuffer.originalTraceNumber(0);
+    int lastTraceNumber  = traceBuffer.originalTraceNumber( numVisibleTraces-1 );
+    return( new csHorizonPickArray( firstTraceNumber, lastTraceNumber ) );
+  }
+//  private void storeActivePicksToHorizon() {
+//    myHorizonList.get( myActiveHorizonIndex ).updatePickArray( myCurrentPickArrayList.get(myActiveHorizonIndex) );
+//  }
+  public void setActiveObject( int horizonID ) {
+    for( int i = 0; i < myHorizonAttrList.size(); i++ ) {
+      if( myHorizonAttrList.get(i).getID() == horizonID ) {
         myActiveHorizonIndex = i;
         return;
       }
     }
   }
-  public Float[] getPicks( int id ) {
-    for( int i = 0; i < myPickAttrList.size(); i++ ) {
-      if( myPickAttrList.get(i).getID() == id ) {
-        return myPickList.get(i);
+  public csHorizon getHorizon( int horizonID ) {
+    for( int i = 0; i < myHorizonAttrList.size(); i++ ) {
+      if( myHorizonAttrList.get(i).getID() == horizonID ) {
+        if( myIsActive ) storePicksToHorizons();
+        return myHorizonList.get(i);
       }
     }
     return null;
   }
-  public void setActivePicks( Float[] picks ) {
-    if( myActiveHorizonIndex < 0 || myActiveHorizonIndex >= myPickList.size() ) return;
-    myPickList.set( myActiveHorizonIndex, picks );
+  public void setActivePicks( float[] picks ) {
+    if( myActiveHorizonIndex < 0 || myActiveHorizonIndex >= myHorizonList.size() ) return;
+    float[] picksOut = myCurrentPickArrayList.get(myActiveHorizonIndex).picks;
+    int numMinTraces = Math.min( picks.length, picksOut.length );
+    System.arraycopy( picks, 0, picksOut, 0, numMinTraces );
   }
-  public double getSampleInt() {
-    return mySeisView.getSampleInt();
+  public boolean loadActivePicks( ArrayList<Integer> traceNumList, ArrayList<Float> sampleIndexList, String newName ) {
+    if( myActiveHorizonIndex < 0 || myActiveHorizonIndex >= myHorizonList.size() ) return false;
+    // 1) Store all picks in the active horizon
+    myHorizonList.get(myActiveHorizonIndex).resetAllPicks( traceNumList, sampleIndexList );
+    // 2) Copy currently displayed traces to local array
+    loadPicksFromHorizons( mySeisView.getTraceBuffer() );
+    // 3) Update horizon name
+    myHorizonAttrList.get(myActiveHorizonIndex).name = newName;
+    return true;
   }
-  public void removeHorizon( int id ) {
-    for( int i = 0; i < myPickAttrList.size(); i++ ) {
-      if( myPickAttrList.get(i).getID() == id ) {
-        myPickAttrList.remove( i );
-        myPickList.remove( i );
-        if( myActiveHorizonIndex > i ) {
-          myActiveHorizonIndex -= 1;
-        }
-        if( myActiveHorizonIndex >= myPickAttrList.size() ) {
-          myActiveHorizonIndex = myPickAttrList.size()-1;
-        }
-      }
-    }
-  }
-  public void addHorizon( csPickAttr attr_in ) {
-    for( csPickAttr attr : myPickAttrList ) {
+  public void addHorizon( csHorizonAttr attr_in ) {
+    for( csHorizonAttr attr : myHorizonAttrList ) {
       if( attr.getID() == attr_in.getID() ) {
-        update( attr_in );
+        updateDisplayAttr( attr_in ); // If horizon already exists, just update the attribute
         return;
       }
     }
-    myPickAttrList.add( attr_in );
-    Float[] picks = new Float[mySeisView.getTraceBuffer().numTraces()];
-    for( int i = 0; i < picks.length; i++ ) {
-      picks[i] = csPickOverlay.NO_VALUE;
-    }
-    myPickList.add( picks );
+    myHorizonAttrList.add( attr_in );
+    myHorizonList.add( new csHorizon() );
+    myCurrentPickArrayList.add( createPickArray() );
   }
-  public void update( csPickAttr attr_in ) {
-    for( int i = 0; i < myPickAttrList.size(); i++ ) {
-      if( myPickAttrList.get(i).getID() == attr_in.getID() ) {
-        myPickAttrList.set( i, attr_in );
+  public void removeHorizon( int horizonID ) {
+    for( int i = 0; i < myHorizonAttrList.size(); i++ ) {
+      if( myHorizonAttrList.get(i).getID() == horizonID ) {
+        myHorizonAttrList.remove( i );
+        myHorizonList.remove( i );
+        myCurrentPickArrayList.remove( i );
+        if( myActiveHorizonIndex > i ) {
+          myActiveHorizonIndex -= 1;
+        }
+        if( myActiveHorizonIndex >= myHorizonAttrList.size() ) {
+          myActiveHorizonIndex = myHorizonAttrList.size()-1;
+        }
+      }
+    }
+  }
+  public void updateDisplayAttr( csHorizonAttr attr_in ) {
+    for( int i = 0; i < myHorizonAttrList.size(); i++ ) {
+      if( myHorizonAttrList.get(i).getID() == attr_in.getID() ) {
+        myHorizonAttrList.set( i, attr_in );
         mySeisView.repaint();
         break;
       }
@@ -135,9 +190,9 @@ public class csPickOverlay implements csISeisOverlay, MouseMotionListener, Mouse
     g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
     g.setStroke( new BasicStroke(2.0f) );
-    for( int ihor = 0; ihor < myPickList.size(); ihor++ ) {
-      csPickAttr attr = myPickAttrList.get(ihor);
-      Float[] picks   = myPickList.get(ihor);
+    for( int ihor = 0; ihor < myHorizonList.size(); ihor++ ) {
+      csHorizonAttr attr = myHorizonAttrList.get(ihor);
+      float[] picks   = myCurrentPickArrayList.get(ihor).picks;
       g.setColor( attr.color );
       int pickIndex = 0;
       while( pickIndex < picks.length ) {
@@ -167,7 +222,6 @@ public class csPickOverlay implements csISeisOverlay, MouseMotionListener, Mouse
         }
         g.draw( path );
         pickIndex = pickIndex2 + 1;
-        //plotLine( picks, attr, pickIndex, pickIndex2 );
       }
     }
     g.setRenderingHints(rhints_save);
@@ -181,8 +235,8 @@ public class csPickOverlay implements csISeisOverlay, MouseMotionListener, Mouse
     pickMouseEvent( e, true );
   }
   private void pickMouseEvent( MouseEvent e, boolean isDrag ) {
-    Float[] picks = myPickList.get(myActiveHorizonIndex);
-    int pickMode = myPickAttrList.get(myActiveHorizonIndex).mode;
+    float[] picks = myCurrentPickArrayList.get(myActiveHorizonIndex).picks;
+    int pickMode = myHorizonAttrList.get(myActiveHorizonIndex).mode;
     Point pointView = e.getPoint();
     csSampleInfo sInfo = mySeisView.getSampleInfo( pointView.x, pointView.y );
     if( sInfo.trace < 0 || sInfo.trace >= mySeisView.getTraceBuffer().numTraces() ) return;
@@ -222,8 +276,8 @@ public class csPickOverlay implements csISeisOverlay, MouseMotionListener, Mouse
   
   public void pickInterpolate( int traceOld, int traceNew ) {
     if( Math.abs(traceOld - traceNew) < 2 ) return;
-    Float[] picks = myPickList.get(myActiveHorizonIndex);
-    int pickMode = myPickAttrList.get(myActiveHorizonIndex).mode;
+    float[] picks = myCurrentPickArrayList.get(myActiveHorizonIndex).picks;
+    int pickMode = myHorizonAttrList.get(myActiveHorizonIndex).mode;
     float timeOld = picks[traceOld]; //*(float)mySeisView.getSampleInt();
     float timeNew = picks[traceNew]; //*(float)mySeisView.getSampleInt();
     int trace1, trace2;
@@ -248,7 +302,6 @@ public class csPickOverlay implements csISeisOverlay, MouseMotionListener, Mouse
     if( trace1 != trace2 ) {
       inc = (time2 - time1) / (float) (trace2 - trace1);
     }
-//    double[] timePicks = new double[nTraces];
     for( int i = 0; i < nTraces; i++ ) {
       int currentTrace = trace1 + i;
       float time = time1 + inc * (i);
@@ -257,7 +310,6 @@ public class csPickOverlay implements csISeisOverlay, MouseMotionListener, Mouse
       }
       else {
         picks[currentTrace] = pickPeakTrough( currentTrace, (int)time, pickMode );
-//        picks[currentTrace] = time;
       }
     }
   }
@@ -291,10 +343,12 @@ public class csPickOverlay implements csISeisOverlay, MouseMotionListener, Mouse
   @Override
   public void mouseEntered(MouseEvent e) {
     myPrevPickTrace = -1; // Prevent interpolation
+    myDoInterpolate = false;
   }
   @Override
   public void mouseExited(MouseEvent e) {
     myPrevPickTrace = -1; // Prevent interpolation
+    myDoInterpolate = false;
   }
   //----------------------------------------------------------------------
   public float pickPeakTrough( int traceIndex, int sampleIndex1, int pickMode ) {
@@ -385,12 +439,10 @@ public class csPickOverlay implements csISeisOverlay, MouseMotionListener, Mouse
   @Override
   public void keyPressed( KeyEvent e ) {
     myDoInterpolate = e.isControlDown();
-//    System.out.println("Key pressed: " + e.getKeyCode() + " " + myDoInterpolate );
   }
   @Override
   public void keyReleased( KeyEvent e ) {
     myDoInterpolate = false;
-//    System.out.println("Key released: " + e.getKeyCode() + " " + myDoInterpolate );
   }
 
 }

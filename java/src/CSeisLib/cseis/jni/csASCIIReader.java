@@ -34,7 +34,7 @@ public class csASCIIReader implements csISeismicReader {
   private float[][] myTraceSamples;
 
   private int myCurrentTrace;
-  private csISelectionNotifier mySelectionNotifier;
+  private csITraceHeaderScanNotifier mySelectionNotifier;
   private int mySelectionHdrIndex;
 
   public csASCIIReader( String filename ) throws IOException, Exception {
@@ -59,19 +59,18 @@ public class csASCIIReader implements csISeismicReader {
     readFile();
   }
   private void readFile() throws Exception {
-    int counter = 0;
     myNumTraces = 0;
-    String line = null;
+    String line;
     ArrayList<float[]> sampleList = new ArrayList<float[]>();
     try {
       while ((line = myReader.readLine()) != null) {
-        line.replaceAll("\t"," ");  // Replace all TABS
-        String[] tokens = line.trim().split(" ");
+        String[] tokens = line.replaceAll("\t"," ").trim().split(" ");
+        if( tokens.length == 0 ) {
+          continue; // Empty line
+        }
+        if( tokens[0].charAt(0) == '#' ) continue; // Comment line 
         if( myNumTraces == 0 ) {
           myNumTraces = tokens.length;
-        }
-        else if( tokens.length == 0 ) {
-          continue; // Empty line
         }
         else if( myNumTraces != tokens.length ) {
           throw new Exception("Syntax error in input file: Unequal number of columns/traces (" +
@@ -94,7 +93,7 @@ public class csASCIIReader implements csISeismicReader {
     myHeaderValues = new Number[myNumHeaders][myNumTraces];
     myTraceSamples = new float[myNumTraces][myNumSamples];
     for( int itrc = 0; itrc < myNumTraces; itrc++ ) {
-      myHeaderValues[0][itrc] = new Integer(itrc);
+      myHeaderValues[0][itrc] = itrc;
     }
     for( int isamp = 0; isamp < myNumSamples; isamp++ ) {
       float[] samples = sampleList.get(isamp);
@@ -200,7 +199,7 @@ public class csASCIIReader implements csISeismicReader {
   }
   @Override
   public boolean setSelection( String hdrValueSelectionText, String headerName, int sortOrder, int sortMethod,
-          csISelectionNotifier notifier ) {
+          csITraceHeaderScanNotifier notifier ) {
     // NOTE: Ignore sort method etc
     mySelectionNotifier = notifier;
     mySelectionHdrIndex = -1;
@@ -211,11 +210,11 @@ public class csASCIIReader implements csISeismicReader {
     for( int ihdr = 0; ihdr < myNumHeaders; ihdr++ ) {
       if( myHeaderNames[ihdr].compareTo(headerName) == 0 ) {
         mySelectionHdrIndex = ihdr;
-        mySelectionNotifier.notify( numTraces()-1 );
+        mySelectionNotifier.traceHeaderScanNotify( numTraces()-1 );
         return true;
       }
     }
-    mySelectionNotifier.notify( numTraces()-1 );
+    mySelectionNotifier.traceHeaderScanNotify( numTraces()-1 );
     return false;
   }
   @Override

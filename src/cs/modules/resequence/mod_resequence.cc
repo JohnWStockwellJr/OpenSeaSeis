@@ -45,7 +45,7 @@ using namespace mod_resequence;
 //
 //
 //*************************************************************************************************
-void init_mod_resequence_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_resequence_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -53,7 +53,6 @@ void init_mod_resequence_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
 
   vars->traceCounter = 0;
   vars->hdrId        = -1;
@@ -80,7 +79,7 @@ void init_mod_resequence_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     vars->hdrType = hdef->headerType( text );
   }
   else {
-    log->warning("Unknown trace header: %s", text.c_str());
+    writer->warning("Unknown trace header: %s", text.c_str());
     env->addError();
   }
   //---------------------------------------------------------
@@ -107,12 +106,12 @@ void init_mod_resequence_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       }
     }
     else {
-      log->line("Trace header used for resequencing must be of number type.");
+      writer->line("Trace header used for resequencing must be of number type.");
       env->addError();
     }
   }
   else {
-    log->line("Error: User parameter 'set': Expected 2 values, found %d.", nValues);
+    writer->line("Error: User parameter 'set': Expected 2 values, found %d.", nValues);
     env->addError();
   }
 
@@ -130,19 +129,19 @@ void init_mod_resequence_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     vars->mode = MODE_FIXED;
     param->getInt( "ntraces", &vars->nTraces );
     if( vars->nTraces <= 0 ) {
-      log->error("Number of traces lower or equal to zero: %d", vars->nTraces);
+      writer->error("Number of traces lower or equal to zero: %d", vars->nTraces);
     }
     edef->setTraceSelectionMode( TRCMODE_FIXED, vars->nTraces );
   }
   else {
-    log->error("Unknown option: '%s'", text.c_str());
+    writer->error("Unknown option: '%s'", text.c_str());
   }
 
   vars->traceCounter = 0;
   vars->groupCurrent = 0;
   
   if( edef->isDebug() ) {
-    log->line("Mode: %d", vars->mode);
+    writer->line("Mode: %d", vars->mode);
   }
 }
 
@@ -157,19 +156,15 @@ void exec_mod_resequence_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
 //  csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup()){
-    delete vars; vars = NULL;
-    return;
-  }
 
   int nTraces = traceGather->numTraces();
-  if( edef->isDebug() ) log->line("Number of input traces: %d, current group: %d", traceGather->numTraces(), vars->groupCurrent );
+  if( edef->isDebug() ) writer->line("Number of input traces: %d, current group: %d", traceGather->numTraces(), vars->groupCurrent );
   if( vars->mode == MODE_ENSEMBLE || vars->mode == MODE_FIXED ) {
     if( vars->hdrType == TYPE_INT ) {
       int valueStart = vars->valueStartInt + vars->groupIncInt * vars->groupCurrent;
@@ -241,13 +236,41 @@ void params_mod_resequence_( csParamDef* pdef ) {
   pdef->addValue( "", VALTYPE_NUMBER, "Number of traces" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_resequence_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_resequence::VariableStruct* vars = reinterpret_cast<mod_resequence::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_resequence_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_resequence::VariableStruct* vars = reinterpret_cast<mod_resequence::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_resequence_( csParamDef* pdef ) {
   params_mod_resequence_( pdef );
 }
-extern "C" void _init_mod_resequence_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_resequence_( param, env, log );
+extern "C" void _init_mod_resequence_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_resequence_( param, env, writer );
 }
-extern "C" void _exec_mod_resequence_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_resequence_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_resequence_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_resequence_( env, writer );
 }
-
+extern "C" void _exec_mod_resequence_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_resequence_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_resequence_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_resequence_( env, writer );
+}

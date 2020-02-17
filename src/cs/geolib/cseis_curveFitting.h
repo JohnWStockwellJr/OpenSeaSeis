@@ -12,7 +12,8 @@ namespace cseis_geolib {
 * @param angles        (i) Angles in radians
 * @param values        (i) Values (amplitudes)
 * @param nAngles       (i) Number of angles/values in array
-* @param periodicity   (i) Cosine periodicity in 360deg (for example 4 to look for for azimuthal anisotropy)
+* @param periodicity   (i) Cosine periodicity in 360deg (for example 2 to look for azimuthal anisotropy)
+* @param angleInc_deg  (i) Angle increment to search for [deg]
 * @param computeStddev (i) If true, compute standard deviation of fitted cosine curve
 * @param result        (o) Resultant angle of maximum value
 * @param stddev        (o) Standard deviation of result
@@ -23,10 +24,23 @@ void computeXcorCos(
   double const* values,
   int nAngles,
   int periodicity,
+  double  angleInc_deg,
   bool computeStddev,
-  double& result,
+  double& angleOut_deg,
   double& stddev,
   double& amplitude );
+
+void computeLSCos(
+                  double const* angles,
+                  double const* values,
+                  int nAngles,
+                  int periodicity,
+                  double  angleInc_deg,
+                  bool computeStddev,
+                  double  assumedAmplitude,
+                  double& angleOut_deg,
+                  double& stddev,
+                  double& amplitude );
 
  bool polynom_fit( double* xValues, double* yValues, int nValues, int order, double* coefficients );
 

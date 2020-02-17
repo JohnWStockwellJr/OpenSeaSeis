@@ -17,6 +17,7 @@ import javax.swing.JToolBar;
  * @author 2011 Bjorn Olofsson
  * @author 2013 Felipe Punto
  */
+@SuppressWarnings("serial")
 public class csSeaViewToolBarLeft extends JToolBar {
   private final JButton myButtonZoomInVert;
   private final JButton myButtonZoomInHorz;

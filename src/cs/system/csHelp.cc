@@ -422,14 +422,49 @@ void csHelp::moduleHtmlExample( bool printHeader, csParamDef const& pdef, std::s
     for( int iv = 0; iv < nValues; iv++ ) {
       valueDescriptor = pdef.value(ip,iv);
       if( strlen(valueDescriptor->name()) != 0 ) {
-	text.append(valueDescriptor->name());
+        text.append(valueDescriptor->name());
         text += "  ";
       }
       else {
-	text.append("?  ");
+        text.append("?  ");
       }
     }
     text.append("</font></td>\n");
+  }
+}
+void csHelp::moduleExample( bool printHeader, csParamDef const& pdef, std::string& text ) const 
+{
+  csParamDescription const* const module = pdef.module();
+  if( printHeader ) {
+    text = text + "# " + module->desc() + "\n";
+  }
+  int nParams = pdef.numParameters();
+  csParamDescription const* valueDescriptor;
+  text = text + "$" + module->name() + "\n";
+
+  int maxNumLetters = 0;
+  for( int ip = 0; ip < nParams; ip++ ) {
+    maxNumLetters = std::max( maxNumLetters, (int)strlen( pdef.param(ip)->name() ) );
+  }
+  maxNumLetters += 2;
+
+  for( int ip = 0; ip < nParams; ip++ ) {
+    text = text + " " + pdef.param(ip)->name() + " ";
+    for( int il = (int)strlen( pdef.param(ip)->name() ) + 2; il < maxNumLetters; il++ ) {
+      text += " ";
+    }
+    int nValues = pdef.numValues(ip);
+    for( int iv = 0; iv < nValues; iv++ ) {
+      valueDescriptor = pdef.value(ip,iv);
+      if( strlen(valueDescriptor->name()) != 0 ) {
+        text.append(valueDescriptor->name());
+        text += "  ";
+      }
+      else {
+        text.append("?  ");
+      }
+    }
+    text.append("\n");
   }
 }
 //--------------------------------------------------------------------------------
@@ -590,14 +625,14 @@ void csHelp::moduleHtmlHelp( csParamDef const& pdef, std::string& text ) const
         text += "</td>\n";
       }
       else {
-	text.append("<td>?</td>\n");
+        text.append("<td>?</td>\n");
       }
       text.append("<td>");
       int nOptions = pdef.numOptions(ip,iv);
       if( nOptions > 0 ) {
-	text.append("<table border=\"0\" cellpadding=\"2\" align=\"left\" valign=\"top\">\n");
+        text.append("<table border=\"0\" cellpadding=\"2\" align=\"left\" valign=\"top\">\n");
         for( int io = 0; io < nOptions; io++ ) {
-	  text.append("<tr>\n");
+          text.append("<tr>\n");
           optionDescriptor = pdef.option(ip,iv,io);
           text += "<td valign=top><b>";
           text += optionDescriptor->name();
@@ -607,14 +642,14 @@ void csHelp::moduleHtmlHelp( csParamDef const& pdef, std::string& text ) const
             text += ".\n";
             text += optionDescriptor->descExtra();
             text += ".";
-	  }
+          }
           else {
-	    text += optionDescriptor->desc();
+            text += optionDescriptor->desc();
             text += ".";
-	  }
-	  text.append("</font></td></tr>\n");
+          }
+          text.append("</font></td></tr>\n");
         }
-	text.append("</table>\n");
+        text.append("</table>\n");
       }
       else if( valueDescriptor->desc() ) {
         text += "<font face=\"arial,helvetica,sans-serif\">";
@@ -652,5 +687,3 @@ void csHelp::standardHeaderHelp()
     fprintf(myStream,"Trace header #%3d: %-20s %-10s %s\n", ihdr+1, info->name.c_str(), cseis_geolib::csGeolibUtils::typeText(info->type), info->description.c_str() );
   }
 }
-
-

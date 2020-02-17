@@ -49,7 +49,7 @@ using mod_hdr_print::VariableStruct;
 //
 //
 //*************************************************************************************************
-void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -57,7 +57,8 @@ void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
   
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
   std::string name;
   std::string text;
@@ -93,7 +94,7 @@ void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
       vars->dumpAll = false;
     }
     else {
-      log->error("Unknown option for parameter 'dump_all': '%s'", text.c_str());
+      writer->error("Unknown option for parameter 'dump_all': '%s'", text.c_str());
     }
   }
   if( param->exists( "dump_shdr" ) ) {
@@ -102,7 +103,7 @@ void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
     yesno = toLowerCase(yesno);
     if( !yesno.compare("yes") ) {
       vars->dumpShdr = true;
-      shdr->dump( log->getFile() );
+      shdr->dump( writer->getFile() );
     }
   }
 
@@ -117,15 +118,15 @@ void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
     }
     else if( !text.compare("trc_inc") ) {
       if( param->getNumValues("title") < 2 ) {
-        log->error("Missing input for option 'trc_inc': Specify trace increment (e.g. title trc_inc 100).");
+        writer->error("Missing input for option 'trc_inc': Specify trace increment (e.g. title trc_inc 100).");
       }
       param->getInt( "title", &vars->trcIncTitle, 1 );
       if( vars->trcIncTitle < 0 ) {
-        log->error("Incorrect trace increment for option 'trc_inc': Must be larger than 0 (e.g. title trc_inc 100)");
+        writer->error("Incorrect trace increment for option 'trc_inc': Must be larger than 0 (e.g. title trc_inc 100)");
       }
     }
     else {
-      log->error("Unknown option: %s", text.c_str());
+      writer->error("Unknown option: %s", text.c_str());
     }
   }
 
@@ -138,7 +139,7 @@ void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
   else if( param->exists("header") ) {
     int nLines = param->getNumLines( "header" );
     if( nLines > 1 ) {
-      log->line( "More than one line encountered for user parameter '%s'. Only one line is supported.", "header" );
+      writer->line( "More than one line encountered for user parameter '%s'. Only one line is supported.", "header" );
       //      throw( csException("More than one line encountered for user parameter '%s'. Only one line is supported.", "header" ) ); // TEMP
       env->addError();
     }
@@ -146,7 +147,7 @@ void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
     valueList.clear();
     param->getAll( "header", &valueList );
     if( valueList.size() < 1 ) {
-      log->error("Wrong number of arguments for user parameter '%s'. Expected: 1, found: %d.", "header", valueList.size());
+      writer->error("Wrong number of arguments for user parameter '%s'. Expected: 1, found: %d.", "header", valueList.size());
     }
     vars->nHeaders = valueList.size();
   }
@@ -154,7 +155,7 @@ void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
     return;
   }
   else {
-    log->error("None of the mandatory parameters specified");
+    writer->error("None of the mandatory parameters specified");
   }
 
   vars->indexHdr  = new int[vars->nHeaders];
@@ -168,7 +169,7 @@ void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
       vars->typeHdr[k]   = hdef->headerType( name.c_str() );
     }
     else {
-      log->line("Unknown trace header: %s", name.c_str());
+      writer->line("Unknown trace header: %s", name.c_str());
       //      throw( csException("Unknown trace header: %s", name.c_str()) ); // TEMP
       env->addError();
     }
@@ -191,7 +192,7 @@ void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
       auto_correct = false;
     }
     else {
-      log->error("Unknown option: %s", text.c_str());
+      writer->error("Unknown option: %s", text.c_str());
     }
   }
   else {
@@ -213,7 +214,15 @@ void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
         case TYPE_FLOAT:
           text = "%-15e";
           break;
-        case TYPE_STRING:
+        case TYPE_VECTOR:
+          text = "%-15e";
+          break;
+        case TYPE_VECTOR_X:
+        case TYPE_VECTOR_Y:
+        case TYPE_VECTOR_Z:
+          text = "%-15e";
+          break;
+      case TYPE_STRING:
           text = "%-15s";
           break;
         case TYPE_CHAR:
@@ -232,7 +241,7 @@ void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
       vars->auto_format = false;
       param->getAll( "format", &valueList );
       if( valueList.size() != vars->nHeaders ) {
-        log->error("Wrong number of parameters for option '%s'. Expected: %d, found: %d.", "format", vars->nHeaders, valueList.size());
+        writer->error("Wrong number of parameters for option '%s'. Expected: %d, found: %d.", "format", vars->nHeaders, valueList.size());
       }
       for( int k = 0; k < vars->nHeaders; k++ ) {
         vars->printFormats[k] = valueList.at(k);
@@ -241,7 +250,7 @@ void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
 
     if( param->exists("auto_format") ) {
       if( param->exists("format") ) {
-        log->warning("Specified automatic formatting ('auto_format'=yes), and at the same manual formatting (user parameter 'format').\nManual formatting will be ignored.");
+        writer->warning("Specified automatic formatting ('auto_format'=yes), and at the same manual formatting (user parameter 'format').\nManual formatting will be ignored.");
       }
       param->getAll("auto_format", &valueList );
       text = valueList.at(0);
@@ -252,7 +261,7 @@ void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
         vars->auto_format = false;
       }
       else {
-        log->error("Unknown option: %s", text.c_str());
+        writer->error("Unknown option: %s", text.c_str());
       }
     }
     // Automatically set print formats
@@ -262,7 +271,7 @@ void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
         text_format_length = valueList.at(1);
       }
       int num_format_length = atoi( text_format_length.c_str() );
-      if( fabs((float)num_format_length) > 99 ) log->warning("User parameter 'auto_format': Very long format length encountered: %d", num_format_length);
+      if( fabs((float)num_format_length) > 99 ) writer->warning("User parameter 'auto_format': Very long format length encountered: %d", num_format_length);
 
       int minlen = 3 + num_format_length;
       char* tmpString = new char[2+minlen];
@@ -271,6 +280,13 @@ void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
         switch( vars->typeHdr[k] ) {
           case TYPE_FLOAT:
           case TYPE_DOUBLE:
+          case TYPE_VECTOR_X:
+          case TYPE_VECTOR_Y:
+          case TYPE_VECTOR_Z:
+            sprintf( tmpString, "%%%sf", text_format_length.c_str() );
+            position = minlen;
+            break;
+          case TYPE_VECTOR:
             sprintf( tmpString, "%%%sf", text_format_length.c_str() );
             position = minlen;
             break;
@@ -319,6 +335,14 @@ void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
         switch( vars->typeHdr[k] ) {
         case TYPE_FLOAT:
         case TYPE_DOUBLE:
+        case TYPE_VECTOR_X:
+        case TYPE_VECTOR_Y:
+        case TYPE_VECTOR_Z:
+          if( text[j] != 'f' && text[j] != 'e' ) {
+            correct_format_char = 'f';
+          }
+          break;
+        case TYPE_VECTOR:
           if( text[j] != 'f' && text[j] != 'e' ) {
             correct_format_char = 'f';
           }
@@ -345,16 +369,16 @@ void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
         }
         if( correct_format_char != CORRECT_CHAR ) {
           if( vars->typeHdr[k] == TYPE_INT64 ) {
-            log->error("Incorrect print format for trace header #%d: Expected '%%lld', user specified '%c...'",
+            writer->error("Incorrect print format for trace header #%d: Expected '%%lld', user specified '%c...'",
                        k+1, correct_format_char );
           }
           else if( auto_correct ) {
-            log->line( "Changed incorrect print format for trace header #%d: Expected '%c', user specified '%c'",
+            writer->line( "Changed incorrect print format for trace header #%d: Expected '%c', user specified '%c'",
                        k+1, correct_format_char, text[j] );
             vars->printFormats[k][j] = correct_format_char;
           }
           else {
-            log->warning("Incorrect print format for trace header #%d: Expected '%c', user specified '%c'",
+            writer->warning("Incorrect print format for trace header #%d: Expected '%c', user specified '%c'",
                          k+1, correct_format_char, text[j] );
             env->addError();
           }
@@ -376,30 +400,30 @@ void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
       }
     }  // END: outer while loop
     vars->titleFormats[k] = text.substr( 0, counter );
-    if( edef->isDebug() ) log->line("Title format #%d: '%s'", k, vars->titleFormats[k].c_str() );
-    if( edef->isDebug() ) log->line("Print format #%d: '%s'", k, vars->printFormats[k].c_str() );
+    if( edef->isDebug() ) writer->line("Title format #%d: '%s'", k, vars->titleFormats[k].c_str() );
+    if( edef->isDebug() ) writer->line("Print format #%d: '%s'", k, vars->printFormats[k].c_str() );
   }
 
-  log->write("\nPrint format string (C-style): '");
+  writer->write("\nPrint format string (C-style): '");
   for( int k = 0; k < vars->nHeaders; k++ ) {
-    log->write("%s ", vars->printFormats[k].c_str());
+    writer->write("%s ", vars->printFormats[k].c_str());
   }
-  log->write("'\n");
-  log->write("Title format string (C-style): '");
+  writer->write("'\n");
+  writer->write("Title format string (C-style): '");
   for( int k = 0; k < vars->nHeaders; k++ ) {
-    log->write("%s ", vars->titleFormats[k].c_str());
+    writer->write("%s ", vars->titleFormats[k].c_str());
   }
-  log->write("'\n\n");
+  writer->write("'\n\n");
 
   if( param->exists( "filename" ) ) {
     param->getString( "filename", &vars->filename );
     if( !csFileUtils::createDoNotOverwrite( vars->filename ) ) {
-      log->error("Unable to open output file %s. Wrong path name..?", vars->filename.c_str() );
+      writer->error("Unable to open output file %s. Wrong path name..?", vars->filename.c_str() );
     }
     vars->isExternalFile = true;
   }
   else {
-    vars->f_out = log->getFile();
+    vars->f_out = writer->getFile();
     vars->isExternalFile = false;
   }
 
@@ -412,32 +436,23 @@ void init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWrite
 //
 //
 //*************************************************************************************************
-bool exec_mod_hdr_print_(
-  csTrace* trace,
+void exec_mod_hdr_print_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef*         edef = env->execPhaseDef;
 
-  if( edef->isCleanup() ) {
-    if( vars->isExternalFile && vars->f_out != NULL ) {
-      fclose( vars->f_out );
-    }
-    if( vars->indexHdr ) delete [] vars->indexHdr; vars->indexHdr = NULL;
-    if( vars->typeHdr ) delete [] vars->typeHdr; vars->typeHdr = NULL;
-    if( vars->hdrNames ) delete [] vars->hdrNames; vars->hdrNames = NULL;
-    if( vars->printFormats ) delete [] vars->printFormats; vars->printFormats = NULL;
-    if( vars->titleFormats ) delete [] vars->titleFormats; vars->titleFormats = NULL;
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
 //----------------------------
   if( vars->isFirstCall ) {
     vars->isFirstCall = false;
     if( vars->isExternalFile ) {
       if( (vars->f_out = fopen( vars->filename.c_str(), "w" )) == (FILE*) NULL ) {
-        log->error("Could not open file: '%s'", vars->filename.c_str());
+        writer->error("Could not open file: '%s'", vars->filename.c_str());
       }
     }
   }
@@ -475,6 +490,17 @@ bool exec_mod_hdr_print_(
     else if( type == TYPE_DOUBLE ) {
       fprintf( vars->f_out, vars->printFormats[i].c_str(), trcHdr->doubleValue(index) );
     }
+    else if( type == TYPE_VECTOR_X || type == TYPE_VECTOR_Y || type == TYPE_VECTOR_Z ) {
+      fprintf( vars->f_out, vars->printFormats[i].c_str(), trcHdr->vectorValue(index,type) );
+    }
+    else if( type == TYPE_VECTOR ) {
+      csPoint3D p = trcHdr->vectorValue(index);
+      fprintf( vars->f_out, vars->printFormats[i].c_str(), p.x );
+      fprintf( vars->f_out, " " );
+      fprintf( vars->f_out, vars->printFormats[i].c_str(), p.y );
+      fprintf( vars->f_out, " " );
+      fprintf( vars->f_out, vars->printFormats[i].c_str(), p.z );
+    }
     else if( type == TYPE_INT ) {
       fprintf( vars->f_out, vars->printFormats[i].c_str(), trcHdr->intValue(index) );
     }
@@ -486,7 +512,7 @@ bool exec_mod_hdr_print_(
     }
     else {
       fprintf(stderr,"Unknown trace header: %d\n", type);
-      //log->error("Encountered unknown trace header type, code: %d", type);
+      //writer->error("Encountered unknown trace header type, code: %d", type);
     }
     fprintf( vars->f_out, " " );
   }
@@ -494,7 +520,7 @@ bool exec_mod_hdr_print_(
   if( vars->nHeaders > 0 ) fprintf( vars->f_out, "\n" );
   if( vars->dumpAll ) fprintf( vars->f_out, "\n\n" );
 
-  return true;
+  return;
 }
 //********************************************************************************
 //
@@ -540,14 +566,63 @@ void params_mod_hdr_print_( csParamDef* pdef ) {
   pdef->addOption( "no", "Do not print super header" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_hdr_print_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_hdr_print::VariableStruct* vars = reinterpret_cast<mod_hdr_print::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_hdr_print_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_hdr_print::VariableStruct* vars = reinterpret_cast<mod_hdr_print::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->isExternalFile && vars->f_out != NULL ) {
+    fclose( vars->f_out );
+  }
+  if( vars->indexHdr ) {
+    delete [] vars->indexHdr; vars->indexHdr = NULL;
+  }
+  if( vars->typeHdr ) {
+    delete [] vars->typeHdr;
+    vars->typeHdr = NULL;
+  }
+  if( vars->hdrNames ) {
+    delete [] vars->hdrNames;
+    vars->hdrNames = NULL;
+  }
+  if( vars->printFormats ) {
+    delete [] vars->printFormats;
+    vars->printFormats = NULL;
+  }
+  if( vars->titleFormats ) {
+    delete [] vars->titleFormats;
+    vars->titleFormats = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_hdr_print_( csParamDef* pdef ) {
   params_mod_hdr_print_( pdef );
 }
-extern "C" void _init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_hdr_print_( param, env, log );
+extern "C" void _init_mod_hdr_print_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_hdr_print_( param, env, writer );
 }
-extern "C" bool _exec_mod_hdr_print_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_hdr_print_( trace, port, env, log );
+extern "C" bool _start_exec_mod_hdr_print_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_hdr_print_( env, writer );
 }
-
-
+extern "C" void _exec_mod_hdr_print_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_hdr_print_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_hdr_print_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_hdr_print_( env, writer );
+}

@@ -2,6 +2,7 @@
 /* All rights reserved.                       */
 
 #include "csFFTDesignature.h"
+#include "csFFT.h"
 #include "csException.h"
 #include "geolib_math.h"
 #include "geolib_defines.h"
@@ -12,23 +13,32 @@
 using namespace cseis_geolib;
 
 /*
- * Designature filter explained:
  * numSamples (input wavelet)
  */
+
+csFFTDesignature::csFFTDesignature( int numSamples, float sampleInt ) :
+  csFFTTools( numSamples, sampleInt )
+{
+  myDesigAmpFilter  = NULL;
+  myDesigPhaseShift = NULL;
+  myAmpPhaseSpecIn   = NULL;
+  myFilterType = AMP_PHASE;
+  // Nothing more to do. User needs to call initialize next
+}
 
 csFFTDesignature::csFFTDesignature( int numSamples, float sampleInt, float const* input_wavelet, float timeZero_s, float percWhiteNoise, float const* output_wavelet ) :
   csFFTTools( numSamples, sampleInt )
 {
-  //  myNotchIndexFirstRed = 0;
-  //  myNotchIndexLastRed  = 0;
-  //  myIsNotchSuppression = false;
   myDesigAmpFilter  = NULL;
   myDesigPhaseShift = NULL;
-  myAmpSpecIn   = NULL;
-  myPhaseSpecIn = NULL;
+  myAmpPhaseSpecIn  = NULL;
   myFilterType = AMP_PHASE;
   initDesignature( input_wavelet, timeZero_s, percWhiteNoise, output_wavelet );
 }
+void csFFTDesignature::initialize( float const* input_wavelet, float timeZero_s, float percWhiteNoise, float const* output_wavelet ) {
+  initDesignature( input_wavelet, timeZero_s, percWhiteNoise, output_wavelet );
+}
+
 csFFTDesignature::~csFFTDesignature() {
   if( myDesigAmpFilter != NULL ) {
     delete [] myDesigAmpFilter;
@@ -38,13 +48,9 @@ csFFTDesignature::~csFFTDesignature() {
     delete [] myDesigPhaseShift;
     myDesigPhaseShift  = NULL;
   }
-  if( myAmpSpecIn != NULL ) {
-    delete [] myAmpSpecIn;
-    myAmpSpecIn = NULL;
-  }
-  if( myPhaseSpecIn != NULL ) {
-    delete [] myPhaseSpecIn;
-    myPhaseSpecIn = NULL;
+  if( myAmpPhaseSpecIn != NULL ) {
+    delete [] myAmpPhaseSpecIn;
+    myAmpPhaseSpecIn = NULL;
   }
 }
 
@@ -52,177 +58,161 @@ csFFTDesignature::~csFFTDesignature() {
 //
 //
 //
-void csFFTDesignature::initDesignature( float const* input_wavelet, float timeZero_s, float percWhiteNoise,
-                                        float const* output_wavelet ) {
-  myAmpSpecIn       = new float[myNumFFTSamplesIn/2+1];
-  myPhaseSpecIn     = new float[myNumFFTSamplesIn/2+1];
-  myDesigAmpFilter  = new float[myNumFFTSamplesIn/2+1];
-  myDesigPhaseShift = new float[myNumFFTSamplesIn/2+1];
+void csFFTDesignature::initDesignature( float const* input_wavelet, float timeZero_s, float percWhiteNoise, float const* output_wavelet ) {
+  int numFreq = myFFT->numFreqValues();
 
-  float* ampSpecOut   = NULL;
-  float* phaseSpecOut = NULL;
+  myAmpPhaseSpecIn  = new float[2*numFreq];
+  myDesigAmpFilter  = new float[numFreq];
+  myDesigPhaseShift = new float[numFreq];
 
   // Forward transform wavelet
-  fft_forward( input_wavelet, myAmpSpecIn, myPhaseSpecIn );
-  float df = 1000.0 / ( (float)myNumFFTSamplesIn*mySampleIntIn );
+  myFFT->forwardTransform( input_wavelet, myAmpPhaseSpecIn, cseis_geolib::FX_AMP_PHASE );
 
   // Compute maximum amplitude, for application of percentage white noise
-  float maxAmp = myAmpSpecIn[0];
-  for( int i = 0; i <= myNumFFTSamplesIn/2; i++ ) {
-    if( myAmpSpecIn[i] > maxAmp ) maxAmp = myAmpSpecIn[i];
-    //  float df = 1.0 / sampleIntOut; // [Hz]
-    //  float freq = df * (float)(i);
+  float maxAmp = fabs( myAmpPhaseSpecIn[0] );
+  for( int ifreq = 0; ifreq < numFreq; ifreq++ ) {
+    float valueAbs = fabs( myAmpPhaseSpecIn[ifreq] );
+    if( valueAbs > maxAmp ) maxAmp = valueAbs;
   }
-
-  float whiteNoise = (percWhiteNoise/100.0) * maxAmp;
+  double whiteNoise = (percWhiteNoise/100.0) * maxAmp;
   if( whiteNoise <= 0.0 ) whiteNoise = 1e-50;
 
+  double df = sampleIntFreq();
   // Spiking filter:
   if( output_wavelet == NULL ) {
     // Compute inverse (designature) filter = Inverse amplitude spectrum after adding white noise
-    for( int i = 0; i <= myNumFFTSamplesIn/2; i++ ) {
-      myDesigAmpFilter[i] = maxAmp / (myAmpSpecIn[i] + whiteNoise);
+    for( int ifreq = 0; ifreq < numFreq; ifreq++ ) {
+      myDesigAmpFilter[ifreq] = (float)( maxAmp / (myAmpPhaseSpecIn[ifreq] + whiteNoise) );
     }
-
     // Compute phase shift for zero-phasing
-    for( int i = 0; i <= myNumFFTSamplesIn/2; i++ ) {
-      float freq          = df * (float)(i);
-      float phaseShift    = 2.0 * M_PI * freq * timeZero_s;
-      myDesigPhaseShift[i] = fmod( phaseShift - myPhaseSpecIn[i] , 2.0*M_PI );
-      if( myDesigPhaseShift[i] > M_PI ) {
-        myDesigPhaseShift[i] -= 2.0*M_PI;
+    for( int ifreq = 0; ifreq < numFreq; ifreq++ ) {
+      double freq          = df * (double)(ifreq);
+      double phaseShift    = 2.0 * M_PI * freq * timeZero_s;
+      myDesigPhaseShift[ifreq] = (float)fmod( phaseShift - myAmpPhaseSpecIn[ifreq+numFreq] , 2.0*M_PI );
+      if( myDesigPhaseShift[ifreq] > M_PI ) {
+        myDesigPhaseShift[ifreq] -= (float)( 2.0 * M_PI );
       }
     }
   }
   // 'Transfer' filter from input to output wavelet
   else {
-    ampSpecOut       = new float[myNumFFTSamplesIn/2+1];
-    phaseSpecOut     = new float[myNumFFTSamplesIn/2+1];
-    fft_forward( output_wavelet, ampSpecOut, phaseSpecOut );
+    float* ampPhaseSpecOut = new float[2*numFreq];
+    myFFT->forwardTransform( output_wavelet, ampPhaseSpecOut, cseis_geolib::FX_AMP_PHASE );
 
-    float maxAmpOut = ampSpecOut[0];
-    for( int i = 0; i <= myNumFFTSamplesIn/2; i++ ) {
-      if( ampSpecOut[i] > maxAmpOut ) maxAmpOut = ampSpecOut[i];
-    }
-
+    /* 
+       float maxAmpOut = fabs( ampPhaseSpecOut[0] );
+       for( int ifreq = 0; ifreq < numFreq; ifreq++ ) {
+       float valueAbs = fabs( ampPhaseSpecOut[ifreq] );
+       if( valueAbs > maxAmpOut ) maxAmpOut = valueAbs;
+       }
+    */
     // Compute inverse (designature) filter = Inverse amplitude spectrum after adding white noise
-    //    float ratio = (maxAmp/maxAmpOut);
-    for( int i = 0; i <= myNumFFTSamplesIn/2; i++ ) {
-      myDesigAmpFilter[i] =  ampSpecOut[i] / (myAmpSpecIn[i] + whiteNoise);
+    for( int ifreq = 0; ifreq < numFreq; ifreq++ ) {
+      myDesigAmpFilter[ifreq] =  (float)( ampPhaseSpecOut[ifreq] / (myAmpPhaseSpecIn[ifreq] + whiteNoise) );
     }
 
     // Compute phase shift
-    for( int i = 0; i <= myNumFFTSamplesIn/2; i++ ) {
-      //   float freq          = df * (float)(i);
-      //   float phaseShift    = 2.0 * M_PI * freq * timeZero_s;
-      myDesigPhaseShift[i] = fmod( phaseSpecOut[i] - myPhaseSpecIn[i] , 2.0*M_PI );
-      if( myDesigPhaseShift[i] > M_PI ) {
-        myDesigPhaseShift[i] -= 2.0*M_PI;
+    for( int ifreq = 0; ifreq < numFreq; ifreq++ ) {
+      int indexPhase = ifreq+numFreq;
+      myDesigPhaseShift[ifreq] = (float)fmod( ampPhaseSpecOut[indexPhase] - myAmpPhaseSpecIn[indexPhase] , (float)(2.0*M_PI) );
+      if( myDesigPhaseShift[ifreq] > M_PI ) {
+        myDesigPhaseShift[ifreq] -= (float)( 2.0*M_PI );
       }
     }
+    delete [] ampPhaseSpecOut;
   }
 }
 //--------------------------------------------------------------------------------
 //
 // TODO: Apply optional taper to data before FFT transform
 //
-bool csFFTDesignature::applyFilter( float* samples, int numSamples ) {
+void csFFTDesignature::applyFilter( float* samples, int numSamples ) {
   if( numSamples != myNumSamplesIn ) {
-    throw(csException("csFFTDesignature::applyFilter: Inconsistent number of samples: %d != %d", numSamples, myNumSamplesOut));
+    throw(csException("csFFTDesignature::applyFilter(): Inconsistent number of samples: %d != %d", numSamples, myNumSamplesOut));
   }
 
   // Forward transform input data and compute amplitude & phase spectrum
-  bool success = fft_forward( samples, myAmpSpecIn, myPhaseSpecIn );
-  if( !success ) return success;
+  myFFT->forwardTransform( samples, myAmpPhaseSpecIn, cseis_geolib::FX_AMP_PHASE );
 
+  int numFreq = myFFT->numFreqValues();
   if( myFilterType == csFFTDesignature::AMP_PHASE ) {
     // Apply inverse filter & zero-phasing to amplitude & phase spectrum
-    for( int i = 0; i <= myNumFFTSamplesIn/2; i++ ) {
-      myAmpSpecIn[i]   *= myDesigAmpFilter[i];
-      myPhaseSpecIn[i] += myDesigPhaseShift[i];
+    for( int ifreq = 0; ifreq < numFreq; ifreq++ ) {
+      myAmpPhaseSpecIn[ifreq]         *= myDesigAmpFilter[ifreq];
+      myAmpPhaseSpecIn[ifreq+numFreq] += myDesigPhaseShift[ifreq];
     }
   }
   else if( myFilterType == csFFTDesignature::AMP_ONLY ) {
-    for( int i = 0; i <= myNumFFTSamplesIn/2; i++ ) {
-      myAmpSpecIn[i]   *= myDesigAmpFilter[i];
+    for( int ifreq = 0; ifreq < numFreq; ifreq++ ) {
+      myAmpPhaseSpecIn[ifreq]   *= myDesigAmpFilter[ifreq];
     }
   }
   else if( myFilterType == csFFTDesignature::PHASE_ONLY ) {
-    for( int i = 0; i <= myNumFFTSamplesIn/2; i++ ) {
-      myPhaseSpecIn[i] += myDesigPhaseShift[i];
+    for( int ifreq = 0; ifreq < numFreq; ifreq++ ) {
+      myAmpPhaseSpecIn[ifreq+numFreq] += myDesigPhaseShift[ifreq];
     }
   }
 
-  /*  if( myIsNotchSuppression ) {
-    for( int isamp = myNotchIndexFirstRed; isamp <= myNotchIndexLastRed; isamp++ ) {
-      double phase  = 2.0*( ( (double)(isamp-myNotchIndexFirst) / (double)myNotchWidth ) - 1.0 ) * M_PI;
-      double scalar = 0.5 * (cos(phase) + 1.0);
-      myAmpSpecIn[isamp] *= scalar;
-    }
-    } */
-
-  // Transform back to X-T. Do not perform normalisation in fft (not sure how when normalisation is required..?)
-  success = fft_inverse( myAmpSpecIn, myPhaseSpecIn, false );
-  for( int i = 0; i < numSamples; i++ ) {
-    samples[i] = myBufferReal[i];
-  }
-
-  return success;
+  // Transform back to X-T. Do not perform normalisation in fft ???
+  myFFT->inverseTransform( myAmpPhaseSpecIn, samples, cseis_geolib::FX_AMP_PHASE );
 }
 
 void csFFTDesignature::setDesigFilterType( int filterType ) {
   myFilterType = filterType;
 }
 
-void csFFTDesignature::setDesigLowPass( float cutOffHz, float order ) {
+void csFFTDesignature::setDesigLowPass( float cutOffHz, float slope ) {
   double G0 = 1.0;
-  double power = order * 2.0;
-  double df = 1.0 / ( (double)myNumFFTSamplesIn*mySampleIntIn/1000.0 );
+  double power = slope / 3.0f;
+  double df = sampleIntFreq();
 
-  for( int is = 0; is <= myNumFFTSamplesIn/2; is++ ) {
-    double freq = (double)is * df;
-    double dampG = sqrt( G0 / (1.0 + pow(freq/cutOffHz,power) ) );
-    myDesigAmpFilter[is] *= dampG;
+  int numFreq = myFFT->numFreqValues();
+  for( int ifreq = 0; ifreq < numFreq; ifreq++ ) {
+    double freq = (double)ifreq * df;
+    float dampG = (float)sqrt( G0 / (1.0 + pow(freq/cutOffHz,power) ) );
+    myDesigAmpFilter[ifreq] *= (float)dampG;
   }
 }
 
-void csFFTDesignature::setDesigHighPass( float cutOffHz, float order ) {
+void csFFTDesignature::setDesigHighPass( float cutOffHz, float slope ) {
   double G0 = 1.0;
-  double power = order * 2.0;
-  double df = 1.0 / ( (double)myNumFFTSamplesIn*mySampleIntIn/1000.0 );
+  double power = slope / 3.0f;
+  double df = sampleIntFreq();
 
   myDesigAmpFilter[0] = 0.0;
 
-  for( int is = 1; is <= myNumFFTSamplesIn/2; is++ ) {
-    double freq = (double)is * df;
-    double dampG;
-    dampG = sqrt( G0 / (1.0 + pow(cutOffHz/freq,power) ) );
-    myDesigAmpFilter[is] *= dampG;
+  int numFreq = myFFT->numFreqValues();
+  for( int ifreq = 0; ifreq < numFreq; ifreq++ ) {
+    double freq = (double)ifreq * df;
+    float dampG = (float)sqrt( G0 / (1.0 + pow(cutOffHz/freq,power) ) );
+    myDesigAmpFilter[ifreq] *= dampG;
   }
 }
 
 void csFFTDesignature::setDesigHighEnd( float freq ) {
-  double df = 1.0 / ( (double)myNumFFTSamplesIn*mySampleIntIn/1000.0 );
+  double df = sampleIntFreq();
+  int numFreq = myFFT->numFreqValues();
   int index = (int)round( freq / df );
-  if( index <= 0 || index > myNumFFTSamplesIn/2 ) return;
+  if( index <= 0 || index >= numFreq ) return;
   float amplitude = myDesigAmpFilter[index];
   float phase     = myDesigPhaseShift[index];
 
-  for( int is = index+1; is <= myNumFFTSamplesIn/2; is++ ) {
-    myDesigAmpFilter[is]  = amplitude;
-    myDesigPhaseShift[is] = phase;
+  for( int ifreq = index+1; ifreq < numFreq; ifreq++ ) {
+    myDesigAmpFilter[ifreq]  = amplitude;
+    myDesigPhaseShift[ifreq] = phase;
   }
 }
 
 // Apply cosine taper around notch frequency
 void csFFTDesignature::setNotchSuppression( float notchFreq, float notchWidth ) {
-  double df = 1.0 / ( (double)myNumFFTSamplesIn*mySampleIntIn/1000.0 );
+  double df = sampleIntFreq();
+  int numFreq = myFFT->numFreqValues();
   int indexFirst = (int)round( ( notchFreq - 0.5*notchWidth ) / df );
   int indexLast  = (int)round( ( notchFreq + 0.5*notchWidth ) / df );
   int width = indexLast - indexFirst;
 
   int indexFirstRed = std::max(0,indexFirst);
-  int indexLastRed  = std::min(myNumFFTSamplesIn,indexLast);
+  int indexLastRed  = std::min(numFreq-1,indexLast);
   /*
   myIsNotchSuppression = true;
   myNotchIndexFirst    = indexFirst;
@@ -230,45 +220,45 @@ void csFFTDesignature::setNotchSuppression( float notchFreq, float notchWidth ) 
   myNotchIndexFirstRed = indexFirstRed;
   myNotchIndexLastRed  = indexLastRed;
   */
-  for( int isamp = indexFirstRed; isamp <= indexLastRed; isamp++ ) {
-    double phase = 2.0*( ( (double)(isamp-indexFirst) / (double)width ) - 1.0 ) * M_PI;
-    double scalar   = 0.5 * (cos(phase) + 1.0);
-    myDesigAmpFilter[isamp] = myDesigAmpFilter[isamp] * scalar;
+  for( int ifreq = indexFirstRed; ifreq <= indexLastRed; ifreq++ ) {
+    double phase  = 2.0*( ( (double)(ifreq-indexFirst) / (double)width ) - 1.0 ) * M_PI;
+    float scalar  = (float)( 0.5 * (cos(phase) + 1.0) );
+    myDesigAmpFilter[ifreq] = myDesigAmpFilter[ifreq] * scalar;
   }
 }
 
 //--------------------------------------------------------------------------------
 
 void csFFTDesignature::dump_spectrum( FILE* stream ) const {
-  float df = 1000.0 / ( (float)myNumFFTSamplesIn*mySampleIntIn );
-  for( int i = 0; i <= myNumFFTSamplesIn/2; i++ ) {
-    float freq = df * (float)(i);
-    fprintf(stream,"%.6f  %.10e %.10e\n", freq, myDesigAmpFilter[i], myDesigPhaseShift[i] );
+  double df = sampleIntFreq();
+  int numFreq = myFFT->numFreqValues();
+  for( int ifreq = 0; ifreq < numFreq; ifreq++ ) {
+    double freq = df * (double)(ifreq);
+    fprintf(stream,"%.6f  %.10e %.10e\n", freq, myDesigAmpFilter[ifreq], myDesigPhaseShift[ifreq] );
   }
 }
 
-void csFFTDesignature::dump_wavelet( FILE* stream, bool doNormalize ) {
-  float* desigAmpFilter   = new float[myNumFFTSamplesIn/2+1];
-  float* desigPhaseShift = new float[myNumFFTSamplesIn/2+1];
+void csFFTDesignature::dump_wavelet( FILE* stream, bool doNormalize, float timeShift_s ) {
+  double df = sampleIntFreq();
+  int numFreq = myFFT->numFreqValues();
+  float* desigAmpPhaseFilter  = new float[2*numFreq];
+  float* samples              = new float[myNumSamplesIn];
 
-  float phaseScalar = 0.5 * myNumFFTSamplesIn * mySampleIntIn / 1000.0; // Linear phase shift to center main wavelet energy
-  float df = 1000.0 / ( (float)myNumFFTSamplesIn*mySampleIntIn );
-  for( int i = 0; i <= myNumFFTSamplesIn/2; i++ ) {
-    float freq = df * (float)(i);
-    float phaseShift    = freq * M_PI * phaseScalar;
-    desigAmpFilter[i]  = myDesigAmpFilter[i];
-    desigPhaseShift[i] = myDesigPhaseShift[i] + phaseShift;
+  for( int ifreq = 0; ifreq < numFreq; ifreq++ ) {
+    double freq = df * (float)(ifreq);
+    float phaseShift    = (float)( 2.0 * freq * M_PI * timeShift_s );
+    desigAmpPhaseFilter[ifreq]         = myDesigAmpFilter[ifreq];
+    desigAmpPhaseFilter[ifreq+numFreq] = myDesigPhaseShift[ifreq] + phaseShift;
   }
-  convertFromAmpPhase( desigAmpFilter, desigPhaseShift );
-  // bool success = 
-  fft( csFFTTools::INVERSE, myTwoPowerIn, myBufferReal, myBufferImag, false );
-  double const* real = realData();
+  // Transform back to X-T
+  myFFT->inverseTransform( desigAmpPhaseFilter, samples, cseis_geolib::FX_AMP_PHASE, false );
+
   float normScalar = 1.0f;
-  if( doNormalize ) normScalar = 1.0f / (float)(myNumFFTSamplesIn/2);
-  for( int i = 0; i <= myNumFFTSamplesIn/2; i++ ) {
-    float time = mySampleIntIn * (float)i;
-    fprintf(stream,"%.6f  %.10e\n", time, normScalar*real[i]  );
+  if( doNormalize ) normScalar = 1.0f / (float)numFreq;
+  for( int isamp = 0; isamp < myNumSamplesIn; isamp++ ) {
+    float time = mySampleIntIn * (float)isamp;
+    fprintf(stream,"%.6f  %.10e\n", time, normScalar*samples[isamp]  );
   }
-  delete [] desigAmpFilter;
-  delete [] desigPhaseShift;
+  delete [] desigAmpPhaseFilter;
+  delete [] samples;
 }

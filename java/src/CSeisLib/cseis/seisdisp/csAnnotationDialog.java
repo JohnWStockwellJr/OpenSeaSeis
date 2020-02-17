@@ -23,6 +23,7 @@ import cseis.general.csStandard;
  * Dialog window where trace headers are selected for trace annotation.
  * @author Bjorn Olofsson
  */
+@SuppressWarnings("serial")
 public class csAnnotationDialog extends JDialog {
   private static final int DEFAULT_WIDTH  = 400;
   private static final int DEFAULT_HEIGHT = 850;
@@ -30,12 +31,12 @@ public class csAnnotationDialog extends JDialog {
   private csSeisPane mySeisPane;
   /// Trace header names & descriptions
   private ArrayList<csHeaderDef> myTraceHeaders;
-  private JList myListHeaders;
+  private JList<csHeaderDef> myListHeaders;
   /// List model containing trace headers, except those that shall be annotated
-  private DefaultListModel myListModelHeaders;
-  private JList myListAnn;
+  private DefaultListModel<csHeaderDef> myListModelHeaders;
+  private JList<csHeaderDef> myListAnn;
   /// List model containing trace headers that shall be annotated
-  private DefaultListModel myListModelAnn;
+  private DefaultListModel<csHeaderDef> myListModelAnn;
   private ArrayList<csHeaderDef> myTempAddHeaders;
   private ArrayList<csHeaderDef> myTempRemoveHeaders;
 
@@ -70,12 +71,12 @@ public class csAnnotationDialog extends JDialog {
     myTextTraceLabelStep = new JTextField("10");
     myTextTraceLabelStep.setEnabled( myBoxTraceLabelStep.isSelected() );
 
-    myListModelHeaders = new DefaultListModel();
-    myListHeaders = new JList( myListModelHeaders );
+    myListModelHeaders = new DefaultListModel<csHeaderDef>();
+    myListHeaders = new JList<csHeaderDef>( myListModelHeaders );
     myListHeaders.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
     myListHeaders.setCellRenderer( new AnnotationCellRenderer() );
-    myListModelAnn = new DefaultListModel();
-    myListAnn = new JList( myListModelAnn );
+    myListModelAnn = new DefaultListModel<csHeaderDef>();
+    myListAnn = new JList<csHeaderDef>( myListModelAnn );
 
     updateHeaderNames( headers );
 
@@ -212,7 +213,7 @@ public class csAnnotationDialog extends JDialog {
     myListHeaders.addMouseListener( new MouseAdapter() {
       public void mouseClicked( MouseEvent e ) {
         if( e.getClickCount() == 2 ) {
-          int index = myListHeaders.locationToIndex(e.getPoint());
+//          int index = myListHeaders.locationToIndex(e.getPoint());
           addAnnotationHeaders();
         }
       }
@@ -220,7 +221,7 @@ public class csAnnotationDialog extends JDialog {
     myListAnn.addMouseListener( new MouseAdapter() {
       public void mouseClicked( MouseEvent e ) {
         if( e.getClickCount() == 2 ) {
-          int index = myListAnn.locationToIndex(e.getPoint());
+//          int index = myListAnn.locationToIndex(e.getPoint());
           removeAnnotationHeaders();
         }
       }
@@ -263,7 +264,6 @@ public class csAnnotationDialog extends JDialog {
     // If yes, keep this trace header annotated. If not, remove it from annotated list
     int numHeadersAnnotated = myListModelAnn.size();
     if( numHeadersAnnotated > 0 ) {
-      ArrayList<csHeaderDef> annHeaders = new ArrayList<csHeaderDef>(numHeadersAnnotated);
       for( int ih = 0; ih < numHeadersAnnotated; ih++ ) {
         csHeaderDef header = (csHeaderDef)myListModelAnn.get(ih);
         if( myTraceHeaders.contains(header) ) {
@@ -282,13 +282,9 @@ public class csAnnotationDialog extends JDialog {
   }
   private void addAnnotationHeaders() {
     if( !myListHeaders.isSelectionEmpty() ) {
-// Enable for JDK 7:
-//      java.util.List objList = myListHeaders.getSelectedValues()getSelectedValuesList();
-//      for( int i = 0; i < objList.size(); i++ ) {
-//        csHeaderDef newHeader = (csHeaderDef)objList.get(i);
-      Object[] objs = myListHeaders.getSelectedValues();
-      for( int i = 0; i < objs.length; i++ ) {
-        csHeaderDef newHeader = (csHeaderDef)objs[i];
+      java.util.List<csHeaderDef> objList = myListHeaders.getSelectedValuesList();
+      for( int i = 0; i < objList.size(); i++ ) {
+        csHeaderDef newHeader = objList.get(i);
         addAnnotationHeader( newHeader );
         if( myTempRemoveHeaders.contains( newHeader ) ) {
           myTempRemoveHeaders.remove( newHeader );
@@ -320,13 +316,9 @@ public class csAnnotationDialog extends JDialog {
   private void removeAnnotationHeaders() {
     if( !myListAnn.isSelectionEmpty() ) {
       int firstIndex = myListAnn.getSelectedIndex();
-// Enable for JDK 7:
-//      java.util.List objList = myListAnn.getSelectedValuesList();
-//      for( int i = 0; i < objList.size(); i++ ) {
-//        csHeaderDef newHeader = (csHeaderDef)objList.get(i);
-      Object[] objs = myListAnn.getSelectedValues();
-      for( int i = 0; i < objs.length; i++ ) {
-        csHeaderDef newHeader = (csHeaderDef)objs[i];
+      java.util.List<csHeaderDef> objList = myListAnn.getSelectedValuesList();
+      for( csHeaderDef objList1 : objList ) {
+        csHeaderDef newHeader = objList1;
         removeAnnotationHeader( newHeader );
         if( myTempAddHeaders.contains( newHeader ) ) {
           myTempAddHeaders.remove( newHeader );
@@ -426,13 +418,13 @@ public class csAnnotationDialog extends JDialog {
 //    private int myWidth10Spaces;
     
     public Component getListCellRendererComponent(
-      JList list,
+      JList<?> list,
       Object value,            // value to display
       int index,               // cell index
       boolean isSelected,      // is the cell selected
       boolean cellHasFocus)    // the list and the cell have the focus
     {
-      Component comp = super.getListCellRendererComponent( list, value, index, isSelected, cellHasFocus);
+//      Component comp = super.getListCellRendererComponent( list, value, index, isSelected, cellHasFocus);
       csHeaderDef header = (csHeaderDef)value;
 /*
       JLabel label = (JLabel)comp;

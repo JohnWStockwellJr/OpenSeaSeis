@@ -9,20 +9,21 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
 
+@SuppressWarnings("serial")
 public class TestGraph2D extends JFrame implements MouseListener, MouseMotionListener {
   private csGraph2D myGraph;
   private csGraph2D myGraphVert;
   private csGraph2D myGraphHorz;
-  private JScrollPane myScrollPaneVert;
-  private JScrollPane myScrollPaneHorz;
+//  private JScrollPane myScrollPaneVert;
+//  private JScrollPane myScrollPaneHorz;
   private static final int FLAG_NEW = 1;
   private static final int FLAG_VERT = 2;
   private static final int FLAG_HORZ = 3;
   private static final int FLAG_SEA  = 4;
-  private int myMousePressedX;
-  private int myMousePressedY;
-  private int myMouseDraggedX;
-  private int myMouseDraggedY;
+//  private int myMousePressedX;
+//  private int myMousePressedY;
+//  private int myMouseDraggedX;
+//  private int myMouseDraggedY;
   private boolean myIsMouseDragged;
   csGraphPane myPaneVert;
   csGraphPane myPaneHorz;
@@ -33,8 +34,8 @@ public class TestGraph2D extends JFrame implements MouseListener, MouseMotionLis
   TestGraph2D() {
     super("Test graph");
 
-    myScrollPaneVert = new JScrollPane(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS);
-    myScrollPaneHorz = new JScrollPane(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS);
+//    myScrollPaneVert = new JScrollPane(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS);
+//    myScrollPaneHorz = new JScrollPane(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS);
 
     myGraph = new csGraph2D();
     myGraphVert = new csGraph2D();
@@ -226,8 +227,8 @@ public class TestGraph2D extends JFrame implements MouseListener, MouseMotionLis
 
   @Override
   public void mousePressed(MouseEvent e) {
-    myMousePressedX = e.getX();
-    myMousePressedY = e.getY();
+//    myMousePressedX = e.getX();
+//    myMousePressedY = e.getY();
   }
 
   @Override
@@ -247,8 +248,8 @@ public class TestGraph2D extends JFrame implements MouseListener, MouseMotionLis
   @Override
   public void mouseDragged(MouseEvent e) {
     myIsMouseDragged = true;
-    myMouseDraggedX = e.getX();
-    myMouseDraggedY = e.getY();
+//    myMouseDraggedX = e.getX();
+//    myMouseDraggedY = e.getY();
   }
 
   @Override

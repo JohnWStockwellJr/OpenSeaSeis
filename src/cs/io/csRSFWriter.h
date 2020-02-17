@@ -17,7 +17,7 @@ namespace cseis_io {
 class csRSFWriter {
 //---------------------------------------------------------------------------------------
 public:
-  csRSFWriter( std::string filename, int nTracesBuffer, bool reverseByteOrder, bool swapDim3, bool outputGrid, double tolerance = 1e-5 );
+  csRSFWriter( std::string filename, int nTracesBuffer, bool reverseByteOrder, int numTraces_swapDim3, bool outputGrid, double tolerance = 1e-5 );
   ~csRSFWriter();
   //
   void initialize( csRSFHeader const* );
@@ -32,8 +32,8 @@ public:
 
   void writeNextTrace( cseis_geolib::byte_t const* buffer, int nSamples, double valDim2, double valDim3 );
   void finalize();
-
 private:
+  void finalizeSwapDim3();
   static int const STAGE_1_INIT      = 1;
   static int const STAGE_2_SET_ORIG  = 2;
   static int const STAGE_3_DIM2_STEP = 3;
@@ -71,9 +71,9 @@ private:
 
   float mySampleInt;
   int   myNumSamples;
-  int const NTRACES_BUFFER;
+  int   myNumTracesBuffer;
   double const TOLERANCE;
-  bool mySwapDim3; // true if dimension 3 and dimension 1 shall be swapped
+  int myNumTraces_swapDim3; // true if dimension 3 and dimension 1 shall be swapped
   bool myOutputGrid; // true if grid definiton shall be written to rsf header file
 //-----------------------------------------------------------------------------------------
 // Private access methods

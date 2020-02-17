@@ -1,5 +1,5 @@
 /* Copyright (c) Colorado School of Mines, 2011.*/
-/* All rights reserved.			*/
+/* All rights reserved.                       */
 
 /*****************************************************************************
 Authors:
@@ -35,8 +35,8 @@ namespace cseis_su {
 
   /* par fprintf(stderr,"\n");su2cs->setEOF();ameter table */
   struct pointer_table {
-    char *name;		/* external name of parameter	*/
-    char *asciival;		/* ascii value of parameter	*/
+    char *name;      /* external name of parameter */
+    char *asciival;  /* ascii value of parameter   */
   };
 
 class csSUGetPars {
@@ -92,12 +92,12 @@ class csSUGetPars {
   char** myXArgv;
 
 
-  cseis_su::pointer_table *myArgtbl;	/* parameter table		*/
-  int myNargs;		/* number of args that parse	*/
-  int myTabled;	        /* true when parameters tabled 	*/
-  size_t myTargc;		/* total number of args		*/
-  char **myTargv;		/* pointer to arg strings	*/
-  char *myArgstr;		/* storage for command line	*/
+  cseis_su::pointer_table *myArgtbl; /* parameter table */
+  int myNargs;          /* number of args that parse    */
+  int myTabled;         /* true when parameters tabled  */
+  size_t myTargc;       /* total number of args         */
+  char **myTargv;       /* pointer to arg strings       */
+  char *myArgstr;       /* storage for command line     */
 };
 
 } // end namespace

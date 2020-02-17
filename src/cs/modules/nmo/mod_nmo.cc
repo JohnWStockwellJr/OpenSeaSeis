@@ -50,7 +50,7 @@ using mod_nmo::VariableStruct;
 //
 //
 //*************************************************************************************************
-void init_mod_nmo_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_nmo_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   csSuperHeader*    shdr = env->superHeader;
@@ -58,7 +58,8 @@ void init_mod_nmo_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
 //---------------------------------------------
 //
@@ -97,7 +98,7 @@ void init_mod_nmo_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
       mode_nmo = csNMOCorrection::PP_NMO_VTI;
     }
     else {
-      log->error("Option not recognized: %s.", text.c_str());
+      writer->error("Option not recognized: %s.", text.c_str());
     }
   }
   if( param->exists("empirical") ) {
@@ -114,7 +115,7 @@ void init_mod_nmo_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
       mode_nmo = csNMOCorrection::OUTPUT_VEL;
     }
     else {
-      log->error("Option not recognized: %s.", text.c_str());
+      writer->error("Option not recognized: %s.", text.c_str());
     }
   }
   vars->mode = csNMOCorrection::NMO_APPLY;
@@ -127,7 +128,7 @@ void init_mod_nmo_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
       vars->mode = csNMOCorrection::NMO_REMOVE;
     }
     else {
-      log->error("Option not recognized: %s.", text.c_str());
+      writer->error("Option not recognized: %s.", text.c_str());
     }
   }
 
@@ -140,7 +141,7 @@ void init_mod_nmo_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
       vars->dump = false;
     }
     else {
-      log->error("Option not recognized: %s.", text.c_str());
+      writer->error("Option not recognized: %s.", text.c_str());
     }
 
   }
@@ -159,13 +160,13 @@ void init_mod_nmo_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
 //---------------------------------------------
   if( param->exists("percent") ) {
     param->getFloat("percent",&vars->percentVel);
-    if( vars->percentVel <= -100 || vars->percentVel >=100 ) log->error("Specified percent velocity change (=%.2f%%) out of valid range (-99%% - +99%%)");
+    if( vars->percentVel <= -100 || vars->percentVel >=100 ) writer->error("Specified percent velocity change (=%.2f%%) out of valid range (-99%% - +99%%)");
   }
 //---------------------------------------------
   if( param->exists("time_samp1") ) {
     param->getFloat("time_samp1",&vars->timeSample1_ms);
-    if( vars->timeSample1_ms > 0 ) log->error("Specified time of first sample must be smaller than or equal to 0. Specified: %f", vars->timeSample1_ms);
-    if( vars->timeSample1_ms != 0 && vars->isDiffNMO ) log->error("Differential NMO is currently not supported in the case where the time of first sample is not zero");
+    if( vars->timeSample1_ms > 0 ) writer->error("Specified time of first sample must be smaller than or equal to 0. Specified: %f", vars->timeSample1_ms);
+    if( vars->timeSample1_ms != 0 && vars->isDiffNMO ) writer->error("Differential NMO is currently not supported in the case where the time of first sample is not zero");
   }
 //---------------------------------------------
 // Retrieve velocity table
@@ -176,14 +177,14 @@ void init_mod_nmo_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
       vars->oldTableManager = new csTableManagerNew( text, csTableAll::TABLE_TYPE_TIME_FUNCTION, hdef );
     }
     catch( csException& exc ) {
-      log->error("Error when initializing input table '%s': %s\n", text.c_str(), exc.getMessage() );
+      writer->error("Error when initializing input table '%s': %s\n", text.c_str(), exc.getMessage() );
     }
     if( edef->isDebug() ) {
       vars->oldTableManager->dump();
     }
   }
   if( param->exists("table") ) {
-    if( vars->oldTableManager != NULL ) log->error("Specify either user parameter 'table' or 'table_old', not both");
+    if( vars->oldTableManager != NULL ) writer->error("Specify either user parameter 'table' or 'table_old', not both");
     std::string tableFilename;
     int colTime = 0;
     int colVel  = 1;
@@ -191,10 +192,10 @@ void init_mod_nmo_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
     param->getString("table", &tableFilename );
     param->getInt("table_col",&colTime,0);
     param->getInt("table_col",&colVel,1);
-    if( colTime < 1 || colVel < 1 ) log->error("Column numbers in table (user parameter 'table_col') must be larger than 0");
+    if( colTime < 1 || colVel < 1 ) writer->error("Column numbers in table (user parameter 'table_col') must be larger than 0");
     if( param->getNumValues("table_col") > 2 ) {
       param->getInt("table_col",&colEta,2);
-      if( colEta < 1 ) log->error("Column number for eta (user parameter 'table_col') must be larger than 0");
+      if( colEta < 1 ) writer->error("Column number for eta (user parameter 'table_col') must be larger than 0");
     }
     vars->table = new csTableNew( csTableNew::TABLE_TYPE_TIME_FUNCTION, colTime-1 );
     int numKeys = param->getNumLines("table_key");
@@ -202,27 +203,27 @@ void init_mod_nmo_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
       int col;
       vars->hdrId_keys  = new int[numKeys];
       for( int ikey = 0; ikey < numKeys; ikey++ ) {
-	std::string headerName;
-	bool interpolate = true;
-	param->getStringAtLine( "table_key", &headerName, ikey, 0 );
-	param->getIntAtLine( "table_key", &col, ikey, 1 );
-	if( param->getNumValues( "table_key", ikey ) > 2 ) {
-	  param->getStringAtLine( "table_key", &text, ikey, 2 );
-	  if( !text.compare("yes") ) {
-	    interpolate = true;
-	  }
-	  else if( !text.compare("no") ) {
-	    interpolate = false;
-	  }
-	  else {
-	    log->error("Unknown option: %s", text.c_str() );
-	  }
-	}
-	vars->table->addKey( col-1, interpolate );  // -1 to convert from 'user' column to 'C++' column
-	if( !hdef->headerExists( headerName ) ) {
-	  log->error("No matching trace header found for table key '%s'", headerName.c_str() );
-	}
-	vars->hdrId_keys[ikey] = hdef->headerIndex( headerName );
+        std::string headerName;
+        bool interpolate = true;
+        param->getStringAtLine( "table_key", &headerName, ikey, 0 );
+        param->getIntAtLine( "table_key", &col, ikey, 1 );
+        if( param->getNumValues( "table_key", ikey ) > 2 ) {
+          param->getStringAtLine( "table_key", &text, ikey, 2 );
+          if( !text.compare("yes") ) {
+            interpolate = true;
+          }
+          else if( !text.compare("no") ) {
+            interpolate = false;
+          }
+          else {
+            writer->error("Unknown option: %s", text.c_str() );
+          }
+        }
+        vars->table->addKey( col-1, interpolate );  // -1 to convert from 'user' column to 'C++' column
+        if( !hdef->headerExists( headerName ) ) {
+          writer->error("No matching trace header found for table key '%s'", headerName.c_str() );
+        }
+        vars->hdrId_keys[ikey] = hdef->headerIndex( headerName );
       } // END for ikey
     }
 
@@ -235,7 +236,7 @@ void init_mod_nmo_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
       vars->table->initialize( tableFilename, sortTable );
     }
     catch( csException& exc ) {
-      log->error("Error when initializing input table '%s': %s\n", text.c_str(), exc.getMessage() );
+      writer->error("Error when initializing input table '%s': %s\n", text.c_str(), exc.getMessage() );
     }
   }
   
@@ -246,7 +247,7 @@ void init_mod_nmo_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
     if( param->exists( "time" ) ) {
       param->getAll( "time", &valueList );
       if( valueList.size() < 1 ){
-        log->error("No times specified in user parameter 'time'!");
+        writer->error("No times specified in user parameter 'time'!");
       }
     }
     vars->numTimes = valueList.size();
@@ -269,25 +270,25 @@ void init_mod_nmo_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
     param->getAll( "velocity", &valueList );
 
     if( valueList.size() < 1 ){
-      log->error("Missing user parameter 'velocity'!");
+      writer->error("Missing user parameter 'velocity'!");
     }
     else if( valueList.size() != vars->numTimes ) {
-      log->error("Unequal number of velocities(%d) and times(%d)", valueList.size(), vars->numTimes );
+      writer->error("Unequal number of velocities(%d) and times(%d)", valueList.size(), vars->numTimes );
     }
     csFlexNumber number;
     for( int i = 0; i < vars->numTimes; i++ ) {
       if( !number.convertToNumber( valueList.at(i) ) ) {
-	text = valueList.at(i);
-	if( vars->numTimes > 1 ) log->error("Specified velocity is not a valid number: '%s'", text.c_str() );
-	if( !hdef->headerExists(text) ) {
-	  log->error("Specified trace header name containing velocity does not exist: '%s'", text.c_str());
-	}
-	vars->hdrId_velocity = hdef->headerIndex(text);
-	break;
+        text = valueList.at(i);
+        if( vars->numTimes > 1 ) writer->error("Specified velocity is not a valid number: '%s'", text.c_str() );
+        if( !hdef->headerExists(text) ) {
+          writer->error("Specified trace header name containing velocity does not exist: '%s'", text.c_str());
+        }
+        vars->hdrId_velocity = hdef->headerIndex(text);
+        break;
       }
       vars->velocities[i] = number.floatValue();
       if( vars->percentVel != 0.0 ) vars->velocities[i] *= (100.0+vars->percentVel)/100.0;
-      if( edef->isDebug() ) log->line("Velocity #%d: '%s' --> %f", i, valueList.at(i).c_str(), vars->velocities[i] );
+      if( edef->isDebug() ) writer->line("Velocity #%d: '%s' --> %f", i, valueList.at(i).c_str(), vars->velocities[i] );
     }
   }
   
@@ -316,7 +317,7 @@ void init_mod_nmo_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
           horMethod = csNMOCorrection::HORIZON_METHOD_QUAD;
         }
         else {
-          log->error("Option not recognized: %s.", text.c_str());
+          writer->error("Option not recognized: %s.", text.c_str());
         }
       }
       vars->nmo->setHorizonBasedNMO( true, horMethod );
@@ -325,15 +326,15 @@ void init_mod_nmo_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
       vars->nmo->setHorizonBasedNMO( false );
     }
     else {
-      log->error("Option not recognized: %s.", text.c_str());
+      writer->error("Option not recognized: %s.", text.c_str());
     }
   }
   
   if( !hdef->headerExists( "offset" ) ) {
-    log->error("Trace header 'offset' does not exist. Cannot perform NMO correction.");
+    writer->error("Trace header 'offset' does not exist. Cannot perform NMO correction.");
   }
   else if( hdef->headerType( "offset" ) != TYPE_FLOAT && hdef->headerType( "offset" ) != TYPE_DOUBLE ) {
-    log->error("Trace header 'offset' exists but has the wrong number type. Should be FLOAT.");
+    writer->error("Trace header 'offset' exists but has the wrong number type. Should be FLOAT.");
   }
 
   vars->hdrId_offset = hdef->headerIndex( "offset" );
@@ -345,39 +346,17 @@ void init_mod_nmo_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
 //
 //
 //*************************************************************************************************
-bool exec_mod_nmo_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log )
+void exec_mod_nmo_(
+  csTraceGather* traceGather,
+  int* port,
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
 
-  if( edef->isCleanup() ) {
-    if( vars->time_sec != NULL ) {
-      delete [] vars->time_sec;
-      vars->time_sec = NULL;
-    }
-    if( vars->velocities != NULL ) {
-      delete [] vars->velocities;
-      vars->velocities = NULL;
-    }
-    if( vars->nmo != NULL ) {
-      delete vars->nmo;
-      vars->nmo = NULL;
-    }
-    if( vars->table != NULL ) {
-      delete vars->table;
-      vars->table = NULL;
-    }
-    if( vars->oldTableManager != NULL ) {
-      delete vars->oldTableManager;
-      vars->oldTableManager = NULL;
-    }
-    if( vars->hdrId_keys != NULL ) {
-      delete [] vars->hdrId_keys;
-      vars->hdrId_keys = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
 
   float* samples = trace->getTraceSamples();
   double offset  = trace->getTraceHeader()->doubleValue( vars->hdrId_offset );
@@ -395,7 +374,7 @@ bool exec_mod_nmo_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter*
     if( vars->table->numKeys() > 0 ) {
       double* keyValueBuffer = new double[vars->table->numKeys()];
       for( int ikey = 0; ikey < vars->table->numKeys(); ikey++ ) {
-	keyValueBuffer[ikey] = trace->getTraceHeader()->doubleValue( vars->hdrId_keys[ikey] );
+        keyValueBuffer[ikey] = trace->getTraceHeader()->doubleValue( vars->hdrId_keys[ikey] );
       }
       timeFunc = vars->table->getFunction( keyValueBuffer, vars->dump );
       delete [] keyValueBuffer;
@@ -426,7 +405,7 @@ bool exec_mod_nmo_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter*
     vars->nmo->perform_differential_nmo( vars->numTimes, vars->time_sec, vars->velocities, offset, vars->offset_diffNMO, samples );
   }
   
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -515,13 +494,65 @@ void params_mod_nmo_( csParamDef* pdef ) {
   //  pdef->addValue( "0", VALTYPE_HEADER_NUMBER, "Percent [%]" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_nmo_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_nmo::VariableStruct* vars = reinterpret_cast<mod_nmo::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_nmo_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_nmo::VariableStruct* vars = reinterpret_cast<mod_nmo::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->time_sec != NULL ) {
+    delete [] vars->time_sec;
+    vars->time_sec = NULL;
+  }
+  if( vars->velocities != NULL ) {
+    delete [] vars->velocities;
+    vars->velocities = NULL;
+  }
+  if( vars->nmo != NULL ) {
+    delete vars->nmo;
+    vars->nmo = NULL;
+  }
+  if( vars->table != NULL ) {
+    delete vars->table;
+    vars->table = NULL;
+  }
+  if( vars->oldTableManager != NULL ) {
+    delete vars->oldTableManager;
+    vars->oldTableManager = NULL;
+  }
+  if( vars->hdrId_keys != NULL ) {
+    delete [] vars->hdrId_keys;
+    vars->hdrId_keys = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_nmo_( csParamDef* pdef ) {
   params_mod_nmo_( pdef );
 }
-extern "C" void _init_mod_nmo_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_nmo_( param, env, log );
+extern "C" void _init_mod_nmo_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_nmo_( param, env, writer );
 }
-extern "C" bool _exec_mod_nmo_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_nmo_( trace, port, env, log );
+extern "C" bool _start_exec_mod_nmo_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_nmo_( env, writer );
 }
-
+extern "C" void _exec_mod_nmo_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_nmo_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_nmo_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_nmo_( env, writer );
+}

@@ -3,7 +3,6 @@
 
 #include "cseis_includes.h"
 #include "csStandardHeaders.h"
-#include "csFFTTools.h"
 #include "csASCIIFileReader.h"
 #include <cstring>
 #include <cmath>
@@ -61,7 +60,7 @@ using mod_input_ascii::VariableStruct;
 //
 //
 //*************************************************************************************************
-void init_mod_input_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_input_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -114,7 +113,7 @@ void init_mod_input_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWri
       vars->inputFormat = cseis_io::csASCIIFileReader::FORMAT_ZMAP;
     }
     else {
-      log->error("Option not recognised: %s", text.c_str());
+      writer->error("Option not recognised: %s", text.c_str());
     }
   }
   int colIndexTime  = 0;
@@ -144,11 +143,11 @@ void init_mod_input_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWri
     else if( !text.compare("linear") ) {
       vars->isZeroPhase = false;
       if( param->getNumValues("phase") > 1 ) {
-	param->getFloat( "phase", &vars->phaseScalar, 1 );
+        param->getFloat( "phase", &vars->phaseScalar, 1 );
       }
     }
     else {
-      log->error("Option not recognised: %s", text.c_str());
+      writer->error("Option not recognised: %s", text.c_str());
     }
   }
 
@@ -165,7 +164,7 @@ void init_mod_input_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWri
       vars->unit = mod_input_ascii::UNIT_HZ;
     }
     else {
-      log->error("Option not recognised: %s", text.c_str());
+      writer->error("Option not recognised: %s", text.c_str());
     }
   }
 
@@ -199,20 +198,20 @@ void init_mod_input_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWri
                                                        vars->zmap_x2,
                                                        vars->zmap_y2 );
     }
-    if( !success ) log->error("Unknown error occurred during initialization of signature input file. Incorrect or unsupported format?");
+    if( !success ) writer->error("Unknown error occurred during initialization of signature input file. Incorrect or unsupported format?");
   }
   catch( csException& e ) {
-    log->error("Error occurred when initializing input ASCII file: %s", e.getMessage() );
+    writer->error("Error occurred when initializing input ASCII file: %s", e.getMessage() );
   }
   //
   //----------------------------------------------------------------------
 
 
   if( vars->asciiParam->sampleInt <= 0 ) {
-    log->error("Inconsistent sample interval (=%f).", vars->asciiParam->sampleInt);
+    writer->error("Inconsistent sample interval (=%f).", vars->asciiParam->sampleInt);
   }
   if( vars->asciiParam->numSamples() <= 0 ) {
-    log->error("Inconsistent number of samples (=%d).", vars->asciiParam->numSamples());
+    writer->error("Inconsistent number of samples (=%d).", vars->asciiParam->numSamples());
   }
 
   if( vars->unit == mod_input_ascii::UNIT_HZ ) {
@@ -224,12 +223,11 @@ void init_mod_input_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWri
     // Split trace into amplitude & phase. Read in amplitude, set phase to zero.
     // Input data must have for example 1024+1 samples. 
     if( isOverrideNumSamples ) {
-      log->error("Unsupported option for frequency input data: Number of samples overriden by user. Do not specify input parameter 'nsamples'.");
+      writer->error("Unsupported option for frequency input data: Number of samples overriden by user. Do not specify input parameter 'nsamples'.");
     }
     shdr->numSamples   = 2*vars->asciiParam->numSamples();
     shdr->numSamplesXT = shdr->numSamples-2; // Remove 2 for Nyquist frequency
     int numFFTSamples  = shdr->numSamplesXT;
-    cseis_geolib::csFFTTools fftTool( numFFTSamples );
     shdr->sampleIntXT  = round( 1000.0 / (float)( numFFTSamples * shdr->sampleInt ) );
   }
   else {
@@ -269,20 +267,20 @@ void init_mod_input_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWri
   vars->hdrId_time_samp1_us = hdef->headerIndex(cseis_geolib::HDR_TIME_SAMP1_US.name);
 
   if( edef->isDebug() ) {
-    log->line("Input file parameters:");
-    log->line("  Time/Freq of first sample: %f", vars->asciiParam->timeFirstSamp);
-    log->line("  Time/Freq of last sample:  %f", vars->asciiParam->timeLastSamp);
-    log->line("  Source depth:              %f", vars->asciiParam->srcDepth);
-    log->line("  Sample interval:           %f", vars->asciiParam->sampleInt);
+    writer->line("Input file parameters:");
+    writer->line("  Time/Freq of first sample: %f", vars->asciiParam->timeFirstSamp);
+    writer->line("  Time/Freq of last sample:  %f", vars->asciiParam->timeLastSamp);
+    writer->line("  Source depth:              %f", vars->asciiParam->srcDepth);
+    writer->line("  Sample interval:           %f", vars->asciiParam->sampleInt);
     if( isOverrideSampleInt ) {
-      log->line("    ..overriden by user specified sample interval:       %f", shdr->sampleInt);
+      writer->line("    ..overriden by user specified sample interval:       %f", shdr->sampleInt);
     }
-    log->line("  Number of samples:         %d", vars->asciiParam->numSamples());
+    writer->line("  Number of samples:         %d", vars->asciiParam->numSamples());
   }
 
-  log->line("Input file            :   %s", filename.c_str() );
-  log->line("Output sample interval:   %f %s", shdr->sampleInt, (shdr->domain == DOMAIN_FX) ? "Hz" : "ms");
-  log->line("Number of output samples: %d", shdr->numSamples );
+  writer->line("Input file            :   %s", filename.c_str() );
+  writer->line("Output sample interval:   %f %s", shdr->sampleInt, (shdr->domain == DOMAIN_FX) ? "Hz" : "ms");
+  writer->line("Number of output samples: %d", shdr->numSamples );
 
   vars->traceCounter = 0;
 }
@@ -293,31 +291,24 @@ void init_mod_input_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWri
 //
 //
 //*************************************************************************************************
-bool exec_mod_input_ascii_(
-  csTrace* trace,
+void exec_mod_input_ascii_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const*  shdr = env->superHeader;
 //  csTraceHeaderDef const*  hdef = env->headerDef;
 
-  if( edef->isCleanup() ) {
-    if( vars->asciiFileReader != NULL ) {
-      delete vars->asciiFileReader;
-      vars->asciiFileReader = NULL;
-    }
-    if( vars->asciiParam != NULL ) {
-      delete vars->asciiParam;
-      vars->asciiParam = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
+  csTrace* trace = traceGather->trace(0);
+
+  if( vars->atEOF ) {
+    traceGather->freeAllTraces();
+    return;
   }
-  if( vars->atEOF ) return false;
-
-
 
   vars->traceCounter += 1;
 
@@ -326,11 +317,12 @@ bool exec_mod_input_ascii_(
     bool success = vars->asciiFileReader->readNextTrace( vars->asciiParam );
     if( !success ) { // No further trace could be read in
       vars->atEOF = true;
-      return false;
+      traceGather->freeAllTraces();
+      return;
     }
   }
   catch( csException& e ) {
-    log->error("Error occurred when reading from input ASCII file: %s", e.getMessage() );
+    writer->error("Error occurred when reading from input ASCII file: %s", e.getMessage() );
   }
 
   //--------------------------------------------------------------------------------
@@ -345,13 +337,13 @@ bool exec_mod_input_ascii_(
     int numSamples = vars->asciiParam->numSamples();
     if( vars->unit != mod_input_ascii::UNIT_HZ ) {
       if( numSamples != shdr->numSamples ) {
-        log->error("Incorrect number of samples for trace %d: %d != %d", vars->traceCounter, numSamples, shdr->numSamples);
+        writer->error("Incorrect number of samples for trace %d: %d != %d", vars->traceCounter, numSamples, shdr->numSamples);
       }
-      if( edef->isDebug() ) log->line("Number of samples for trace %d: %d", vars->traceCounter, shdr->numSamples);
+      if( edef->isDebug() ) writer->line("Number of samples for trace %d: %d", vars->traceCounter, shdr->numSamples);
     }
     else { // FX DOMAIN
       if( 2*numSamples != shdr->numSamples ) {
-        log->error("Incorrect number of samples for trace %d: %d != %d", vars->traceCounter, numSamples, (int)(0.5*shdr->numSamples));
+        writer->error("Incorrect number of samples for trace %d: %d != %d", vars->traceCounter, numSamples, (int)(0.5*shdr->numSamples));
       }
     }
   }
@@ -373,15 +365,15 @@ bool exec_mod_input_ascii_(
     memcpy( samples, vars->asciiParam->getSamples(), (shdr->numSamples/2)*sizeof(float) ); // Copy amplitudes up to Nyquist
     if( vars->isZeroPhase ) {
       for( int i = shdr->numSamples/2; i < shdr->numSamples; i++ ) {
-	samples[i] = 0.0;
+        samples[i] = 0.0;
       }
     }
     else { // Set linear phase shift
       float scalar = vars->phaseScalar;
       for( int i = shdr->numSamples/2; i < shdr->numSamples; i++ ) {
-	float freqHz = (i - shdr->numSamples/2) * shdr->sampleInt;
-	float phase = freqHz * M_PI * scalar;
-	samples[i] = phase;
+        float freqHz = (i - shdr->numSamples/2) * shdr->sampleInt;
+        float phase = freqHz * M_PI * scalar;
+        samples[i] = phase;
       }
     }
   }
@@ -402,7 +394,7 @@ bool exec_mod_input_ascii_(
 
   //------------------------------------------------------------------------------------
 
-  return true;
+  return;
 }
 //********************************************************************************
 // Parameter definition
@@ -447,14 +439,49 @@ void params_mod_input_ascii_( csParamDef* pdef ) {
   pdef->addValue( "1.0", VALTYPE_NUMBER, "Linear phase shift (scalar)" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_input_ascii_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_input_ascii::VariableStruct* vars = reinterpret_cast<mod_input_ascii::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_input_ascii_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_input_ascii::VariableStruct* vars = reinterpret_cast<mod_input_ascii::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->asciiFileReader != NULL ) {
+    delete vars->asciiFileReader;
+    vars->asciiFileReader = NULL;
+  }
+  if( vars->asciiParam != NULL ) {
+    delete vars->asciiParam;
+    vars->asciiParam = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_input_ascii_( csParamDef* pdef ) {
   params_mod_input_ascii_( pdef );
 }
-extern "C" void _init_mod_input_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_input_ascii_( param, env, log );
+extern "C" void _init_mod_input_ascii_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_input_ascii_( param, env, writer );
 }
-extern "C" bool _exec_mod_input_ascii_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_input_ascii_( trace, port, env, log );
+extern "C" bool _start_exec_mod_input_ascii_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_input_ascii_( env, writer );
 }
-
-
+extern "C" void _exec_mod_input_ascii_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_input_ascii_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_input_ascii_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_input_ascii_( env, writer );
+}

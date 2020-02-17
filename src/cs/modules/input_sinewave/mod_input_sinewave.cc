@@ -44,7 +44,7 @@ static void sineWaveAdd( float freq, float phase, float sampInt, int numsmp, flo
 //
 //
 ///************************************************************************************************
-void init_mod_input_sinewave_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_input_sinewave_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
@@ -66,7 +66,7 @@ void init_mod_input_sinewave_( csParamManager* param, csInitPhaseEnv* env, csLog
   std::string pkeyName;
   param->getString( "pkeynam", &pkeyName );
   if( pkeyName.compare( "source" ) != 0 && pkeyName.compare( "cdp" ) != 0  ){
-    log->error("Only SOURCE and CDP can be primary keys. Specified key is: %s", pkeyName.c_str());
+    writer->error("Only SOURCE and CDP can be primary keys. Specified key is: %s", pkeyName.c_str());
   }
 
   valueList.clear();
@@ -75,7 +75,7 @@ void init_mod_input_sinewave_( csParamManager* param, csInitPhaseEnv* env, csLog
     param->getAll( "freq", &valueList );
   }
   //  if( valueList.size() < 1 ){
-  //    log->error("No frequencies were input!");
+  //    writer->error("No frequencies were input!");
   // }
 
 // allocate enough space for the frequency list at max length 
@@ -96,7 +96,7 @@ void init_mod_input_sinewave_( csParamManager* param, csInitPhaseEnv* env, csLog
   }
   int nPhase = valueList.size();
   if( nPhase != 0 && nPhase != nfreqs ) {
-    log->error("Unequal number of frequency/phase pairs");
+    writer->error("Unequal number of frequency/phase pairs");
   }
   if( nPhase > 0 ) {
     for( int i = 0; i < nfreqs; i++ ) {
@@ -121,22 +121,22 @@ void init_mod_input_sinewave_( csParamManager* param, csInitPhaseEnv* env, csLog
   
   // check and set the number of traces per ensemble
   if( ntrPerEns <= 0 ){
-    log->error("Number of traces per ensemble is < 1.");
+    writer->error("Number of traces per ensemble is < 1.");
   }
   vars->nTraces = ntrPerEns;
   // assign the sample interval
   if( sampInt <= 0.0 ){
-    log->error("The sample interval cannot be 0.0 or less.");
+    writer->error("The sample interval cannot be 0.0 or less.");
   }
 
   // assign the trace length, use the agfc.h NINT macro
   if( traceLen <= 0.0 ){
-    log->error("The trace length cannot be 0.0 or less.");
+    writer->error("The trace length cannot be 0.0 or less.");
   }
 
   // check the number of ensembles
   if( nens < 1 ){
-    log->error("Number of ensembles is less than 1.");
+    writer->error("Number of ensembles is less than 1.");
   }
 
   valueList.clear();
@@ -150,7 +150,7 @@ void init_mod_input_sinewave_( csParamManager* param, csInitPhaseEnv* env, csLog
     for( int i = 0; i < vars->nspikes; i++ ) {
       float time  = atof( valueList.at(i).c_str() );
       if( time < 0.0 || time > traceLen ) {
-        log->error("Spike time outside of specified trace length: %f", time);
+        writer->error("Spike time outside of specified trace length: %f", time);
       }
       vars->spikeSamples[i] = (int)( time/sampInt + 0.5 );
     }
@@ -191,32 +191,20 @@ void init_mod_input_sinewave_( csParamManager* param, csInitPhaseEnv* env, csLog
 //
 //
 //*************************************************************************************************
-bool exec_mod_input_sinewave_(
-  csTrace* trace,
+void exec_mod_input_sinewave_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef*         edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
   csTraceHeaderDef const* hdef = env->headerDef;
 
-  if( edef->isCleanup() ) {
-    if( vars->freqs ) {
-      delete [] vars->freqs;
-      vars->freqs = NULL;
-    }
-    if( vars->phase ) {
-      delete [] vars->phase;
-      vars->phase = NULL;
-    }
-    if( vars->spikeSamples ) {
-      delete [] vars->spikeSamples;
-      vars->spikeSamples = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
 
   csTraceHeader* trcHdr = trace->getTraceHeader();
   float* samples = trace->getTraceSamples();
@@ -224,15 +212,16 @@ bool exec_mod_input_sinewave_(
   float   *freqs       = vars->freqs        ;
   float   *phase       = vars->phase        ;
 
-  if( edef->isDebug() ) log->line("Traces: %d %d  %d %d", vars->currEns, vars->nens, vars->currTrcInEns, vars->nTraces );
+  if( edef->isDebug() ) writer->line("Traces: %d %d  %d %d", vars->currEns, vars->nens, vars->currTrcInEns, vars->nTraces );
 
 // fill the current trace and header buffers 
 //  noDataFound = sineWaveNextTr( samples, ithdr, rthdr, freqs, phase );
   if( vars->currEns > vars->nens ){
   // .. we have no more data to output, this is equivalent to
   // .. failing to read a trace from tape or disk
-    if( edef->isDebug() ) log->line("No more trace to generate...");
-    return false;
+    if( edef->isDebug() ) writer->line("No more trace to generate...");
+    traceGather->freeAllTraces();
+    return;
   }
   for( int i = 0; i < shdr->numSamples; i++ ) {
     samples[i] = 0.0;
@@ -262,7 +251,7 @@ bool exec_mod_input_sinewave_(
   if( vars->currTrcInEns > vars->nTraces ){
     vars->currEns += 1;
   }
-  return true;
+  return;
 }
 
 //-------------------------------------------------------------------
@@ -326,13 +315,53 @@ void params_mod_input_sinewave_( csParamDef* pdef ) {
   pdef->addValue( "", VALTYPE_NUMBER, "List of phases [deg]" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_input_sinewave_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_input_sinewave::VariableStruct* vars = reinterpret_cast<mod_input_sinewave::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_input_sinewave_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_input_sinewave::VariableStruct* vars = reinterpret_cast<mod_input_sinewave::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->freqs ) {
+    delete [] vars->freqs;
+    vars->freqs = NULL;
+  }
+  if( vars->phase ) {
+    delete [] vars->phase;
+    vars->phase = NULL;
+  }
+  if( vars->spikeSamples ) {
+    delete [] vars->spikeSamples;
+    vars->spikeSamples = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_input_sinewave_( csParamDef* pdef ) {
   params_mod_input_sinewave_( pdef );
 }
-extern "C" void _init_mod_input_sinewave_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_input_sinewave_( param, env, log );
+extern "C" void _init_mod_input_sinewave_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_input_sinewave_( param, env, writer );
 }
-extern "C" bool _exec_mod_input_sinewave_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_input_sinewave_( trace, port, env, log );
+extern "C" bool _start_exec_mod_input_sinewave_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_input_sinewave_( env, writer );
 }
-
+extern "C" void _exec_mod_input_sinewave_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_input_sinewave_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_input_sinewave_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_input_sinewave_( env, writer );
+}

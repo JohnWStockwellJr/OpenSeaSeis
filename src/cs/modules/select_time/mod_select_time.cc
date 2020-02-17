@@ -5,8 +5,12 @@
 #include "csTableAll.h"
 #include "csSort.h"
 #include "csTimer.h"
+#include "csVector.h"
+#include "csGeolibUtils.h"
+#include "csInterpolation.h"
 #include <cmath>
 #include <cstring>
+#include <iostream>
 
 using namespace cseis_system;
 using namespace cseis_geolib;
@@ -23,6 +27,10 @@ using namespace std;
  *  2009-03-25 - Correctly zero out new samples
  */
 namespace mod_select_time {
+  struct ShotAttr {
+    csInt64_t time_us;
+    int       id;
+  };
   struct VariableStruct {
     int numSamplesOrig;
     int startSamp;
@@ -42,11 +50,29 @@ namespace mod_select_time {
     float percentDelTrace_ratio;
     bool doTrim;
     bool isShiftTrace;
+    cseis_geolib::csVector<ShotAttr>* shotAttrList;
+    float* shotBuffer;
+    float* shotBufferTemp;
+    csInt64_t startTimeCurrentShot_us;
+    csInt64_t endTimeCurrentShot_us;
+    int idCurrentShot;
+    cseis_geolib::csInterpolation* interpol;
+    bool isNonZeroShotInMemory;
+    cseis_system::csTraceGather* traceGatherKeep;
+    int indexCurrentInternalTrace;
+    //    int overlapMethod;
+    int traceCounter;
+    int numSampEdgeEffectReduction;
   };
   static int const MODE_ABSOLUTE = 1;
   static int const MODE_RELATIVE = 2;
+  static int const MODE_SHOTS    = 3;
+  static int const OVERLAP_FIRST_TRACE = 20;
+  static int const OVERLAP_STACK       = 21;
 }
 using namespace mod_select_time;
+
+void addShot( VariableStruct* vars, cseis_system::csTraceGather* traceGather, csInt64_t& startTimeCurrentTrace_us, csInt64_t& endTimeCurrentTrace_us, cseis_system::csSuperHeader const* shdr );
 
 //*************************************************************************************************
 // Init phase
@@ -54,7 +80,7 @@ using namespace mod_select_time;
 //
 //
 //*************************************************************************************************
-void init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   csSuperHeader*    shdr = env->superHeader;
@@ -62,7 +88,7 @@ void init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWri
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
 
   vars->isShiftTrace = false;
   vars->startSamp = 0;
@@ -79,8 +105,20 @@ void init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWri
   vars->isTable         = false;
   vars->isDelTrace      = false;
   vars->percentDelTrace_ratio = 1.0;
-        vars->numSamplesOrig = shdr->numSamples;
+  vars->numSamplesOrig = shdr->numSamples;
   vars->doTrim = false;
+  vars->shotAttrList = NULL;
+  vars->shotBuffer = NULL;
+  vars->shotBufferTemp = NULL;
+  vars->startTimeCurrentShot_us = 0LL;
+  vars->endTimeCurrentShot_us   = 0LL;
+  vars->idCurrentShot = 0;
+  vars->interpol  = NULL;
+  vars->isNonZeroShotInMemory = false;
+  vars->traceGatherKeep = NULL;
+  //  vars->overlapMethod = mod_concatenate::OVERLAP_FIRST_TRACE;
+  vars->traceCounter = 0;
+  vars->numSampEdgeEffectReduction = 2;
 
   std::string text;
   //---------------------------------------------------------
@@ -92,8 +130,11 @@ void init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWri
     else if( !text.compare( "absolute" ) ) {
       vars->mode = MODE_ABSOLUTE;
     }
+    else if( !text.compare( "extract_shots" ) ) {
+      vars->mode = MODE_SHOTS;
+    }
     else {
-      log->line("Option not recognized: '%s'.", text.c_str());
+      writer->line("Option not recognized: '%s'.", text.c_str());
       env->addError();
     }
   }
@@ -107,8 +148,8 @@ void init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWri
       vars->doTrim = false;
     }
     else {
-      log->line("Option not recognized: '%s'.", text.c_str());
-     env->addError();
+      writer->line("Option not recognized: '%s'.", text.c_str());
+      env->addError();
     }
   }
   if( param->exists("shift") ) {
@@ -116,15 +157,15 @@ void init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWri
     if( !text.compare( "yes" ) ) {
       vars->isShiftTrace = true;
       if( vars->mode == MODE_ABSOLUTE ) {
-        log->error("Shift trace cannot be applied for absolute time selection");
+        writer->error("Shift trace cannot be applied for absolute time selection");
       }
     }
     else if( !text.compare( "no" ) ) {
       vars->isShiftTrace = false;
     }
     else {
-      log->line("Option not recognized: '%s'.", text.c_str());
-     env->addError();
+      writer->line("Option not recognized: '%s'.", text.c_str());
+      env->addError();
     }
   }
   //---------------------------------------------------------
@@ -139,7 +180,7 @@ void init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWri
       isTimeDomain = true;
     }
     else {
-      log->line("Domain option not recognized: '%s'.", text.c_str());
+      writer->line("Domain option not recognized: '%s'.", text.c_str());
       env->addError();
     }
   }
@@ -153,7 +194,7 @@ void init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWri
         float percentDelTrace;
         param->getFloat( "del_traces", &percentDelTrace, 1 );
         if( percentDelTrace <= 0 || percentDelTrace > 100 ) {
-          log->line("Error in user parameter 'del_traces': Percent threshold of trace must be in the range of ]0,100]. Given value: %f", percentDelTrace);
+          writer->line("Error in user parameter 'del_traces': Percent threshold of trace must be in the range of ]0,100]. Given value: %f", percentDelTrace);
           env->addError();
         }
         vars->percentDelTrace_ratio = percentDelTrace / 100.0;
@@ -163,15 +204,72 @@ void init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWri
       vars->isDelTrace = false;
     }
     else {
-      log->line("Option not recognized: '%s'.", text.c_str());
+      writer->line("Option not recognized: '%s'.", text.c_str());
       env->addError();
     }
   }
 
   //---------------------------------------------------------
-  if( param->exists("table") ) {
+  if( vars->mode == MODE_SHOTS ) {
+    param->getInt("nsamples",&shdr->numSamples);
+    // The following restriction makes sure that one input trace will at maximum spread over two output traces, not more.
+    if( shdr->numSamples < vars->numSamplesOrig ) writer->error("Unsupported case: Number of output samples (%d) must be greater or equal the number of samples in input data (%d).", shdr->numSamples, vars->numSamplesOrig);
+    param->getString( "extract_shots", &text, 0 );
+    int numCoefficients = 8;
+    
+    int numValues = param->getNumValues( "extract_shots" );
+    vars->numSampEdgeEffectReduction = 2;
+    if( numValues > 1 ) {
+      param->getInt( "extract_shots", &vars->numSampEdgeEffectReduction, 1 );
+    }
+
+    FILE* fin = fopen(text.c_str(),"r");
+    if( fin == NULL ) writer->error("Error opening ASCII file which contains the shot times: '%s'", text.c_str());
+    char buffer[132];
+
+    vars->shotAttrList = new cseis_geolib::csVector<ShotAttr>();
+    csInt64_t shot_time_prev = 0;
+    while( fgets(buffer,132,fin) != NULL ) {
+      ShotAttr shotAttr;
+      int shot_time_s;
+      int shot_time_us;
+      if( (int)strlen(buffer) < 4 ) continue;
+      sscanf(buffer,"%d %d %d", &shotAttr.id, &shot_time_s, &shot_time_us);
+      shotAttr.time_us = (csInt64_t)shot_time_s*1000000LL + (csInt64_t)shot_time_us;
+      if( shotAttr.time_us < shot_time_prev ) writer->error("Shot times not in ascending order");
+      vars->shotAttrList->insertEnd( shotAttr );
+      shot_time_prev = shotAttr.time_us;
+      if( edef->isDebug() ) cout << "Shot time " << shot_time_prev << " " << shotAttr.id << "\n";
+    }
+    int numTimes = vars->shotAttrList->size();
+    if( numTimes == 0 ) writer->error("No shot times read in from file %s: Is shot time file empty?\n", text.c_str() );
+    int shotTime1_s = (int)vars->shotAttrList->at(0).time_us/1000000LL;
+    int shotTime2_s = (int)vars->shotAttrList->at(numTimes-1).time_us/1000000LL;
+    writer->line("Read in %d shot times from %s to %s\n", numTimes, csGeolibUtils::UNIXsec2dateString(shotTime1_s).c_str(), csGeolibUtils::UNIXsec2dateString(shotTime2_s).c_str() );
+    fclose(fin);
+    vars->shotBuffer     = new float[shdr->numSamples];
+    vars->shotBufferTemp = new float[vars->numSamplesOrig];
+    for( int isamp = 0; isamp < shdr->numSamples; isamp++ ) {
+      vars->shotBuffer[isamp] = 0;
+    }
+    vars->interpol = new csInterpolation( vars->numSamplesOrig, shdr->sampleInt, numCoefficients );
+    vars->idCurrentShot = vars->shotAttrList->at(0).id;
+    vars->startTimeCurrentShot_us = vars->shotAttrList->at(0).time_us;
+
+    vars->endTimeCurrentShot_us   = vars->startTimeCurrentShot_us + (csInt64_t)(shdr->numSamples-1) * (csInt64_t)shdr->sampleInt*1000LL;
+    vars->isNonZeroShotInMemory = false;
+    vars->traceGatherKeep = new cseis_system::csTraceGather( hdef );
+
+    vars->hdrID_time_samp1_s  = hdef->headerIndex( HDR_TIME_SAMP1.name );
+    vars->hdrID_time_samp1_us = hdef->headerIndex( HDR_TIME_SAMP1_US.name );
+    if( !hdef->headerExists( HDR_FFID.name ) ) hdef->addStandardHeader( HDR_FFID.name );
+    vars->hdrID_key = hdef->headerIndex( HDR_FFID.name );
+
+    vars->indexCurrentInternalTrace = 0;
+  }
+  else if( param->exists("table") ) {
     if( vars->isShiftTrace ) {
-      log->error("Trace shift is not possile to perform when specifying start/end times in a table");
+      writer->error("Trace shift is not possible to perform when specifying start/end times in a table");
     }
 
     csSort<double> sortObj;
@@ -185,25 +283,17 @@ void init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWri
       table.initialize( text );
       int numKeys   = table.numKeys();
       int numValues = table.numValues();
-      if( numKeys != 1 ) log->error("Number of key columns in input table file: %d. Only 1 key column is currently supported", numKeys);
-      if( numValues != 2 ) log->error("Number of value columns in input table file: %d. Expected 2 value columns, i.e. 'start' and 'end'", numValues);
+      if( numKeys != 1 ) writer->error("Number of key columns in input table file: %d. Only 1 key column is currently supported", numKeys);
+      if( numValues != 2 ) writer->error("Number of value columns in input table file: %d. Expected 2 value columns, i.e. 'start' and 'end'", numValues);
       if( table.valueName(0).compare("start") ) {
-        log->warning("Name of first table value is '%s'. Correct/expected value name should be 'start'.", table.valueName(0).c_str() );
+        writer->warning("Name of first table value is '%s'. Correct/expected value name should be 'start'.", table.valueName(0).c_str() );
       }
       if( table.valueName(1).compare("end") ) {
-        log->warning("Name of second table value is '%s'. Correct/expected value name should be 'end'.", table.valueName(1).c_str() );
+        writer->warning("Name of second table value is '%s'. Correct/expected value name should be 'end'.", table.valueName(1).c_str() );
       }
       vars->hdrID_key   = hdef->headerIndex( table.keyName(0) );
       vars->hdrType_key = hdef->headerType( table.keyName(0) );
 
-/*      int numCols = 3;
-      type_t* colTypes = new type_t[numCols];
-      colTypes[0] = vars->hdrType_key;
-      colTypes[1] = TYPE_DOUBLE;
-      colTypes[2] = TYPE_DOUBLE;
-      table.readTableContents( colTypes, numKeys+numValues );
-      delete [] colTypes;
-*/
       table.readTableContents();
 
       if( edef->isDebug() ) table.dump();
@@ -240,9 +330,9 @@ void init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWri
         }
 
         if( edef->isDebug() ) {
-          log->line("Good ranges:");
+          writer->line("Good ranges:");
           for( int iline = 0; iline < numLines; iline++ ) {
-            log->line("  #%-3d:  %f  - %f", iline, startTimes[iline], endTimes[iline]);
+            writer->line("  #%-3d:  %f  - %f", iline, startTimes[iline], endTimes[iline]);
           }
         }
 
@@ -258,20 +348,20 @@ void init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWri
         vars->endTimes[iloc]   = endTimes;
 
         if( edef->isDebug() ) {
-          log->line("Bad ranges:");
+          writer->line("Bad ranges:");
           for( int iline = 0; iline < numLines+1; iline++ ) {
-            log->line("  #%-3d:  %f  - %f", iline, startTimes[iline], endTimes[iline]);
+            writer->line("  #%-3d:  %f  - %f", iline, startTimes[iline], endTimes[iline]);
           }
         }
       }
       if( indexList ) delete [] indexList;
 
-      log->line("Input table '%s'", table.tableName().c_str() ); 
-      log->line("  Number of key locations:       %d", vars->numLocations);
-      log->line("  CPU time for reading in table: %12.6f seconds\n\n", timer.getElapsedTime() );
+      writer->line("Input table '%s'", table.tableName().c_str() ); 
+      writer->line("  Number of key locations:       %d", vars->numLocations);
+      writer->line("  CPU time for reading in table: %12.6f seconds\n\n", timer.getElapsedTime() );
     }
     catch( csException& exc ) {
-      log->error("Error when initializing input table '%s':\n", text.c_str(), exc.getMessage() );
+      writer->error("Error when initializing input table '%s':\n", text.c_str(), exc.getMessage() );
     }
   }
   else { // No table given
@@ -285,8 +375,8 @@ void init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWri
         vars->numLocations = 1;
         vars->numLines = new int[vars->numLocations];
         vars->numLines[0] = param->getNumValues( "start" );
-        if( vars->numLines[0] == 0 ) log->error("No start values given");
-        else if( param->getNumValues( "end" ) != vars->numLines[0] ) log->error("Unequal start times (%d) and end times (%d) given", vars->numLines[0],param->getNumValues( "end" ));
+        if( vars->numLines[0] == 0 ) writer->error("No start values given");
+        else if( param->getNumValues( "end" ) != vars->numLines[0] ) writer->error("Unequal start times (%d) and end times (%d) given", vars->numLines[0],param->getNumValues( "end" ));
         vars->startTimes = new double*[vars->numLocations];
         vars->endTimes   = new double*[vars->numLocations];
         vars->startTimes[0] = new double[vars->numLines[0]];
@@ -299,7 +389,7 @@ void init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWri
           vars->startTimes[0][iline] = startTime * 1000.0; // Convert to milliseconds
           vars->endTimes[0][iline]   = endTime * 1000.0; // Convert to milliseconds
           if( edef->isDebug() ) {
-            log->line("Start/end times[%d]: %15.3fs  %15.3fs", iline, startTime, endTime);
+            writer->line("Start/end times[%d]: %15.3fs  %15.3fs", iline, startTime, endTime);
           }
         }
       }
@@ -309,16 +399,16 @@ void init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWri
         if( param->exists("end") ) {
           param->getFloat( "end", &endTime );
         }
-        if( startTime < 0.0 ) log->error("Start time (%f) needs to be greater or equal to 0.0.", startTime);
-        if( startTime > endTime ) log->error("Start time (%f) needs to be smaller than end time (%f).", startTime, endTime);
-        if( startTime >= shdr->numSamples*shdr->sampleInt ) log->error("Start time (%f) exceeds input trace end time (%f).", startTime, shdr->numSamples*shdr->sampleInt);
+        if( startTime < 0.0 ) writer->error("Start time (%f) needs to be greater or equal to 0.0.", startTime);
+        if( startTime > endTime ) writer->error("Start time (%f) needs to be smaller than end time (%f).", startTime, endTime);
+        if( startTime >= shdr->numSamples*shdr->sampleInt ) writer->error("Start time (%f) exceeds input trace end time (%f).", startTime, shdr->numSamples*shdr->sampleInt);
         vars->startSamp = (int)(startTime / shdr->sampleInt);  // All in milliseconds
         vars->endSamp   = (int)(endTime / shdr->sampleInt);
       }
     }
     else { // Sample domain
       if( vars->mode == MODE_ABSOLUTE ) {
-        log->error("Absolute start/end times must be provided in seconds since 1-1-1970, not in samples");
+        writer->error("Absolute start/end times must be provided in seconds since 1-1-1970, not in samples");
       }
       //
       // NOTE: User input is '1' for first sample. Internally, '0' is used!!
@@ -328,18 +418,18 @@ void init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWri
       if( param->exists("end") ) {
         param->getInt( "end", &vars->endSamp );
       }
-      if( vars->startSamp < 1 ) log->error("Start sample (%d) needs to be greater or equal to 1.", vars->startSamp);
-      if( vars->startSamp > vars->endSamp ) log->error("Start sample (%d) needs to be smaller than end sample (%d).", vars->startSamp, vars->endSamp);
+      if( vars->startSamp < 1 ) writer->error("Start sample (%d) needs to be greater or equal to 1.", vars->startSamp);
+      if( vars->startSamp > vars->endSamp ) writer->error("Start sample (%d) needs to be smaller than end sample (%d).", vars->startSamp, vars->endSamp);
       vars->startSamp -= 1;   // see note above..
       vars->endSamp   -= 1;
       startTime = (float)vars->startSamp * shdr->sampleInt;
       endTime   = (float)vars->endSamp * shdr->sampleInt;
     }
-    //    if( vars->endSamp > shdr->numSamples ) log->error("Specified end sample/time (%d/%.2f) is larger than number of input samples (%d)",
+    //    if( vars->endSamp > shdr->numSamples ) writer->error("Specified end sample/time (%d/%.2f) is larger than number of input samples (%d)",
     //                                                vars->endSamp, vars->endSamp*shdr->sampleInt, shdr->numSamples);
 
     // Set new number of samples
-    if( vars->mode != MODE_ABSOLUTE ) {
+    if( vars->mode == MODE_RELATIVE ) {
       if( !vars->isShiftTrace ) {
         shdr->numSamples = vars->endSamp + 1;
       }
@@ -353,7 +443,7 @@ void init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWri
     }
 
     if( edef->isDebug() ) {
-      log->line("time1: %f, time2: %f, sample1: %d, sample2: %d, sampInt: %f\n", startTime, endTime, vars->startSamp, vars->endSamp, shdr->sampleInt );
+      writer->line("time1: %f, time2: %f, sample1: %d, sample2: %d, sampInt: %f\n", startTime, endTime, vars->startSamp, vars->endSamp, shdr->sampleInt );
     }
   }
 
@@ -365,45 +455,40 @@ void init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWri
 //
 //
 //*************************************************************************************************
-bool exec_mod_select_time_(
-  csTrace* trace,
+void exec_mod_select_time_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
   //  csTraceHeaderDef const* hdef = env->headerDef;
 
-  if( edef->isCleanup()){
-    if( vars->startTimes != NULL ) {
-      for( int iloc = 0; iloc < vars->numLocations; iloc++ ) {
-        delete [] vars->startTimes[iloc];
-        delete [] vars->endTimes[iloc];
-      }
-      delete [] vars->startTimes;
-      delete [] vars->endTimes;
-      vars->startTimes = NULL;
-      vars->endTimes = NULL;
-    }
-    if( vars->numLines != NULL ) {
-      delete [] vars->numLines;
-      vars->numLines = NULL;
-    }
-    if( vars->keyValues != NULL ) {
-      delete [] vars->keyValues;
-      vars->keyValues  = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
-  
-  if( edef->isDebug() ) {
-    log->line("SELECT_TIME: Number of samples in trace: %d, Super header: %d",
-      trace->numSamples(), shdr->numSamples );
+
+  vars->traceCounter += traceGather->numTraces();
+  //  cout << "************ READ IN TRACE " << vars->traceCounter << "\n";
+  if( edef->isLastCall() && vars->mode == mod_select_time::MODE_SHOTS && vars->isNonZeroShotInMemory ) {
+    csInt64_t dummy1;
+    csInt64_t dummy2;
+    addShot( vars, traceGather, dummy1, dummy2, shdr );
+    vars->traceGatherKeep->freeAllTraces();
+    vars->isNonZeroShotInMemory = false; // Redundant
+    vars->indexCurrentInternalTrace = 0;
+    return;
   }
 
+  if( traceGather->numTraces() == 0 ) {
+    return;
+  }
+  csTrace* trace = traceGather->trace(0);
   float* samples = trace->getTraceSamples();
+
+  if( edef->isDebug() ) {
+    writer->line("SELECT_TIME: Number of samples in trace: %d, Super header: %d", trace->numSamples(), shdr->numSamples );
+  }
 
   if( vars->isTable ) {
     double sampleIntInSeconds = (double)shdr->sampleInt / 1000.0;
@@ -418,7 +503,7 @@ bool exec_mod_select_time_(
       location += 1;
     }
     if( location >= vars->numLocations ) {
-      log->warning("Key value %d not found in input table. No time selection applied.", keyValue);
+      writer->warning("Key value %d not found in input table. No time selection applied.", keyValue);
     }
     else {
       double time_firstSamp = (double)time_samp1_s + ((double)time_samp1_us)/1000000.0;   // Absolute time of first sample, in seconds since 01-01-1970
@@ -431,46 +516,174 @@ bool exec_mod_select_time_(
 
       int numDeletedSamples = 0;
 
-      if( edef->isDebug() ) log->line("--- KEY %f ---", keyValue );
+      if( edef->isDebug() ) writer->line("--- KEY %f ---", keyValue );
       while( iline < numLines && endTimes[iline] < time_firstSamp ) iline += 1;
       while( iline < numLines && startTimes[iline] <= time_lastSamp ) {
         if( startTimes[iline] <= time_firstSamp && endTimes[iline] >= time_lastSamp ) {
-          if( edef->isDebug() ) log->line("   ZERO'ing WHOLE TRACE!");
+          if( edef->isDebug() ) writer->line("   ZERO'ing WHOLE TRACE!");
           memset( samples, 0, shdr->numSamples*4 );
           numDeletedSamples = shdr->numSamples;
           break;
         }
         int startSamp = (int)( ( MAX( startTimes[iline], time_firstSamp ) - time_firstSamp ) / sampleIntInSeconds + 0.5 );
         int endSamp   = MIN( (int)( ( MIN( endTimes[iline], time_lastSamp ) - time_firstSamp ) / sampleIntInSeconds + 0.5 ), shdr->numSamples-1 );
-        if( edef->isDebug() ) log->line("   ZERO'ing samples: %10d to %10d,   %f  to %f  (%f  %f)", startSamp, endSamp, startTimes[iline], endTimes[iline], time_firstSamp, time_lastSamp );
+        if( edef->isDebug() ) writer->line("   ZERO'ing samples: %10d to %10d,   %f  to %f  (%f  %f)", startSamp, endSamp, startTimes[iline], endTimes[iline], time_firstSamp, time_lastSamp );
         memset( &samples[startSamp], 0, (endSamp-startSamp+1)*4 );
         numDeletedSamples += (endSamp-startSamp+1);
         iline += 1;
       }
       if( vars->isDelTrace && (float)numDeletedSamples/(float)shdr->numSamples >= vars->percentDelTrace_ratio ) {
-        return false;
+        traceGather->freeTrace(0);
       }
-      return true;
+      return;
     }
+  }
+  //--------------------------------------------------------------------------------
+  // Splice data into new shot records, based on shot times read in from ASCII file
+  else if( vars->mode == MODE_SHOTS ) {
+    if( vars->shotAttrList->size() == 0 ) { // No more shots to splice --> Remove traces and return
+      traceGather->freeAllTraces();
+      return;
+    }
+
+    traceGather->moveTraceTo( 0, vars->traceGatherKeep );  // Move all traces to internal buffer for further processing
+    if( vars->indexCurrentInternalTrace >= vars->traceGatherKeep->numTraces() ) writer->error("Inconsistent trace index: %d %d", vars->indexCurrentInternalTrace, vars->traceGatherKeep->numTraces() );
+    trace = vars->traceGatherKeep->trace( vars->indexCurrentInternalTrace );
+
+    csTraceHeader* trcHdr = trace->getTraceHeader();
+    csInt64_t startTimeCurrentTrace_us = (csInt64_t)trcHdr->intValue( vars->hdrID_time_samp1_s )*1000000LL + (csInt64_t)trcHdr->intValue( vars->hdrID_time_samp1_us );
+    csInt64_t endTimeCurrentTrace_us   = startTimeCurrentTrace_us + (csInt64_t)( (vars->numSamplesOrig-1) * shdr->sampleInt )*1000LL;
+    csInt64_t sampleInt_us = (csInt64_t)round( (double)shdr->sampleInt * 1000.0 );
+    
+    //    cout << "  Num internal traces: " << vars->traceGatherKeep->numTraces() << " / shot in memory? " << vars->isNonZeroShotInMemory << "\n";
+    //    cout << "A Trace time: " <<  startTimeCurrentTrace_us << "  " << endTimeCurrentTrace_us << " / " Shot time:  " <<  vars->startTimeCurrentShot_us << "  " << vars->endTimeCurrentShot_us << "\n";
+
+    //--------------------------------------------------------------------------------
+    // (2) Current trace time range is earlier than currently requested shot time --> throw trace away, move on to next trace if available. Return to trace flow if no more trace available
+    while( endTimeCurrentTrace_us < vars->startTimeCurrentShot_us && vars->traceGatherKeep->numTraces() > 0 ) {
+      //      cout << " ---- (2) trace end time earlier than requested shot ------\n";
+      vars->traceGatherKeep->freeTrace(0);
+      if( vars->traceGatherKeep->numTraces() == 0 ) {
+        return;
+      }
+      vars->indexCurrentInternalTrace = 0;
+      trace  = vars->traceGatherKeep->trace(vars->indexCurrentInternalTrace);
+      trcHdr = trace->getTraceHeader();
+      startTimeCurrentTrace_us = (csInt64_t)trcHdr->intValue( vars->hdrID_time_samp1_s )*1000000LL + (csInt64_t)trcHdr->intValue( vars->hdrID_time_samp1_us );
+      endTimeCurrentTrace_us   = startTimeCurrentTrace_us + (csInt64_t)( (vars->numSamplesOrig-1) * shdr->sampleInt )*1000LL;
+    }
+    samples = trace->getTraceSamples();
+
+    //    cout << "B Trace time: " <<  startTimeCurrentTrace_us << "  " << endTimeCurrentTrace_us << " / " Shot time:  " <<  vars->startTimeCurrentShot_us << "  " << vars->endTimeCurrentShot_us << "\n";
+
+    // (3) Current trace start time is later than currently requested shot end time --> Output currently buffered shot to trace flow if there is one, and prepare next shot
+    while( startTimeCurrentTrace_us > vars->endTimeCurrentShot_us && vars->shotAttrList->size() > 0 ) {
+      //      cout << " ---- (3) Trace start time later than requested shot ------\n";
+      // Output currently buffered shot to internally stored trace and move this trace out to trace flow
+      if( vars->isNonZeroShotInMemory ) {
+        addShot( vars, traceGather, startTimeCurrentTrace_us, endTimeCurrentTrace_us, shdr );
+      }
+      vars->shotAttrList->remove(0); // Remove currently requested shot since this has now been processed. The current and all following traces have later times.
+      if( vars->shotAttrList->size() == 0 ) {
+        vars->traceGatherKeep->freeAllTraces();
+        return; // Nothing more to do. All requested shots have been processed
+      }
+      vars->idCurrentShot = vars->shotAttrList->at(0).id;
+      vars->startTimeCurrentShot_us = vars->shotAttrList->at(0).time_us;
+
+      vars->endTimeCurrentShot_us   = vars->startTimeCurrentShot_us + (csInt64_t)(shdr->numSamples-1) * (csInt64_t)shdr->sampleInt*1000LL;
+    } // END: Check if current trace start time is later than requested shot time
+
+    //    cout << "C Trace time: " <<  startTimeCurrentTrace_us << "  " << endTimeCurrentTrace_us << " / " Shot time:  " <<  vars->startTimeCurrentShot_us << "  " << vars->endTimeCurrentShot_us << "\n";
+
+    // (2) Current trace time range overlaps with currently requested shot --> Store overlapping samples in shotBuffer, iterate through all internally stored traces, then return to trace flow.
+    // Add shot to output trace flow if needed.
+    if( startTimeCurrentTrace_us <= vars->endTimeCurrentShot_us && endTimeCurrentTrace_us >= vars->startTimeCurrentShot_us ) {
+      bool loopAgain;
+      int shift_us = 0;
+      // Loop over internally stored traces (traceGatherKeep):
+      do {
+        loopAgain = false;
+        // Apply sub-sample static shift to align current trace samples to full sample index relative to requested shot time
+        shift_us = -( vars->startTimeCurrentShot_us - startTimeCurrentTrace_us ) % sampleInt_us;
+        if( shift_us > 0 ) shift_us = shift_us - sampleInt_us;
+        float shift_ms = (float)( (double)shift_us/1000.0 );  // Subsample bulk shift in [ms]
+
+        // Shift current trace by shift_us --> shotBufferTemp
+        vars->interpol->static_shift( shift_ms, samples, vars->shotBufferTemp ); // Shift trace samples so that they match up on a full sample with requested shot time
+        startTimeCurrentTrace_us -= shift_us;
+        endTimeCurrentTrace_us   -= shift_us; 
+        //        cout << " ---- OVERLAP FOUND " <<  vars->shotAttrList->size() << " " << vars->traceGatherKeep->numTraces()  << " / Shift: " << shift_us << "\n";
+
+        // Reduce overlap range by one sample if overlap zone touches edge of input trace. The reason is that the static shift will have distorted the first or last samples depending on the shift.
+        csInt64_t reduceStartSample_us = 0LL; // No reduction needed if time shift was exactly 0
+        if( shift_us < 0 ) { // Only reduce trace length when needed.
+          reduceStartSample_us    = vars->numSampEdgeEffectReduction * sampleInt_us;
+          endTimeCurrentTrace_us -= vars->numSampEdgeEffectReduction * sampleInt_us;
+        }
+
+        // Determine overlapping time range
+        csInt64_t startTime_us = std::max( vars->startTimeCurrentShot_us, startTimeCurrentTrace_us + reduceStartSample_us );
+        csInt64_t endTime_us   = std::min( vars->endTimeCurrentShot_us,   endTimeCurrentTrace_us   );
+        int numSampToCopy = (int)( (endTime_us - startTime_us)/sampleInt_us ) + 1;
+        int samp1In  = (int)( (startTime_us - startTimeCurrentTrace_us)/sampleInt_us );
+        int samp1Out = (int)( (startTime_us - vars->startTimeCurrentShot_us)/sampleInt_us );
+        //    cout << "D Trace time: " <<  startTimeCurrentTrace_us << "  " << endTimeCurrentTrace_us << " / " Shot time:  " <<  vars->startTimeCurrentShot_us << "  " << vars->endTimeCurrentShot_us << "\n";
+        //    cout << " ..set times: " << startTime_us << " " << endTime_us << " / Copy samples: " << samp1In << " " <<  samp1Out << " " <<  numSampToCopy << "\n";
+
+        if( samp1In < 0 || samp1Out < 0 ) writer->error("SELECT_TIME: Program bug in exec phase. Wrong computed sample index: %d %d\n", samp1In, samp1Out );
+        if( samp1In >= vars->numSamplesOrig || samp1Out >= shdr->numSamples ) writer->error("Incorrect computed sample index: samp_in:%d, samp_out:%d (nsamp_in:%d, nsamp_out: %d)\nCheck time stamps (headers time_samp1,time_samp1_us) in input data\n", samp1In, samp1Out, vars->numSamplesOrig, shdr->numSamples );
+        
+        if( numSampToCopy > 0 ) memcpy( &vars->shotBuffer[samp1Out], &vars->shotBufferTemp[samp1In], numSampToCopy*sizeof(float) );
+        vars->isNonZeroShotInMemory = true;
+        vars->indexCurrentInternalTrace += 1; // Look at next trace to find missing samples for current on next iteration
+
+        // There are more internally stored traces AND the current shot time range exceeds the current internally stored trace --> iterate through next internally stored trace
+        if( vars->indexCurrentInternalTrace < vars->traceGatherKeep->numTraces() && vars->endTimeCurrentShot_us > endTimeCurrentTrace_us ) {
+          trace   = vars->traceGatherKeep->trace( vars->indexCurrentInternalTrace );
+          trcHdr  = trace->getTraceHeader();
+          samples = trace->getTraceSamples();
+          startTimeCurrentTrace_us = (csInt64_t)trcHdr->intValue( vars->hdrID_time_samp1_s )*1000000LL + (csInt64_t)trcHdr->intValue( vars->hdrID_time_samp1_us );
+          endTimeCurrentTrace_us   = startTimeCurrentTrace_us + (csInt64_t)( (vars->numSamplesOrig-1) * shdr->sampleInt )*1000LL;
+          loopAgain = ( vars->endTimeCurrentShot_us > startTimeCurrentTrace_us );
+        }
+      } while( loopAgain ); // Loop over internally stored traces to seek for more samples for currently requested shot
+
+      if( vars->endTimeCurrentShot_us <= endTimeCurrentTrace_us ) { // Shot has been completely copied --> release this (shot) trace to trace flow, move to next shot
+        addShot( vars, traceGather, startTimeCurrentTrace_us, endTimeCurrentTrace_us, shdr );
+        vars->shotAttrList->remove(0); // Remove currently requested shot since this has now been processed. This and all following traces have later times.
+        if( vars->shotAttrList->size() == 0 ) {
+          vars->traceGatherKeep->freeAllTraces();
+          return; // Nothing more to do. All requested shots have been processed
+        }
+        vars->idCurrentShot = vars->shotAttrList->at(0).id;
+        vars->startTimeCurrentShot_us = vars->shotAttrList->at(0).time_us;
+        vars->endTimeCurrentShot_us   = vars->startTimeCurrentShot_us + (csInt64_t)(shdr->numSamples-1) * (csInt64_t)shdr->sampleInt*1000L;
+        vars->indexCurrentInternalTrace = 0; // Start looking at earliest trace for this shot on next iteration
+        //        cout << " ADDED SHOT, numtraces in keep gather: " << vars->traceGatherKeep->numTraces() << "\n";
+      }
+    }
+    edef->setTracesAreWaiting( vars->traceGatherKeep->numTraces() > 0 );
+    return;
   }
   else if( vars->mode == MODE_ABSOLUTE ) {
     csTraceHeader* trcHdr = trace->getTraceHeader();
     double startTimeCurrent_ms = 1000.0 * (double)trcHdr->intValue( vars->hdrID_time_samp1_s ) + (double)trcHdr->intValue( vars->hdrID_time_samp1_us )/1000.0;
-    double endTimeCurrent_ms   = (double)startTimeCurrent_ms + (double)( shdr->numSamples * shdr->sampleInt );
-
+    double endTimeCurrent_ms   = (double)startTimeCurrent_ms + (double)( (shdr->numSamples-1) * shdr->sampleInt );
     if( edef->isDebug() ) {
-      log->line("Start/end times: %15.3fs  %15.3fs", startTimeCurrent_ms/1000, endTimeCurrent_ms/1000);
+      writer->line("Start/end times: %15.3fs  %15.3fs", startTimeCurrent_ms/1000, endTimeCurrent_ms/1000);
     }
     for( int iline = 0; iline < vars->numLines[0]; iline++ ) {
       if( endTimeCurrent_ms <= vars->startTimes[0][iline] || startTimeCurrent_ms >= vars->endTimes[0][iline] ) {
         continue;
       }
       else {
-        return true;  // At least some portion of trace is within specified time window
+        return;  // At least some portion of trace is within specified time window
         break;
       }
     }
-    return false;
+    traceGather->freeTrace(0);
+    return;
   }
   else if( !vars->isShiftTrace ) {
     //
@@ -494,7 +707,7 @@ bool exec_mod_select_time_(
     trace->trim();
   }
 
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -516,6 +729,7 @@ void params_mod_select_time_( csParamDef* pdef ) {
   pdef->addValue( "relative", VALTYPE_OPTION );
   pdef->addOption( "relative", "Time window(s) are specified in relative time or sample index" );
   pdef->addOption( "absolute", "Time window(s) are specified as absolute times" );
+  pdef->addOption( "extract_shots", "Extract shot records by absolute shot time. Read in shot times from table (single column). Specify 'nsamples' for number of output samples" );
 
   pdef->addParam( "start", "List of start times/samples", NUM_VALUES_FIXED, "Depends on 'domain' parameter" );
   pdef->addValue( "0", VALTYPE_NUMBER, "Start times/samples" );
@@ -525,6 +739,12 @@ void params_mod_select_time_( csParamDef* pdef ) {
 
   pdef->addParam( "table", "Table with window start/end times or samples", NUM_VALUES_FIXED, "For absolute time mode, columns 'start_time' and 'end_time', given in [ms] since 01-Jan-1970, must be specified" );
   pdef->addValue( "", VALTYPE_STRING, "Full path name of table containing window start/end times");
+
+  pdef->addParam( "extract_shots", "Parameters for shot extraction", NUM_VALUES_VARIABLE );
+  pdef->addValue( "", VALTYPE_STRING, "Full path name of ASCII file containing shot ID and times in the form of two integer numbers: SHOTID TIME[s] TIME_FRACTION[us]");
+  pdef->addValue( "2", VALTYPE_NUMBER, "Number of samples at start and end of each input trace to skip in order to reduce edge effects from internal sinc interpolation");
+  //  pdef->addValue( "8", VALTYPE_NUMBER, "Number of coefficients for internal sinc interpolation (needed for potential relative static shifts between contributions from more than one input trace to one output trace)");
+
 
   pdef->addParam( "del_traces", "Delete trace if more then specified amount of trace has been de-selected", NUM_VALUES_VARIABLE,
                   "This option really only makes sense when used in conjunction with an absolute time selection" );
@@ -543,14 +763,104 @@ void params_mod_select_time_( csParamDef* pdef ) {
   pdef->addValue( "no", VALTYPE_OPTION );
   pdef->addOption( "no", "Do not shift trace. This means that output trace length will be (endSample+1) samples long" );
   pdef->addOption( "yes", "Shift first life sample to start of trace. This means that output trace length will be (endSample-startSample+1) samples long" );
+
+  pdef->addParam( "nsamples", "Number of samples per output trace", NUM_VALUES_FIXED );
+  pdef->addValue( "", VALTYPE_NUMBER, "Number of output samples", "Specify only in case of 'mode shot_records'" );
+}
+
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_select_time_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  //  mod_select_time::VariableStruct* vars = reinterpret_cast<mod_select_time::VariableStruct*>( env->execPhaseDef->variables() );
+  //  csExecPhaseDef* edef = env->execPhaseDef;
+  //  csSuperHeader const* shdr = env->superHeader;
+  //  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_select_time_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_select_time::VariableStruct* vars = reinterpret_cast<mod_select_time::VariableStruct*>( env->execPhaseDef->variables() );
+  //  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->startTimes != NULL ) {
+    for( int iloc = 0; iloc < vars->numLocations; iloc++ ) {
+      delete [] vars->startTimes[iloc];
+      delete [] vars->endTimes[iloc];
+    }
+    delete [] vars->startTimes;
+    delete [] vars->endTimes;
+    vars->startTimes = NULL;
+    vars->endTimes = NULL;
+  }
+  if( vars->numLines != NULL ) {
+    delete [] vars->numLines;
+    vars->numLines = NULL;
+  }
+  if( vars->shotAttrList != NULL ) {
+    delete vars->shotAttrList;
+    vars->shotAttrList = NULL;
+  }
+  if( vars->shotBuffer != NULL ) {
+    delete [] vars->shotBuffer;
+    vars->shotBuffer = NULL;
+  }
+  if( vars->shotBufferTemp != NULL ) {
+    delete [] vars->shotBufferTemp;
+    vars->shotBufferTemp = NULL;
+  }
+  if( vars->keyValues != NULL ) {
+    delete [] vars->keyValues;
+    vars->keyValues  = NULL;
+  }
+  if( vars->interpol != NULL ) {
+    delete vars->interpol;
+    vars->interpol = NULL;
+  }
+  if( vars->traceGatherKeep != NULL ) {
+    delete vars->traceGatherKeep;
+    vars->traceGatherKeep = NULL;
+  }
+  delete vars; vars = NULL;
 }
 
 extern "C" void _params_mod_select_time_( csParamDef* pdef ) {
   params_mod_select_time_( pdef );
 }
-extern "C" void _init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_select_time_( param, env, log );
+extern "C" void _init_mod_select_time_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_select_time_( param, env, writer );
 }
-extern "C" bool _exec_mod_select_time_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_select_time_( trace, port, env, log );
+extern "C" bool _start_exec_mod_select_time_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_select_time_( env, writer );
+}
+extern "C" void _exec_mod_select_time_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_select_time_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_select_time_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_select_time_( env, writer );
+}
+
+void addShot( VariableStruct* vars, cseis_system::csTraceGather* traceGather, csInt64_t& startTimeCurrentTrace_us, csInt64_t& endTimeCurrentTrace_us, cseis_system::csSuperHeader const* shdr ) {
+  vars->traceGatherKeep->copyTraceTo( 0, traceGather );  // Use earliest trace as template for output trace
+  cseis_system::csTrace* trace  = traceGather->trace( traceGather->numTraces()-1 );
+  cseis_system::csTraceHeader* trcHdr = trace->getTraceHeader();
+  float* samples = trace->getTraceSamples();
+
+  int time_samp1_s  = (int)(vars->startTimeCurrentShot_us/1000000LL);
+  int time_samp1_us = (int)(vars->startTimeCurrentShot_us%1000000LL);
+  trcHdr->setIntValue( vars->hdrID_time_samp1_s, time_samp1_s );
+  trcHdr->setIntValue( vars->hdrID_time_samp1_us, time_samp1_us );
+  trcHdr->setIntValue( vars->hdrID_key, vars->idCurrentShot );
+  startTimeCurrentTrace_us = (csInt64_t)trcHdr->intValue( vars->hdrID_time_samp1_s )*1000000LL + (csInt64_t)trcHdr->intValue( vars->hdrID_time_samp1_us );
+  endTimeCurrentTrace_us   = startTimeCurrentTrace_us + (csInt64_t)( (vars->numSamplesOrig-1) * shdr->sampleInt )*1000LL;
+  memcpy( samples, vars->shotBuffer, shdr->numSamples*sizeof(float) );
+  for( int isamp = 0; isamp < shdr->numSamples; isamp++ ) {
+    vars->shotBuffer[isamp] = 0;
+  }
+  vars->isNonZeroShotInMemory = false;
 }

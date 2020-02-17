@@ -4,6 +4,8 @@
 #ifndef CSEIS_DEFINES_H
 #define CSEIS_DEFINES_H
 
+#define CS_DEBUG
+
 #include "geolib_defines.h"
 
 namespace cseis_system {
@@ -16,30 +18,32 @@ class csInitPhaseEnv;
 class csExecPhaseEnv;
 class csLogWriter;
  
-//typedef void (*MParamVoidPtr) ( void* );
-typedef void (*MParamPtr) ( csParamDef* );
-typedef void (*MInitPtr) ( csParamManager*, csInitPhaseEnv*, csLogWriter* );
-typedef bool (*MExecSingleTracePtr) ( csTrace*, int*, csExecPhaseEnv*, csLogWriter* );
+typedef void (*MParamPtr) ( csParamDef* paramDef );
+typedef void (*MInitPtr) ( csParamManager* param, csInitPhaseEnv* initPhaseEnv, csLogWriter* writer );
 /**
-* Multi-trace exec phase method
+* Start of exec phase method, called once per module
+*/
+typedef bool (*MExecStartPtr) ( csExecPhaseEnv* env, csLogWriter* writer );
+/**
+* Exec phase method
 * @param traceGather: Gather containing a number of traces (for example one 'ensemble')
 * @param port:        Output port number
 * @param numTrcToKeep: Number of traces to keep until next pass of exec method
 *        The last numTrcToKeep traces in trace gather are not moved immediately to the next module
 *        Instead, they stay until the next pass of the exec method
+* @param env:     Exec phase environment.
+* @param writer:  Output log writer
 */
-typedef void (*MExecMultiTracePtr) (
-  csTraceGather* traceGather,
-  int* port,
-  int* numTrcToKeep,
-  csExecPhaseEnv* env,
-  csLogWriter* log );
+typedef void (*MExecPtr) ( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer );
+/**
+* Clean-up phase method
+*/
+typedef void (*MCleanupPtr) ( csExecPhaseEnv* env, csLogWriter* writer );
 
 // Execution type for modules
-static int const EXEC_TYPE_INPUT       = 111;   // Input module
-static int const EXEC_TYPE_SINGLETRACE = 222;   // Single trace module
-static int const EXEC_TYPE_MULTITRACE  = 333;   // Multi trace module
-static int const EXEC_TYPE_UNKNOWN     = 0;
+static int const EXEC_TYPE_INPUT      = 111;   // Input module
+static int const EXEC_TYPE_NORMAL     = 333;   // Multi trace module
+static int const EXEC_TYPE_UNKNOWN    = 0;
 
 /// Trace mode types
 /// This mode defines how to determine which traces shall be passed to the module exec phase method
@@ -72,8 +76,8 @@ static int const MAX_LENGTH_PARAMETER = 20;
 static int const MAX_LINE_LENGTH = 1024;
 static char const LETTER_MODULE = '$';   // Letter preceding module name in Cseis flow
 static char const LETTER_COMMENT = '#';  // Letter indicating comment line in Cseis flow
-
-#define CSEIS_VERSION "2.05"
+ 
+#define CSEIS_VERSION "3.00"
 
 }
 

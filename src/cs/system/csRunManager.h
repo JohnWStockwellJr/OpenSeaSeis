@@ -1,8 +1,8 @@
 /* Copyright (c) Colorado School of Mines, 2013.*/
 /* All rights reserved.                       */
 
-#ifndef CS_RUN_MANAGER_HH
-#define CS_RUN_MANAGER_HH
+#ifndef CS_RUN_MANAGER_H
+#define CS_RUN_MANAGER_H
 
 #include <string>
 #include <cstdio>
@@ -55,7 +55,7 @@ public:
   * @param memoryPolicy   ...as defined in csMemoryPoolManager: POLICY_SPEED or POLICY_MEMORY
   * @param isDebug true if extended debug information shall be printed
   */
-  csRunManager( csLogWriter* log, int memoryPolicy, bool isDebug = false );
+  csRunManager( csLogWriter* log, int memoryPolicy, int mpiProcID, int mpiNumProc, bool isDebug = false );
   ~csRunManager();
   /**
   * Run initialisation phase for all modules
@@ -69,11 +69,15 @@ public:
   * @param globalConstList (i) List of global constants that shall be replaced in input flow
   */
   int runInitPhase( char const* filenameFlow, std::FILE* f_flow, cseis_geolib::csCompareVector<csUserConstant>* globalConstList );
+  int runExecStartPhase();
   /**
   * Run execution phase for all modules
   */
   int runExecPhase();
-
+  int mpi_runExecPhase();
+  void mpi_terminateExecPhase();
+  void execPhaseCompletionTasks();
+  
   static bool checkParameters( char const* moduleName, csParamDef const* paramDef, cseis_geolib::csVector<csUserParam*>* userParams, csLogWriter* log );
 private:
   csRunManager(csRunManager const& obj);
@@ -87,6 +91,8 @@ private:
   cseis_geolib::csVector<int>** myPrevModuleID;
   int myNumModules;
   bool myIsDebug;
+  int myMPIProcID;
+  int myMPINumProc;
   /**
    * Parse version string.
    * @return false if string does not contain valid version string

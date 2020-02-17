@@ -6,6 +6,9 @@
 #include "csFFTTools.h"
 #include <cmath>
 #include <cstring>
+#include "csTimeFunction.h"
+#include "csTableNew.h"
+#include "csTableValueList.h"
 
 using namespace cseis_system;
 using namespace cseis_geolib;
@@ -20,16 +23,11 @@ using namespace std;
  */
 namespace mod_filter {
   struct VariableStruct {
-    float cutoffLow;
-    float cutoffHigh;
-    bool isLowPass;
-    bool isHighPass;
-    float order;
     csFFTTools* fftTool;
     csFFTTools** fftToolWin;
     int filterType;
     bool isPad;
-    int paddedSamples;
+    int numPaddedSamples;
     int numSamplesInclPad;
     float* bufferPaddedTrace;
     int output;
@@ -45,25 +43,44 @@ namespace mod_filter {
     int  winOverlapSamples; // Window overlap in number of samples 
     float* freqLowPass;
     float* freqHighPass;
-    float* orderLowPass;
-    float* orderHighPass;
+    float* slopeLowPass;
+    float* slopeHighPass;
     float* winBufferIn;
     float* winBufferOut;
+    int numLowPassFilters;
+    int numHighPassFilters;
 
     bool isNotchFilter;
     bool isNotchCosineTaper;
     float notchFreqHz;
     float notchWidthHz;
+    float notchFilterSlope;
+
+    csTableNew* table;
+    int* hdrId_keys;
+    float filterSampleInt;
+    int filterNumSamples;
+    int spatialMaxTime_nsamp;
   };
   static int const UNIT_HZ   = 1;
   static int const UNIT_PERCENT = 2;
-  static int const TYPE_BUTTER = 10;
+
+  static int const TYPE_BUTTER  = 10;
+  static int const TYPE_TABLE   = 11;
+  static int const TYPE_SPATIAL = 12;
 
   static int const OUTPUT_FILT = 41;
   static int const OUTPUT_DIFF = 42;
   static int const OUTPUT_BOTH = 43;
   static int const OUTPUT_IMPULSE = 44;
   static int const OUTPUT_NOTCH = 45;
+
+  static int const PAD_SELF       = 51;
+  static int const PAD_CONTINUOUS = 52;
+
+  void padTrace( mod_filter::VariableStruct* vars, float* samplesInOut, int numSamples );
+  void padTrace2x( mod_filter::VariableStruct* vars, float* samplesInOut, int numSamples );
+
 }
 using namespace mod_filter;
 
@@ -73,7 +90,7 @@ using namespace mod_filter;
 //
 //
 //*************************************************************************************************
-void init_mod_filter_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_filter_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
   csSuperHeader*    shdr = env->superHeader;
@@ -81,19 +98,11 @@ void init_mod_filter_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
   csTraceHeaderDef* hdef = env->headerDef;
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
-  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
-
-  vars->cutoffLow     = 0;
-  vars->cutoffHigh    = 0;
-  vars->isLowPass     = false;
-  vars->isHighPass    = false;
   vars->fftTool       = NULL;
-  vars->order         = 4;
   vars->filterType = mod_filter::TYPE_BUTTER;
 
   vars->isPad             = false;
-  vars->paddedSamples     = 0;
+  vars->numPaddedSamples     = 0;
   vars->numSamplesInclPad = 0;
   vars->bufferPaddedTrace = NULL;
   vars->output = OUTPUT_FILT;
@@ -108,8 +117,8 @@ void init_mod_filter_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
   vars->winNumSamples = NULL;
   vars->freqLowPass  = NULL;
   vars->freqHighPass = NULL;
-  vars->orderLowPass  = NULL;
-  vars->orderHighPass = NULL;
+  vars->slopeLowPass  = NULL;
+  vars->slopeHighPass = NULL;
   vars->winBufferIn = NULL;
   vars->winBufferOut = NULL;
 
@@ -117,63 +126,75 @@ void init_mod_filter_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
   vars->notchWidthHz = 0;
   vars->isNotchFilter = false;
   vars->isNotchCosineTaper = false;
+  vars->notchFilterSlope = 72;
+
+  vars->table          = NULL;
+  vars->hdrId_keys     = NULL;
+  vars->filterSampleInt = shdr->sampleInt;
+  vars->filterNumSamples = shdr->numSamples;
+
+  edef->setMPISupport( true ); // MPI is supported by this module
 //---------------------------------------------
 //
-  bool doRestore = false;
   std::string text;
-  if( param->exists("mode") ) {
-    param->getString("mode", &text );
-    if( !text.compare("restore") ) {
-      doRestore = true;
-    }
-    else if( !text.compare("apply") ) {
-      doRestore = false;
-    }
-    else {
-      log->error("Unknown option: %s", text.c_str() );
-    }
-  }
-
   if( param->exists("type") ) {
     param->getString("type", &text );
     if( !text.compare("butterworth") ) {
       vars->filterType = mod_filter::TYPE_BUTTER;
     }
+    else if( !text.compare("table") ) {
+      vars->filterType = mod_filter::TYPE_TABLE;
+    }
+    else if( !text.compare("spatial") ) {
+      vars->filterType = mod_filter::TYPE_SPATIAL;
+      vars->filterSampleInt = 1.0f;
+      param->getInt("spatial_param", &vars->filterNumSamples, 0 );
+      float maxTime;
+      param->getFloat("spatial_param", &maxTime, 1 );
+      vars->spatialMaxTime_nsamp = (int)round( maxTime / shdr->sampleInt );
+    }
     else {
-      log->error("Unknown option: %s", text.c_str() );
+      writer->error("Unknown option: %s", text.c_str() );
+    }
+  }
+
+  if( vars->filterType != mod_filter::TYPE_SPATIAL ) {
+    edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+  }
+  else {
+    edef->setTraceSelectionMode( TRCMODE_FIXED, vars->filterNumSamples );
+  }
+
+  bool doRestoreFilter = false;
+  if( param->exists("mode") ) {
+    param->getString("mode", &text );
+    if( !text.compare("restore") ) {
+      doRestoreFilter = true;
+    }
+    else if( !text.compare("apply") ) {
+      doRestoreFilter = false;
+    }
+    else {
+      writer->error("Unknown option: %s", text.c_str() );
     }
   }
 
 //---------------------------------------------
 //
   if( param->exists("pad") ) {
-    float padLength;
-    param->getFloat("pad", &padLength );
-    vars->paddedSamples = (int)round( padLength / shdr->sampleInt );
-    vars->numSamplesInclPad = 2 * vars->paddedSamples + shdr->numSamples;
+    float padLength_ms;
+    param->getFloat("pad", &padLength_ms, 0 );
+    vars->numPaddedSamples = (int)round( padLength_ms / vars->filterSampleInt );
+    vars->numSamplesInclPad = 2 * vars->numPaddedSamples + vars->filterNumSamples;
     vars->bufferPaddedTrace = new float[vars->numSamplesInclPad];
     vars->isPad = true;
-    if( shdr->numSamples/2 < vars->paddedSamples ) {
-      log->error("Too much padding: Pad length cannot exceed 1/2 trace length. Maximum pad length = %fms", (float)shdr->numSamples*shdr->sampleInt/2.0f);
+    if( vars->filterNumSamples/2 < vars->numPaddedSamples ) {
+      writer->error("Too much padding: Pad length cannot exceed 1/2 trace length. Maximum pad length = %fms", (float)vars->filterNumSamples*vars->filterSampleInt/2.0f);
     }
   }
+
 //---------------------------------------------
 //
-
-  if( param->exists("impulse") ) {
-    std::string text;
-    param->getString("impulse", &text);
-    if( !text.compare("yes") ) {
-      vars->output = mod_filter::OUTPUT_IMPULSE;
-    }
-    else if( !text.compare("no") ) {
-      //        vars->outputImpulse = false;
-    }
-    else {
-      log->error("Unknown option: '%s'", text.c_str() );
-    }
-  }
-  
   int freqUnit = mod_filter::UNIT_HZ;
   if( param->exists("unit") ) {
     std::string text;
@@ -185,157 +206,115 @@ void init_mod_filter_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
       freqUnit = mod_filter::UNIT_PERCENT;
     }
     else {
-      log->error("Unknown option: '%s'", text.c_str() );
+      writer->error("Unknown option: '%s'", text.c_str() );
     }
   }
 
-  if( param->exists("win_times") ) {
-    if( vars->isPad ) log->error("Windowed filter application does not work in conjunction with padding. Remove user parameter 'pad' and retry.");
-    if( doRestore ) log->error("Windowed filter application does not suppport  the 'mode restore' option. Remove user parameter 'mode' and retry.");
-    if( vars->output == mod_filter::OUTPUT_IMPULSE ) log->error("Windowed filter application does not work in conjunction with impulse output option. Remove user parameter 'impulse' and retry.");
-    if( freqUnit == mod_filter::UNIT_PERCENT ) log->error("Windowed filter application does not support percent option. Remove user parameter 'unit' and retry.");
-    vars->numWin = param->getNumValues("win_times");
-    int numLow  = param->getNumLines("lowpass");
-    int numHigh = param->getNumLines("highpass");
-    if( vars->numWin == 0 || (numLow!=vars->numWin && numHigh!=vars->numWin) ) {
-      log->error("Inconsistent window definition. Need to specify same number of low (=%d) and/or high (=%d) pass points as window start times (=%d)", numLow, numHigh, vars->numWin);
+//---------------------------------------------
+// Retrieve filter scalars from ASCII table
+//
+  bool isWindowedApp = param->exists("win_times");
+  if( param->exists("table") ) {
+    if( vars->filterType != mod_filter::TYPE_TABLE ) writer->error("When reading in filter scalars from a table, you need to specify user paremeter 'type table'");
+    std::string tableFilename;
+    int colTime = 0;
+    int colScalar  = 1;
+    param->getString("table", &tableFilename );
+    param->getInt("table_col",&colTime,0);
+    param->getInt("table_col",&colScalar,1);
+    if( colTime < 1 || colScalar < 1 ) writer->error("Column numbers in table (user parameter 'table_col') must be larger than 0");
+    vars->table = new csTableNew( csTableNew::TABLE_TYPE_TIME_FUNCTION, colTime-1 );
+    int numKeys = param->getNumLines("table_key");
+    if( numKeys > 0 ) {
+      int col;
+      vars->hdrId_keys  = new int[numKeys];
+      for( int ikey = 0; ikey < numKeys; ikey++ ) {
+        std::string headerName;
+        bool interpolate = true;
+        param->getStringAtLine( "table_key", &headerName, ikey, 0 );
+        param->getIntAtLine( "table_key", &col, ikey, 1 );
+        if( param->getNumValues( "table_key", ikey ) > 2 ) {
+          param->getStringAtLine( "table_key", &text, ikey, 2 );
+          if( !text.compare("yes") ) {
+            interpolate = true;
+          }
+          else if( !text.compare("no") ) {
+            interpolate = false;
+          }
+          else {
+            writer->error("Unknown option: %s", text.c_str() );
+          }
+        }
+        vars->table->addKey( col-1, interpolate );  // -1 to convert from 'user' column to 'C++' column
+        if( !isWindowedApp || ikey > 0 ) { // First key in windowed application must be "window" which is not a trace header
+          if( !hdef->headerExists( headerName ) ) {
+            writer->error("No matching trace header found for table key '%s'", headerName.c_str() );
+          }
+          vars->hdrId_keys[ikey] = hdef->headerIndex( headerName );
+        }
+      } // END for ikey
     }
-    if( numLow != 0 ) vars->isLowPass = true;
-    if( numHigh != 0 ) vars->isHighPass = true;
 
-    vars->winOverlapSamples = (int)(500 / shdr->sampleInt);
-    if( param->exists("win_overlap") ) {
-      float overlap_ms = 0;
-      param->getFloat("win_overlap",&overlap_ms);
-      vars->winOverlapSamples = (int)round( 0.5*overlap_ms / shdr->sampleInt ) * 2;
+    // Add scalar 'value' column to input table
+    vars->table->addValue( colScalar-1 );  // -1 to convert from 'user' column to 'C++' column
+    bool sortTable = false;
+    try {
+      vars->table->initialize( tableFilename, sortTable );
+      if( edef->isDebug() ) vars->table->dump();
     }
+    catch( csException& exc ) {
+      writer->error("Error when initializing input table '%s': %s\n", tableFilename.c_str(), exc.getMessage() );
+    }
+  }
 
-    vars->winStartSample = new int[vars->numWin];
-    vars->winEndSample   = new int[vars->numWin];
-    vars->freqLowPass    = new float[vars->numWin];
-    vars->freqHighPass   = new float[vars->numWin];
-    vars->orderLowPass   = new float[vars->numWin];
-    vars->orderHighPass  = new float[vars->numWin];
-    float slope;
-    for( int i = 0; i < vars->numWin; i++ ) {
-      float time;
-      param->getFloat("win_times", &time, i );
-      vars->winStartSample[i] = (int)(round(time / shdr->sampleInt));
-      if( vars->isLowPass ) {
-        param->getFloatAtLine("lowpass", &vars->freqLowPass[i], i, 0 );
-        param->getFloatAtLine("lowpass", &slope, i, 1 );
-        vars->orderLowPass[i] = fabs(slope) / 6.0;
+  vars->numLowPassFilters  = param->getNumLines("lowpass");
+  vars->numHighPassFilters = param->getNumLines("highpass");
+  float freqNy = 500.0f/vars->filterSampleInt;
+  float slope;
+  if( vars->numLowPassFilters  != 0 ) {
+    vars->freqLowPass   = new float[vars->numLowPassFilters];
+    vars->slopeLowPass  = new float[vars->numLowPassFilters];
+    for( int i = 0; i < vars->numLowPassFilters; i++ ) {
+      param->getFloatAtLine("lowpass", &vars->freqLowPass[i], i, 0 );
+      param->getFloatAtLine("lowpass", &slope, i, 1 );
+      vars->slopeLowPass[i] = fabs(slope);
+      if( vars->slopeLowPass[i] < 0.6 ) {
+        writer->error("Specified lowpass slope %f outside of valid range", slope);
       }
-      if( vars->isHighPass ) {
-        param->getFloatAtLine("highpass", &vars->freqHighPass[i], i, 0 );
-        param->getFloatAtLine("highpass", &slope, i, 1 );
-        vars->orderHighPass[i] = fabs(slope) / 6.0;
+      if( doRestoreFilter ) {
+        vars->slopeLowPass[i]  = -vars->slopeLowPass[i];
+      }
+      if( freqUnit == mod_filter::UNIT_PERCENT ) {
+        vars->freqLowPass[i] *= freqNy / 100.0f;
+      }
+      if( vars->freqLowPass[i] < 0 || vars->freqLowPass[i] > freqNy ) {
+        writer->error("Lowpass filter frequency exceeds valid range (0-%fHz): %fHz", freqNy, vars->freqLowPass[i] );
       }
     }
-
-    vars->winStartSample[0] = 0;
-    vars->winEndSample[vars->numWin-1] = shdr->numSamples-1;
-    for( int i = 1; i < vars->numWin; i++ ) {
-      vars->winEndSample[i-1] = vars->winStartSample[i] + vars->winOverlapSamples/2;
-      vars->winStartSample[i] -= vars->winOverlapSamples/2;
-      if( vars->winStartSample[i] < 0 ) log->error("Window #%d, including overlap (=%.2fms), is too large.", i+1, vars->winOverlapSamples*shdr->sampleInt);
-      if( vars->winEndSample[i-1] >= shdr->numSamples ) log->error("Window #%d, including overlap (=%.2fms), is too large.", i+1, vars->winOverlapSamples*shdr->sampleInt);
-    }
-    vars->fftToolWin = new csFFTTools*[vars->numWin];
-    for( int i = 0; i < vars->numWin; i++ ) {
-      int numSamplesWin = vars->winEndSample[i] - vars->winStartSample[i] + 1;
-      vars->fftToolWin[i] = new csFFTTools( numSamplesWin, shdr->sampleInt );
-    }
-    vars->winBufferIn  = new float[shdr->numSamples];
-    vars->winBufferOut = new float[shdr->numSamples];
-
-    for( int iwin = 0; iwin < vars->numWin; iwin++ ) {
-      log->line("Window #%d: Start time/sample %8.2fms/%-5d, end time/sample: %8.2fms/%-5d, number of samples: %d", iwin+1,
-              shdr->sampleInt*vars->winStartSample[iwin], vars->winStartSample[iwin], shdr->sampleInt*vars->winEndSample[iwin], vars->winEndSample[iwin], vars->winEndSample[iwin]-vars->winStartSample[iwin]+1 );
-    }
-  } // END win_times
-
-  //--------------------------------------------------------------------------------
-  //
-  if( vars->numWin == 0 && vars->filterType == mod_filter::TYPE_BUTTER ) {
-    if( param->exists("highpass") ) {
-      param->getFloat("highpass", &vars->cutoffHigh );
-      vars->isHighPass = true;
-    }
-
-    if( param->exists("lowpass") ) {
-      param->getFloat("lowpass", &vars->cutoffLow );
-      vars->isLowPass = true;
-    }
-
-    if( param->exists("slope") ) {
-      float slope;
-      param->getFloat("slope", &slope );
-      vars->order = fabs(slope) / 6.0;
-    }
-    if( param->exists("order") ) {
-      if( param->exists("slope") ) {
-	log->error("Specify only one of the following two user parameters: 'slope' and 'order'");
+  }
+  if( vars->numHighPassFilters != 0 ) {
+    vars->freqHighPass   = new float[vars->numHighPassFilters];
+    vars->slopeHighPass  = new float[vars->numHighPassFilters];
+    for( int i = 0; i < vars->numHighPassFilters; i++ ) {
+      param->getFloatAtLine("highpass", &vars->freqHighPass[i], i, 0 );
+      param->getFloatAtLine("highpass", &slope, i, 1 );
+      vars->slopeHighPass[i] = fabs(slope);
+      if( vars->slopeHighPass[i] < 0.6 ) {
+        writer->error("Specified highpass slope %f outside of valid range", slope);
       }
-      param->getFloat("order", &vars->order );
-    }
-    if( vars->order < 0.1 ) { // || vars->order > 100 ) {
-      log->error("Specified order = %f out of valid range = 0.1-...", vars->order);
-    }
-    if( doRestore ) vars->order = -vars->order;
-
-    if( param->exists("notch_filter") ) {
-      param->getFloat("notch_filter", &vars->notchFreqHz, 0);
-      param->getFloat("notch_filter", &vars->notchWidthHz, 1);
-      std::string text;
-      param->getString("notch_filter", &text, 2);
-      if( !text.compare("cosine") ) {
-        vars->isNotchCosineTaper = true;
+      if( doRestoreFilter ) {
+        vars->slopeHighPass[i]  = -vars->slopeHighPass[i];
       }
-      else if( !text.compare("butter") ) {
-        vars->isNotchCosineTaper = false;
+      if( freqUnit == mod_filter::UNIT_PERCENT ) {
+        vars->freqHighPass[i] *= freqNy / 100.0f;
       }
-      else {
-        log->error("Unknown option: '%s'", text.c_str() );
+      if( vars->freqHighPass[i] < 0 || vars->freqHighPass[i] > freqNy ) {
+        writer->error("Highpass filter frequency exceeds valid range (0-%fHz): %fHz", freqNy, vars->freqHighPass[i] );
       }
-      vars->isNotchFilter = true;
     }
-
-    float freqNy = 500.0f/shdr->sampleInt;
-    if( freqUnit == mod_filter::UNIT_PERCENT ) {
-      if( vars->cutoffHigh < 0 || vars->cutoffHigh > 100 ) {
-        log->error("Filter frequency specified as percent (%) exceeds valid range (0-100): %f", vars->cutoffHigh );
-      }
-      if( vars->cutoffLow < 0 || vars->cutoffLow > 100 ) {
-        log->error("Filter frequency specified as percent (%) exceeds valid range (0-100): %f", vars->cutoffLow );
-      }
-      
-      vars->cutoffHigh *= freqNy / 100.0f;
-      vars->cutoffLow  *= freqNy / 100.0f;
-    }
-    if( vars->cutoffHigh < 0 || vars->cutoffHigh > freqNy ) {
-      log->error("Filter frequency exceeds valid range (0-%f): %f", freqNy, vars->cutoffHigh );
-    }
-    if( vars->cutoffLow < 0 || vars->cutoffLow > freqNy ) {
-      log->error("Filter frequency exceeds valid range (0-%f): %f", freqNy, vars->cutoffLow );
-    }
-
-    if( !vars->isLowPass && !vars->isHighPass && !vars->isNotchFilter ) {
-      log->error("No filter option specified. Specify for user parameter 'lowpass' and/or 'highpass' and/or 'notch_filter'");
-    }
-
-    if( !vars->isPad ) {
-      vars->fftTool = new csFFTTools( shdr->numSamples, shdr->sampleInt );
-    }
-    else {
-      vars->fftTool = new csFFTTools( vars->numSamplesInclPad, shdr->sampleInt );
-    }
-  } // END: Setup bandpass filter
+  }
 
   if( param->exists("output") ) {
-    if( param->exists("impulse") ) {
-      log->error("Use parameter 'output' to specify output option. Remove obsolete parameter 'impulse' from flow");
-    }
     param->getString("output", &text );
     if( !text.compare("filt") ) {
       vars->output = OUTPUT_FILT;
@@ -352,14 +331,16 @@ void init_mod_filter_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
     else if( !text.compare("notch_filter") ) {
       vars->output = OUTPUT_NOTCH;
       shdr->numSamples = vars->fftTool->numFFTSamples();
-      shdr->sampleInt  = vars->fftTool->sampleIntFreqHz();
+      shdr->sampleInt  = vars->fftTool->sampleIntFreq();
+      vars->filterSampleInt = shdr->sampleInt;
+      vars->filterNumSamples = shdr->numSamples;
       shdr->domain = DOMAIN_FX;
     }
     else {
-      log->error("Unknown option: %s", text.c_str() );
+      writer->error("Unknown option: %s", text.c_str() );
     }
     if( vars->output == mod_filter::OUTPUT_DIFF || vars->output == mod_filter::OUTPUT_BOTH ) {
-      vars->bufferInput = new float[shdr->numSamples];
+      vars->bufferInput = new float[vars->filterNumSamples];
     }
     if( vars->output == mod_filter::OUTPUT_BOTH ) {
       text = "trcno";
@@ -370,12 +351,136 @@ void init_mod_filter_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* 
     }
   }
 
-  if( vars->isNotchFilter ) {
-    vars->fftTool->setupNotchFilter( vars->notchFreqHz, vars->notchWidthHz, vars->order, vars->isNotchCosineTaper ); 
-    //    for( int i = 0; i < vars->fftTool->numFFTSamples(); i++ ) {
-    //   fprintf(stdout,"%f %f\n", vars->fftTool->sampleIntFreqHz()*i, ptr[i]);
-    //  }
-    // log->error("Whatever");
+
+  if( param->exists("win_times") ) {
+    if( vars->isPad ) writer->error("Windowed filter application does not work in conjunction with padding. Remove user parameter 'pad' and retry.");
+    if( doRestoreFilter ) writer->error("Windowed filter application does not suppport  the 'mode restore' option. Remove user parameter 'mode' and retry.");
+    if( vars->output == mod_filter::OUTPUT_IMPULSE ) writer->error("Windowed filter application does not work in conjunction with impulse output option.");
+    if( freqUnit == mod_filter::UNIT_PERCENT ) writer->error("Windowed filter application does not support percent option. Remove user parameter 'unit' and retry.");
+    vars->numWin = param->getNumValues("win_times");
+
+    if( vars->filterType != mod_filter::TYPE_TABLE ) {
+      if( vars->numWin == 0 || (vars->numLowPassFilters!=vars->numWin && vars->numHighPassFilters!=vars->numWin) ) {
+        writer->error("Inconsistent window definition. Need to specify same number of low (=%d) and/or high (=%d) pass points as window start times (=%d)", vars->numLowPassFilters, vars->numHighPassFilters, vars->numWin);
+      }
+    }
+    else { // Table input
+      if( vars->table->numKeys() == 0 ) {
+        writer->error("Windowed filter application using an input tablerequires a key column in the input table containing the number of the application window, starting with 1 for the first window.");
+      }
+    }
+    vars->winOverlapSamples = (int)(500 / vars->filterSampleInt);
+    if( param->exists("win_overlap") ) {
+      float overlap_ms = 0;
+      param->getFloat("win_overlap",&overlap_ms);
+      vars->winOverlapSamples = (int)round( 0.5*overlap_ms / vars->filterSampleInt ) * 2;
+    }
+    if( ((int)(vars->winOverlapSamples/2))*2 != vars->winOverlapSamples ) vars->winOverlapSamples += 1; // Must be even
+
+    vars->winStartSample = new int[vars->numWin];
+    vars->winEndSample   = new int[vars->numWin];
+    for( int i = 0; i < vars->numWin; i++ ) {
+      float time;
+      param->getFloat("win_times", &time, i );
+      vars->winStartSample[i] = (int)(round(time / vars->filterSampleInt));
+    }
+
+    vars->winStartSample[0] = 0;
+    vars->winEndSample[vars->numWin-1] = vars->filterNumSamples-1;
+    for( int i = 1; i < vars->numWin; i++ ) {
+      vars->winEndSample[i-1] = vars->winStartSample[i] + vars->winOverlapSamples;
+      vars->winStartSample[i] -= vars->winOverlapSamples;
+      if( vars->winStartSample[i] < 0 ) writer->error("Window #%d, including overlap (=%.2fms), is too large.", i+1, vars->winOverlapSamples*vars->filterSampleInt);
+      if( vars->winEndSample[i-1] >= vars->filterNumSamples ) writer->error("Window #%d, including overlap (=%.2fms), is too large.", i+1, vars->winOverlapSamples*vars->filterSampleInt);
+    }
+    vars->fftToolWin = new csFFTTools*[vars->numWin];
+    for( int i = 0; i < vars->numWin; i++ ) {
+      int numSamplesWin = vars->winEndSample[i] - vars->winStartSample[i] + 1;
+      vars->fftToolWin[i] = new csFFTTools( numSamplesWin, vars->filterSampleInt );
+    }
+    vars->winBufferIn  = new float[vars->filterNumSamples];
+    vars->winBufferOut = new float[vars->filterNumSamples];
+
+    writer->line("Window overlap time/samples:  %8.2fms/%-5d", vars->winOverlapSamples*vars->filterSampleInt, vars->winOverlapSamples);
+    for( int iwin = 0; iwin < vars->numWin; iwin++ ) {
+      writer->line("Window #%d: Start time/sample %8.2fms/%-5d, end time/sample: %8.2fms/%-5d, number of samples: %d", iwin+1,
+              vars->filterSampleInt*vars->winStartSample[iwin], vars->winStartSample[iwin], vars->filterSampleInt*vars->winEndSample[iwin], vars->winEndSample[iwin], vars->winEndSample[iwin]-vars->winStartSample[iwin]+1 );
+    }
+  } // END win_times
+  //--------------------------------------------------------------------------------
+  //
+  if( vars->numWin == 0 && (vars->filterType == mod_filter::TYPE_BUTTER || vars->filterType == mod_filter::TYPE_SPATIAL) ) {
+
+    if( param->exists("notch_filter") ) {
+      param->getFloat("notch_filter", &vars->notchFreqHz, 0);
+      param->getFloat("notch_filter", &vars->notchWidthHz, 1);
+      param->getFloat("notch_filter", &vars->notchFilterSlope, 2);
+      //      vars->notchFilterOrder = fabs(vars->notchFilterOrder) / 6.0;
+      std::string text;
+      param->getString("notch_filter", &text, 3);
+      if( !text.compare("cosine") ) {
+        vars->isNotchCosineTaper = true;
+      }
+      else if( !text.compare("butter") ) {
+        vars->isNotchCosineTaper = false;
+      }
+      else {
+        writer->error("Unknown option: '%s'", text.c_str() );
+      }
+      vars->isNotchFilter = true;
+    }
+
+    if( vars->numLowPassFilters == 0 && vars->numHighPassFilters == 0 && !vars->isNotchFilter ) {
+      writer->error("No filter option specified. Specify for user parameter 'lowpass' and/or 'highpass' and/or 'notch_filter'");
+    }
+  } // END: Setup bandpass filter
+
+  if( vars->numWin == 0 ) {
+    if( !vars->isPad ) {
+      vars->fftTool = new csFFTTools( vars->filterNumSamples, vars->filterSampleInt );
+    }
+    else {
+      vars->fftTool = new csFFTTools( vars->numSamplesInclPad, vars->filterSampleInt );
+    }
+  }
+
+
+  if( vars->numWin == 0 ) {
+    if( vars->isNotchFilter ) {
+      vars->fftTool->prepareNotchFilter( vars->notchFreqHz, vars->notchWidthHz, vars->notchFilterSlope, vars->isNotchCosineTaper ); 
+    }
+    if( vars->numLowPassFilters > 0 || vars->numHighPassFilters > 0 ) {
+      vars->fftTool->prepareBandpassFilter( vars->numLowPassFilters, vars->freqLowPass, vars->slopeLowPass, vars->numHighPassFilters, vars->freqHighPass, vars->slopeHighPass );
+    }
+  }
+  else {
+    int numLP = ( vars->numLowPassFilters > 0 ) ? 1 : 0;
+    int numHP = ( vars->numHighPassFilters > 0 ) ? 1 : 0;
+    float* freqLP  = NULL;
+    float* slopeLP = NULL;
+    float* freqHP  = NULL;
+    float* slopeHP = NULL;
+    for( int iwin = 0; iwin < vars->numWin; iwin++ ) {
+      if( numLP > 0 ) {
+        freqLP  = &vars->freqLowPass[iwin];
+        slopeLP = &vars->slopeLowPass[iwin];
+      }
+      if( numHP > 0 ) {
+        freqHP  = &vars->freqHighPass[iwin];
+        slopeHP = &vars->slopeHighPass[iwin];
+      }
+      vars->fftToolWin[iwin]->prepareBandpassFilter( numLP, freqLP, slopeLP, numHP, freqHP, slopeHP );
+    }
+  }
+  writer->line("Number of user specified low/high pass filters: %d + %d\n", vars->numLowPassFilters, vars->numHighPassFilters );
+
+  if( edef->isDebug() ) {
+    for( int i = 0; i < vars->numLowPassFilters; i++ ) {
+      writer->line("LOWPASS  #%d:  %.2f Hz  %.2f db/oct", i+1, vars->freqLowPass[i], vars->slopeLowPass[i] );
+    }
+    for( int i = 0; i < vars->numHighPassFilters; i++ ) {
+      writer->line("HIGHPASS #%d:  %.2f Hz  %.2f db/oct", i+1, vars->freqHighPass[i], vars->slopeHighPass[i] );
+    }
   }
 }
 //*************************************************************************************************
@@ -389,107 +494,55 @@ void exec_mod_filter_(
   int* port,
   int* numTrcToKeep,
   csExecPhaseEnv* env,
-  csLogWriter* log )
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
   csSuperHeader const* shdr = env->superHeader;
   csTraceHeaderDef const* hdef = env->headerDef;
 
-  if( edef->isCleanup()){
-    if( vars->fftTool != NULL ) {
-      delete vars->fftTool;
-      vars->fftTool = NULL;
-    }
-    if( vars->bufferPaddedTrace != NULL ) {
-      delete [] vars->bufferPaddedTrace;
-      vars->bufferPaddedTrace = NULL;
-    }
-    if( vars->bufferInput != NULL ) {
-      delete [] vars->bufferInput;
-      vars->bufferInput = NULL;
-    }
-    if( vars->winBufferIn != NULL ) {
-      delete [] vars->winBufferIn;
-      vars->winBufferIn = NULL;
-    }
-    if( vars->winBufferOut != NULL ) {
-      delete [] vars->winBufferOut;
-      vars->winBufferOut = NULL;
-    }
-    if( vars->fftToolWin != NULL ) {
-      for( int iwin = 0; iwin < vars->numWin; iwin++ ) {
-        delete vars->fftToolWin[iwin];
+  csTrace* trace = traceGather->trace(0);
+  float* samplesInOut = trace->getTraceSamples();
+  int numSamples = shdr->numSamples;
+  int numTraces = traceGather->numTraces();
+  
+  if( vars->filterType == mod_filter::TYPE_SPATIAL ) {
+    if( numTraces != vars->filterNumSamples ) writer->error("Inconsistent number of traces in gather: %d != %d(expected)", numTraces, vars->filterNumSamples);
+
+    float* samplesSpatial = new float[numSamples];
+    for( int isampActual = 0; isampActual < vars->spatialMaxTime_nsamp; isampActual++ ) {
+      for( int itrc = 0; itrc < numTraces; itrc++ ) {
+        samplesInOut = traceGather->trace(itrc)->getTraceSamples();
+        samplesSpatial[itrc] = samplesInOut[isampActual];
       }
-      delete [] vars->fftToolWin;
-      vars->fftToolWin = NULL;
+      if( vars->isPad ) {
+        padTrace( vars, samplesSpatial, numSamples );
+        samplesSpatial = vars->bufferPaddedTrace;
+      }
+      
+      vars->fftTool->applyBandpassFilter( samplesSpatial, false );
+
+      for( int itrc = 0; itrc < numTraces; itrc++ ) {
+        samplesInOut = traceGather->trace(itrc)->getTraceSamples();
+        samplesInOut[isampActual] = samplesSpatial[itrc];
+      }
     }
-    if( vars->winStartSample != NULL ) {
-      delete [] vars->winStartSample;
-      vars->winStartSample= NULL;
-    }
-    if( vars->winEndSample != NULL ) {
-      delete [] vars->winEndSample;
-      vars->winEndSample = NULL;
-    }
-    if( vars->winNumSamples != NULL ) {
-      delete [] vars->winNumSamples;
-      vars->winNumSamples = NULL;
-    }
-    if( vars->freqLowPass  != NULL ) {
-      delete [] vars->freqLowPass;
-      vars->freqLowPass  = NULL;
-    }
-    if( vars->freqHighPass != NULL ) {
-      delete [] vars->freqHighPass;
-      vars->freqHighPass = NULL;
-    }
-    if( vars->orderLowPass != NULL ) {
-      delete [] vars->orderLowPass;
-      vars->orderLowPass  = NULL;
-    }
-    if( vars->orderHighPass != NULL ) {
-      delete [] vars->orderHighPass;
-      vars->orderHighPass = NULL;
-    }
-    delete vars; vars = NULL;
+    delete [] samplesSpatial;
     return;
   }
 
-  csTrace* trace = traceGather->trace(0);
-  float* samplesInOut = trace->getTraceSamples();
-
   if( vars->output == mod_filter::OUTPUT_DIFF || vars->output == mod_filter::OUTPUT_BOTH ) {
-    memcpy( vars->bufferInput, samplesInOut, shdr->numSamples*sizeof(float) );
+    memcpy( vars->bufferInput, samplesInOut, numSamples*sizeof(float) );
   }
 
   // Padding: Pad samples and extrapolate data samples. Apply cosine taper to padded data.
   if( vars->isPad ) {
-    for( int isamp = 0; isamp < vars->numSamplesInclPad; isamp++ ) {
-      vars->bufferPaddedTrace[isamp] = 0;
-    }
-    // Copy input data
-    memcpy( &vars->bufferPaddedTrace[vars->paddedSamples], samplesInOut, shdr->numSamples * sizeof(float) );
-    // Extrapolate start of trace
-    float value2x = 2 * samplesInOut[0];
-    for( int isamp = vars->paddedSamples-1; isamp >= 0; isamp-- ) {
-      float ratio = (float)isamp/(float)(vars->paddedSamples-1);
-      float taper = 0.5 * ( 1 + cos( M_PI*(ratio-1.0) ) );
-      vars->bufferPaddedTrace[isamp] = taper * ( value2x - samplesInOut[vars->paddedSamples-isamp] );
-    }
-    // Extrapolate end of trace
-    value2x = 2 * samplesInOut[shdr->numSamples-1];
-    int num = 2*shdr->numSamples+vars->paddedSamples-2;
-    for( int isamp = shdr->numSamples+vars->paddedSamples; isamp < vars->numSamplesInclPad; isamp++ ) {
-      float ratio = (float)(vars->numSamplesInclPad-isamp-1)/(float)(vars->paddedSamples-1);
-      float taper = 0.5 * ( 1 + cos( M_PI*(ratio-1.0) ) );
-      vars->bufferPaddedTrace[isamp] = taper * ( value2x - samplesInOut[num-isamp] );
-    }
-    // Redirect 'samples pointer' to padded trace
-    samplesInOut = vars->bufferPaddedTrace;
+    padTrace( vars, samplesInOut, numSamples );
+    samplesInOut = vars->bufferPaddedTrace; // Direct samples pointer to padded buffer
+    numSamples   = vars->numSamplesInclPad;
     if( edef->isDebug() ) {
       for( int isamp = 0; isamp < vars->numSamplesInclPad; isamp++ ) {
-        fprintf(stdout,"%f %f\n", isamp*shdr->sampleInt, samplesInOut[isamp]);
+        fprintf(stdout,"%f %e\n", (isamp - vars->numPaddedSamples)*vars->filterSampleInt, samplesInOut[isamp]);
       }
     }
   }
@@ -498,24 +551,41 @@ void exec_mod_filter_(
   // Windowed filter application
   if( vars->numWin != 0 ) {
     // Zero output buffer
-    for( int isamp = 0; isamp < shdr->numSamples; isamp++ ) {
+    for( int isamp = 0; isamp < numSamples; isamp++ ) {
       vars->winBufferOut[isamp] = 0.0;
     }
     for( int iwin = 0; iwin < vars->numWin; iwin++ ) {
       int numSamplesWin = vars->winEndSample[iwin] - vars->winStartSample[iwin] + 1;
       // Copy windowed data to input buffer
       memcpy( vars->winBufferIn, &samplesInOut[vars->winStartSample[iwin]], numSamplesWin*sizeof(float) );
-      // Apply low and/or high pass
-      if( vars->isLowPass ) {
-        vars->fftToolWin[iwin]->lowPass( vars->winBufferIn, vars->orderLowPass[iwin], vars->freqLowPass[iwin], (vars->output == OUTPUT_IMPULSE) );
+      // Apply cosine taper to 1/2 overlap samples at each end
+      int numOverlapSamplesHalf = vars->winOverlapSamples/2;
+      for( int isamp = 0; isamp < numOverlapSamplesHalf; isamp++ ) {
+        float taper = 0.5 * ( 1.0 - cos( M_PI * ( (float)isamp/(float)numOverlapSamplesHalf ) ) );
+        vars->winBufferIn[isamp] *= taper;
+        vars->winBufferIn[numSamplesWin-1-isamp] *= taper;
       }
-      if( vars->isHighPass ) {
-        vars->fftToolWin[iwin]->highPass( vars->winBufferIn, vars->orderHighPass[iwin], vars->freqHighPass[iwin], (vars->output == OUTPUT_IMPULSE) );
+      // Apply low-pass and high-pass filters:
+      vars->fftToolWin[iwin]->applyBandpassFilter( vars->winBufferIn, (vars->output == OUTPUT_IMPULSE) );
+      if( vars->table != NULL ) {
+        csTimeFunction<double> const* freqFunc;
+        if( vars->table->numKeys() > 0 ) {
+          double* keyValueBuffer = new double[vars->table->numKeys()];
+          keyValueBuffer[0] = iwin + 1; // +1 to convert to 'user' number
+          for( int ikey = 1; ikey < vars->table->numKeys(); ikey++ ) {
+            keyValueBuffer[ikey] = trace->getTraceHeader()->doubleValue( vars->hdrId_keys[ikey] );
+          }
+          freqFunc = vars->table->getFunction( keyValueBuffer, false );
+          delete [] keyValueBuffer;
+        }
+        else {
+          freqFunc = vars->table->getFunction( NULL, false );
+        }
+        vars->fftToolWin[iwin]->applyFilter( vars->winBufferIn, freqFunc );
       }
-      // a) Copy non-overlap data to output buffer using memcpy
-      int samp1Copy = vars->winStartSample[iwin] + vars->winOverlapSamples;
-      int samp2Copy = vars->winEndSample[iwin]   - vars->winOverlapSamples;
-      int sampFrom  = vars->winOverlapSamples;
+      int samp1Copy = vars->winStartSample[iwin] + vars->winOverlapSamples + numOverlapSamplesHalf;
+      int samp2Copy = vars->winEndSample[iwin]   - vars->winOverlapSamples - numOverlapSamplesHalf;
+      int sampFrom  = vars->winOverlapSamples + numOverlapSamplesHalf;
       if( iwin == 0 ) {
         samp1Copy = 0;
         sampFrom = 0;
@@ -523,50 +593,65 @@ void exec_mod_filter_(
       else if( iwin == vars->numWin-1 ) {
         samp2Copy = vars->winEndSample[iwin];
       }
-      memcpy( &vars->winBufferOut[samp1Copy], &vars->winBufferIn[sampFrom], (samp2Copy-samp1Copy+1)*sizeof(float) );
+      if( samp2Copy >= samp1Copy ) memcpy( &vars->winBufferOut[samp1Copy], &vars->winBufferIn[sampFrom], (samp2Copy-samp1Copy+1)*sizeof(float) );
       // b) Add overlap data to output buffer using linear taper
-      
       if( iwin > 0 ) {
         for( int isamp = 0; isamp < vars->winOverlapSamples; isamp++ ) {
           float scalar = (float)(isamp) / (float)(vars->winOverlapSamples-1);
-          vars->winBufferOut[isamp+vars->winStartSample[iwin]] += scalar*vars->winBufferIn[isamp];
+          vars->winBufferOut[isamp+numOverlapSamplesHalf+vars->winStartSample[iwin]] += scalar*vars->winBufferIn[isamp+numOverlapSamplesHalf];
         }
       }
       if( iwin < vars->numWin-1 ) {
         for( int isamp = 1; isamp <= vars->winOverlapSamples; isamp++ ) {
           float scalar = (float)(isamp-1) / (float)(vars->winOverlapSamples-1);
-          vars->winBufferOut[vars->winEndSample[iwin]-isamp+1] += scalar*vars->winBufferIn[numSamplesWin-isamp];
+          vars->winBufferOut[vars->winEndSample[iwin]-isamp-numOverlapSamplesHalf+1] += scalar*vars->winBufferIn[numSamplesWin-isamp-numOverlapSamplesHalf];
         }
       }
       
     } // END: Windowed filter application
-    memcpy( samplesInOut, vars->winBufferOut, shdr->numSamples*sizeof(float) );
+    memcpy( samplesInOut, vars->winBufferOut, numSamples*sizeof(float) );
   }
   //----------------------------------------------------------------------
   // Non-windowed filter application
-  else if( vars->filterType == mod_filter::TYPE_BUTTER ) {
-    if( vars->isLowPass ) {
-      vars->fftTool->lowPass( samplesInOut, vars->order, vars->cutoffLow, (vars->output == OUTPUT_IMPULSE) );
+  else if( vars->numLowPassFilters > 0 || vars->numHighPassFilters > 0 ) {
+    if( vars->filterType == mod_filter::TYPE_BUTTER ) {
+      vars->fftTool->applyBandpassFilter( samplesInOut, (vars->output == OUTPUT_IMPULSE) );
     }
-    if( vars->isHighPass ) {
-      vars->fftTool->highPass( samplesInOut, vars->order, vars->cutoffHigh, (vars->output == OUTPUT_IMPULSE) );
+    else if( vars->filterType == mod_filter::TYPE_TABLE ) {
+      csTimeFunction<double> const* freqFunc;
+
+      if( vars->table->numKeys() > 0 ) {
+        double* keyValueBuffer = new double[vars->table->numKeys()];
+        for( int ikey = 0; ikey < vars->table->numKeys(); ikey++ ) {
+          keyValueBuffer[ikey] = trace->getTraceHeader()->doubleValue( vars->hdrId_keys[ikey] );
+        }
+        freqFunc = vars->table->getFunction( keyValueBuffer, false );
+        delete [] keyValueBuffer;
+      }
+      else {
+        freqFunc = vars->table->getFunction( NULL, false );
+      }
+      vars->fftTool->applyFilter( samplesInOut, freqFunc );
     }
   }
   if( vars->isNotchFilter ) {
     if( vars->output == mod_filter::OUTPUT_NOTCH ) {
-      double const* ptr = vars->fftTool->setupNotchFilter( vars->notchFreqHz, vars->notchWidthHz, vars->order, vars->isNotchCosineTaper );
-      for( int isamp = 0; isamp < shdr->numSamples; isamp++ ) {
+      float const* ptr = vars->fftTool->prepareNotchFilter( vars->notchFreqHz, vars->notchWidthHz, vars->notchFilterSlope, vars->isNotchCosineTaper );
+      for( int isamp = 0; isamp < numSamples; isamp++ ) {
         samplesInOut[isamp] = (float)ptr[isamp];
+      }
+      if( vars->isPad ) {
+        memcpy( trace->getTraceSamples(), &samplesInOut[vars->numPaddedSamples], shdr->numSamples * sizeof(float) );    
       }
       return;
     }
-    vars->fftTool->notchFilter( samplesInOut, false );
+    vars->fftTool->applyNotchFilter( samplesInOut, (vars->output == OUTPUT_IMPULSE) );
   }
 
-  // Padding: Remove padded samples
+  // Padding: Copy non-padded & filtered samples back to input trace
   if( vars->isPad ) {
-    memcpy( trace->getTraceSamples(), &samplesInOut[vars->paddedSamples], shdr->numSamples * sizeof(float) );    
-    samplesInOut = trace->getTraceSamples(); // Redirect pointer to actual trace
+    memcpy( trace->getTraceSamples(), &samplesInOut[vars->numPaddedSamples], shdr->numSamples * sizeof(float) );    
+    numSamples = shdr->numSamples; // Reset numSamples to input/output trace length
   }
 
   //--------------------------------------------------------------------------------
@@ -574,18 +659,18 @@ void exec_mod_filter_(
   if( vars->output == mod_filter::OUTPUT_DIFF || vars->output == mod_filter::OUTPUT_BOTH ) {
     float* samplesOut = samplesInOut;
     if( vars->output == mod_filter::OUTPUT_BOTH ) {
-      traceGather->createTrace( hdef, shdr->numSamples);
+      traceGather->createTrace( hdef, numSamples);
       traceGather->trace(1)->getTraceHeader()->copyFrom( trace->getTraceHeader() );
       samplesOut = traceGather->trace(1)->getTraceSamples();
       traceGather->trace(0)->getTraceHeader()->setIntValue( vars->hdrID_both,1 );
       traceGather->trace(1)->getTraceHeader()->setIntValue( vars->hdrID_both,2 );
     }
     // Compute difference:
-    for( int isamp = 0; isamp < shdr->numSamples; isamp++ ) {
+    for( int isamp = 0; isamp < numSamples; isamp++ ) {
       samplesOut[isamp] = vars->bufferInput[isamp] - samplesInOut[isamp];
     }
   }
-
+  
 }
 
 //*************************************************************************************************
@@ -595,36 +680,41 @@ void exec_mod_filter_(
 //*************************************************************************************************
 void params_mod_filter_( csParamDef* pdef ) {
   pdef->setModule( "FILTER", "Frequency filter" );
+  //  pdef->setVersion(1,0);
 
   pdef->addParam( "type", "Filter type", NUM_VALUES_FIXED );
   pdef->addValue( "butterworth", VALTYPE_OPTION );
   pdef->addOption( "butterworth", "Butterworth filter" );
+  pdef->addOption( "table", "Zero-phase filter. Read in coefficients/scalars from ASCII table. Specify user parameters 'table' and 'table_col'" );
+  pdef->addOption( "spatial", "Apply filter spatially across ensemble, sample by sample" );
 
-  pdef->addParam( "lowpass", "Lowpass filter", NUM_VALUES_VARIABLE );
-  pdef->addValue( "", VALTYPE_NUMBER, "Cutoff frequency for low-pass filter [Hz]",
-     "The cutoff frequency will be damped by -3db" );
+  pdef->addParam( "lowpass", "Lowpass filter", NUM_VALUES_FIXED );
+  pdef->addValue( "", VALTYPE_NUMBER, "Cutoff frequency for low-pass filter [Hz]", "The cutoff frequency will be damped by -3db" );
   pdef->addValue( "12", VALTYPE_NUMBER, "Filter slope [dB/oct]" );
 
-  pdef->addParam( "highpass", "Highpass filter", NUM_VALUES_VARIABLE );
-  pdef->addValue( "", VALTYPE_NUMBER, "Cutoff frequency for highpass filter [Hz]",
-     "The cutoff frequency will be damped by -3db" );
+  pdef->addParam( "highpass", "Highpass filter", NUM_VALUES_FIXED );
+  pdef->addValue( "", VALTYPE_NUMBER, "Cutoff frequency for high-pass filter [Hz]", "The cutoff frequency will be damped by -3db" );
   pdef->addValue( "12", VALTYPE_NUMBER, "Filter slope [dB/oct]" );
 
-  pdef->addParam( "impulse", "Output filter impulse response", NUM_VALUES_FIXED );
-  pdef->addValue( "no", VALTYPE_OPTION );
-  pdef->addOption( "yes", "Output filter impulse response, zero phase, placed at trace centre." );
-  pdef->addOption( "no", "Do not output filter impulse response. (i.e. output filtered input data)" );
+  pdef->addParam( "table", "ASCII able", NUM_VALUES_FIXED, "Table format: The ASCII file should contain only numbers, no text. Required are two columns containing frequency and scalar pairs. Optional: Up to 2 key values. Lines starting with '#' are considered comment lines. For windowed application, the first specified key must be the window number" );
+  pdef->addValue( "", VALTYPE_STRING, "Filename containing table");
+
+  pdef->addParam( "table_col", "Table columns containing frequency in [Hz] and scalar value", NUM_VALUES_VARIABLE );
+  pdef->addValue( "", VALTYPE_NUMBER, "Column number in input table containing frequency [Hz]" );
+  pdef->addValue( "", VALTYPE_NUMBER, "Column number in input table containing scalar value" );
+
+  pdef->addParam( "table_key", "Key trace header used to match values found in specified table columns", NUM_VALUES_VARIABLE,
+                  "Specify the 'table_key' parameter for each key in the table file" );
+  pdef->addValue( "", VALTYPE_STRING, "Trace header name of key header" );
+  pdef->addValue( "", VALTYPE_NUMBER, "Column number in input table" );
+  pdef->addValue( "yes", VALTYPE_OPTION, "Interpolate based to this key?" );
+  pdef->addOption( "yes", "Use this key for interpolation of value" );
+  pdef->addOption( "no", "Do not use this key for interpolation", "The input table is expected to contain the exact key values for this trace header" );
 
   pdef->addParam( "unit", "Unit of frequency values supplied in parameters", NUM_VALUES_FIXED );
   pdef->addValue( "hz", VALTYPE_OPTION );
   pdef->addOption( "hz", "Frequencies are specified in [Hz]" );
   pdef->addOption( "percent", "Frequencies are specified as percent of Nyquist" );
-
-  pdef->addParam( "order", "Filter 'order'", NUM_VALUES_FIXED, "...can also be specified as slope/oct, see user parameter 'slope'. For backward compatibility, this parameter overrides the slope provided as the second value in the user parameters 'highpass' and 'lowpass'" );
-  pdef->addValue( "4", VALTYPE_NUMBER, "Filter order (1-100)" );
-
-  pdef->addParam( "slope", "Filter slope in dB/octave", NUM_VALUES_FIXED, "...can also be specified as filter 'order', see user parameter 'order'. For backward compatibility, this parameter overrides the slope provided as the second value in the user parameters 'highpass' and 'lowpass'" );
-  pdef->addValue( "12", VALTYPE_NUMBER, "Filter slope [dB/oct]", "Will be converted into filter order (= 1/6 x slope)" );
 
   pdef->addParam( "pad", "Pad trace to avoid filter edge effects", NUM_VALUES_FIXED, "Pad and extrapolate trace at top and bottom before filter application. Remove padded samples after filter." );
   pdef->addValue( "0", VALTYPE_NUMBER, "Pad length at top and bottom, in units of trace (for example [ms])" );
@@ -643,29 +733,180 @@ void params_mod_filter_( csParamDef* pdef ) {
   pdef->addOption( "notch_filter", "Output notch filter" );
   pdef->addValue( "trcno", VALTYPE_STRING, "Optional, used for option 'both': Trace header to distinguish between filtered data (1) and difference (2)" );
 
-  pdef->addParam( "win_times", "List of N window start times for windowed filter application", NUM_VALUES_VARIABLE, "Specify N lines with lowpass and/or highpass filter points, user parameters 'lowpass' and 'highpass'" );
+  pdef->addParam( "win_times", "List of N window start times for windowed filter application", NUM_VALUES_VARIABLE, "Specify N lines with lowpass and/or highpass filter points, user parameters 'lowpass' and 'highpass', or an input table with filter scalars" );
   pdef->addValue( "", VALTYPE_NUMBER, "List of times [ms]" );
 
   pdef->addParam( "win_overlap", "Overlap between windows", NUM_VALUES_FIXED, "Overlap is centred around window start times" );
   pdef->addValue( "500", VALTYPE_NUMBER, "Window time overlap [ms]" );
 
-  pdef->addParam( "notch_filter", "Apply notch filter", NUM_VALUES_VARIABLE );
+  pdef->addParam( "notch_filter", "Apply notch filter", NUM_VALUES_FIXED );
   pdef->addValue( "", VALTYPE_NUMBER, "Notch frequency [Hz]" );
   pdef->addValue( "", VALTYPE_NUMBER, "Width of notch filter [Hz]" );
+  pdef->addValue( "72", VALTYPE_NUMBER, "Notch filter slope [dB/oct]" );
   pdef->addValue( "butter", VALTYPE_OPTION, "Filter type" );
-  pdef->addOption( "butter", "Use Butterworth filter. Specify user parameter 'slope' or 'order' for filter slope" );
+  pdef->addOption( "butter", "Use Butterworth filter" );
   pdef->addOption( "cosine", "Use cosine taper" );
+
+  pdef->addParam( "spatial_param", "Specify for spatial filter application", NUM_VALUES_FIXED );
+  pdef->addValue( "", VALTYPE_NUMBER, "Number of traces in ensemble" );
+  pdef->addValue( "", VALTYPE_NUMBER, "Maximum time to apply filter" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_filter_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_filter::VariableStruct* vars = reinterpret_cast<mod_filter::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_filter_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_filter::VariableStruct* vars = reinterpret_cast<mod_filter::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->table != NULL ) {
+    delete vars->table;
+    vars->table = NULL;
+  }
+  if( vars->hdrId_keys != NULL ) {
+    delete [] vars->hdrId_keys;
+    vars->hdrId_keys = NULL;
+  }
+  if( vars->fftTool != NULL ) {
+    delete vars->fftTool;
+    vars->fftTool = NULL;
+  }
+  if( vars->bufferPaddedTrace != NULL ) {
+    delete [] vars->bufferPaddedTrace;
+    vars->bufferPaddedTrace = NULL;
+  }
+  if( vars->bufferInput != NULL ) {
+    delete [] vars->bufferInput;
+    vars->bufferInput = NULL;
+  }
+  if( vars->winBufferIn != NULL ) {
+    delete [] vars->winBufferIn;
+    vars->winBufferIn = NULL;
+  }
+  if( vars->winBufferOut != NULL ) {
+    delete [] vars->winBufferOut;
+    vars->winBufferOut = NULL;
+  }
+  if( vars->fftToolWin != NULL ) {
+    for( int iwin = 0; iwin < vars->numWin; iwin++ ) {
+      delete vars->fftToolWin[iwin];
+    }
+    delete [] vars->fftToolWin;
+    vars->fftToolWin = NULL;
+  }
+  if( vars->winStartSample != NULL ) {
+    delete [] vars->winStartSample;
+    vars->winStartSample= NULL;
+  }
+  if( vars->winEndSample != NULL ) {
+    delete [] vars->winEndSample;
+    vars->winEndSample = NULL;
+  }
+  if( vars->winNumSamples != NULL ) {
+    delete [] vars->winNumSamples;
+    vars->winNumSamples = NULL;
+  }
+  if( vars->freqLowPass  != NULL ) {
+    delete [] vars->freqLowPass;
+    vars->freqLowPass  = NULL;
+  }
+  if( vars->freqHighPass != NULL ) {
+    delete [] vars->freqHighPass;
+    vars->freqHighPass = NULL;
+  }
+  if( vars->slopeLowPass != NULL ) {
+    delete [] vars->slopeLowPass;
+    vars->slopeLowPass  = NULL;
+  }
+  if( vars->slopeHighPass != NULL ) {
+    delete [] vars->slopeHighPass;
+    vars->slopeHighPass = NULL;
+  }
+  delete vars; vars = NULL;
+}
 
 extern "C" void _params_mod_filter_( csParamDef* pdef ) {
   params_mod_filter_( pdef );
 }
-extern "C" void _init_mod_filter_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_filter_( param, env, log );
+extern "C" void _init_mod_filter_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_filter_( param, env, writer );
 }
-extern "C" void _exec_mod_filter_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_filter_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_filter_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_filter_( env, writer );
+}
+extern "C" void _exec_mod_filter_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_filter_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_filter_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_filter_( env, writer );
 }
 
+
+namespace mod_filter {
+
+void padTrace( mod_filter::VariableStruct* vars, float* samplesInOut, int numSamples ) {
+  for( int isamp = 0; isamp < vars->numPaddedSamples; isamp++ ) {
+    vars->bufferPaddedTrace[isamp] = 0;
+  }
+  for( int isamp = vars->numSamplesInclPad-vars->numPaddedSamples; isamp < vars->numSamplesInclPad; isamp++ ) {
+    vars->bufferPaddedTrace[isamp] = 0;
+  }
+  // Copy input data
+  memcpy( &vars->bufferPaddedTrace[vars->numPaddedSamples], samplesInOut, numSamples * sizeof(float) );
+  // Extrapolate start of trace
+  for( int isamp = vars->numPaddedSamples-1; isamp >= 0; isamp-- ) {
+    float ratio = (float)isamp/(float)(vars->numPaddedSamples-1);
+    float taper = 0.5 * ( 1 + cos( M_PI*(ratio-1.0) ) );
+    vars->bufferPaddedTrace[isamp] = taper * ( samplesInOut[vars->numPaddedSamples-isamp] );
+  }
+  // Extrapolate end of trace
+  int num = 2*numSamples+vars->numPaddedSamples-2;
+  for( int isamp = numSamples+vars->numPaddedSamples; isamp < vars->numSamplesInclPad; isamp++ ) {
+    float ratio = (float)(vars->numSamplesInclPad-isamp-1)/(float)(vars->numPaddedSamples-1);
+    float taper = 0.5 * ( 1 + cos( M_PI*(ratio-1.0) ) );
+    vars->bufferPaddedTrace[isamp] = taper * ( samplesInOut[num-isamp] );
+  }
+}
+
+void padTrace2x( mod_filter::VariableStruct* vars, float* samplesInOut, int numSamples ) {
+  for( int isamp = 0; isamp < vars->numPaddedSamples; isamp++ ) {
+    vars->bufferPaddedTrace[isamp] = 0;
+  }
+  for( int isamp = vars->numSamplesInclPad-vars->numPaddedSamples; isamp < vars->numSamplesInclPad; isamp++ ) {
+    vars->bufferPaddedTrace[isamp] = 0;
+  }
+  // Copy input data
+  memcpy( &vars->bufferPaddedTrace[vars->numPaddedSamples], samplesInOut, numSamples * sizeof(float) );
+  // Extrapolate start of trace
+  float value2x = 2 * samplesInOut[0];
+  for( int isamp = vars->numPaddedSamples-1; isamp >= 0; isamp-- ) {
+    float ratio = (float)isamp/(float)(vars->numPaddedSamples-1);
+    float taper = 0.5 * ( 1 + cos( M_PI*(ratio-1.0) ) );
+    vars->bufferPaddedTrace[isamp] = taper * ( value2x - samplesInOut[vars->numPaddedSamples-isamp] );
+  }
+  // Extrapolate end of trace
+  value2x = 2 * samplesInOut[numSamples - 1];
+  int num = 2*numSamples+vars->numPaddedSamples-2;
+  for( int isamp = numSamples+vars->numPaddedSamples; isamp < vars->numSamplesInclPad; isamp++ ) {
+    float ratio = (float)(vars->numSamplesInclPad-isamp-1)/(float)(vars->numPaddedSamples-1);
+    float taper = 0.5 * ( 1 + cos( M_PI*(ratio-1.0) ) );
+    vars->bufferPaddedTrace[isamp] = taper * ( value2x - samplesInOut[num-isamp] );
+  }
+}
+
+
+} // END namespace
 

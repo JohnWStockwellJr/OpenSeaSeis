@@ -18,6 +18,7 @@ import javax.swing.JRadioButton;
  * Radio button displaying a colored circle.
  * @author 2013 Felipe Punto
  */
+@SuppressWarnings("serial")
 public class csColorRadioButton extends JRadioButton {
   private RoundIcon myRoundIcon;
 

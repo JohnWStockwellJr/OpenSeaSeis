@@ -4,9 +4,9 @@
 #ifndef CS_SORT_H
 #define CS_SORT_H
 
-namespace cseis_geolib {
-
 #include <cstdlib>
+
+namespace cseis_geolib {
 
 /**
  * Sort class

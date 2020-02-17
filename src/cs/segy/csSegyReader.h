@@ -1,14 +1,14 @@
 /* Copyright (c) Colorado School of Mines, 2013.*/
 /* All rights reserved.                       */
 
-#ifndef CS_SEGYREADER_H
-#define CS_SEGYREADER_H
+#ifndef CS_SEGY_READER_H
+#define CS_SEGY_READER_H
 
 #include <cstdio>
 #include <string>
 #include <fstream>
 #include "csSegyHdrMap.h"
-#include "csSegyHeader.h"
+#include "csSegyDefines.h"
 #include "csIReader.h"
 
 
@@ -45,7 +45,7 @@ public:
       reverseByteOrderData = false;
       reverseByteOrderHdr  = false;
       autoscaleHdrs     = true;
-      overrideSampleFormat = csSegyHeader::AUTO;
+      overrideSampleFormat = cseis_segy::AUTO;
       enableRandomAccess = false;
       isSUFormat = false;
     }
@@ -148,6 +148,7 @@ public:
   bool peekHeaderValue( cseis_geolib::csFlexHeader* hdrValue, int traceIndex = -1 );   
   bool peek( int byteOffset, int byteSize, char* buffer, int traceIndex = -1 );
   bool revertFromPeekPosition();
+  int getPeekByteOffset() const;
 
   csSegyTraceHeader const* getTraceHeader() const { return myTrcHdr; }
 
@@ -165,6 +166,7 @@ public:
   int numTracesCapacity() { return myBufferCapacityNumTraces; }
   int getCurrentTraceIndex() const { return myCurrentTraceInFile; }
 
+  void setVariableTraceLength();
 private:
   csSegyHdrMap*      myTrcHdrMap;
   csSegyTraceHeader* myTrcHdr;
@@ -226,9 +228,9 @@ private:
   float mySampleInt;
   /// Number of samples
   int myNumSamples;
-  /// Preset definition for SEGY trace header mapping, e.g. csSegyHeader::HDR_MAPPING_STANDARD
+  /// Preset definition for SEGY trace header mapping, e.g. cseis_segy::HDR_MAPPING_STANDARD
   //int mySegyHeaderMapping;
-  /// SEGY data sample format, e.g. csSegyHeader::DATA_FORMAT_IEEE
+  /// SEGY data sample format, e.g. cseis_segy::DATA_FORMAT_IEEE
   int myDataSampleFormat;
   /// Number of traces in file as determined from file size
   int myNumTraces;
@@ -247,7 +249,7 @@ private:
   int myCurrentPeekByteSize;
   bool myIsSUFormat;
   cseis_geolib::csIOSelection* myIOSelection;
-
+  bool myIsVariableTraceLength;
 public:
   void resetTrcHdrMap( csSegyHdrMap* map );
   csSegyHdrMap const* getTrcHdrMap() const { return myTrcHdrMap; }

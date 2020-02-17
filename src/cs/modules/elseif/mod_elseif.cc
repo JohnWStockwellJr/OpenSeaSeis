@@ -27,20 +27,22 @@ using mod_elseif::VariableStruct;
 //
 //
 //*************************************************************************************************
-void init_mod_elseif_( csParamManager* userParams, csInitPhaseEnv* env, csLogWriter* log ) {
+void init_mod_elseif_( csParamManager* userParams, csInitPhaseEnv* env, csLogWriter* writer ) {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
   //  csSuperHeader*    shdr = env->superHeader;
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+    
   vars->selectionManager = NULL;
 
   csVector<std::string> valueList;
 
   userParams->getAll( "header", &valueList );
   if( valueList.size() == 0 ) {
-    log->warning("%s: Wrong number of parameters for option 'HEADER'. Expected: > 0, found: %d.", edef->moduleName().c_str(), valueList.size());
+    writer->warning("%s: Wrong number of parameters for option 'HEADER'. Expected: > 0, found: %d.", edef->moduleName().c_str(), valueList.size());
     env->addError();
   }
 
@@ -53,11 +55,9 @@ void init_mod_elseif_( csParamManager* userParams, csInitPhaseEnv* env, csLogWri
   }
   catch( csException& e ) {
     vars->selectionManager = NULL;
-    log->error( "%s: %s", edef->moduleName().c_str(), e.getMessage() );
+    writer->error( "%s: %s", edef->moduleName().c_str(), e.getMessage() );
   }
   if( edef->isDebug() ) vars->selectionManager->dump();
-
-  env->execPhaseDef->setExecType( EXEC_TYPE_SINGLETRACE );
 }
 
 //*************************************************************************************************
@@ -65,18 +65,18 @@ void init_mod_elseif_( csParamManager* userParams, csInitPhaseEnv* env, csLogWri
 //
 //
 //*************************************************************************************************
-bool exec_mod_elseif_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
+void exec_mod_elseif_(
+  csTraceGather* traceGather,
+  int* port,
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
+{
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
+  //  csExecPhaseDef* edef = env->execPhaseDef;
 
-  if( edef->isCleanup() ) {
-    if( vars->selectionManager ) {
-      delete vars->selectionManager;
-      vars->selectionManager = NULL;
-    }
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
 
   if( vars->selectionManager->contains( trace->getTraceHeader() ) ) {
     *port = 0;
@@ -85,7 +85,7 @@ bool exec_mod_elseif_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWrit
     *port = 1;
   }
 
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -104,13 +104,45 @@ void params_mod_elseif_( csParamDef* pdef ) {
       "List of selection strings, one for each specified header. See documentation for more detailed description of selection syntax" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_elseif_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_elseif::VariableStruct* vars = reinterpret_cast<mod_elseif::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_elseif_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_elseif::VariableStruct* vars = reinterpret_cast<mod_elseif::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->selectionManager ) {
+    delete vars->selectionManager;
+    vars->selectionManager = NULL;
+  }
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_elseif_( csParamDef* pdef ) {
   params_mod_elseif_( pdef );
 }
-extern "C" void _init_mod_elseif_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_elseif_( param, env, log );
+extern "C" void _init_mod_elseif_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_elseif_( param, env, writer );
 }
-extern "C" bool _exec_mod_elseif_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_elseif_( trace, port, env, log );
+extern "C" bool _start_exec_mod_elseif_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_elseif_( env, writer );
 }
-
+extern "C" void _exec_mod_elseif_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_elseif_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_elseif_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_elseif_( env, writer );
+}

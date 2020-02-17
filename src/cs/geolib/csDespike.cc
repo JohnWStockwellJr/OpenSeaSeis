@@ -15,11 +15,16 @@ void csDespike::init( int numSamples, double sampleInt ) {
   mySampleInt     = sampleInt;
   myNumSamples    = numSamples;
   myRatios = NULL;
+  myValueRefWin = NULL;
 }
 csDespike::~csDespike() {
   if( myRatios != NULL ) {
     delete [] myRatios;
     myRatios = NULL;
+  }
+  if( myValueRefWin != NULL ) {
+    delete [] myValueRefWin;
+    myValueRefWin = NULL;
   }
 }
 //***************************************************************************************
@@ -30,9 +35,15 @@ void csDespike::set( DespikeConfig const& config ) {
     delete [] myRatios;
     myRatios = NULL;
   }
+  if( myValueRefWin != NULL ) {
+    delete [] myValueRefWin;
+    myValueRefWin = NULL;
+  }
   myPerformDebias = config.performDebias;
   myMaxRatio = config.maxRatio;
   myMethod   = config.method;
+  myMethodRefWin   = config.methodRefWin;
+  myMethodSpikeWin = config.methodSpikeWin;
 
   if( config.incWin <= mySampleInt ) {
     myIncWin = 1;
@@ -62,6 +73,9 @@ void csDespike::set( DespikeConfig const& config ) {
   myNumWindows = ( numSamplesToProcess - myWidthRefWin ) / myIncWin + 1;
 
   myRatios = new float[myNumWindows];
+  myValueRefWin = new float[myNumWindows];
+  //  fprintf(stderr,"#win: %d, inc: %d, widthMean: %d, widthSpike: %d, widthRef: %d,  start/stop: %d %d\n",
+  //         myNumWindows, myIncWin, myWidthMeanWin, myWidthSpikeWin, myWidthRefWin, myStartSample, myStopSample);
 }
 
 //***************************************************************************************
@@ -78,11 +92,6 @@ void csDespike::apply( float* samples, int numSamples, int& numSpikesFound, int&
   numSamplesAffected  = 0;
   int countSampleLast = 0;
 
-  if( myMethod == COSINE_TAPER ) {
-    for( int isamp = 0; isamp < myNumSamples; isamp++ ) {
-      samples[isamp] = 1.0;
-    }
-  }
   int widthRefWinHalf = myWidthRefWin / 2;
   int winIndex = 0;
   while( winIndex < myNumWindows ) {
@@ -113,7 +122,7 @@ void csDespike::apply( float* samples, int numSamples, int& numSpikesFound, int&
       else if( myMethod == LINEAR_INTERPOLATION ) {
         float val1 = samples[sampleFirst];
         float val2 = samples[sampleLast];
-        float length = sampleLast - sampleFirst;
+        float length = (float)(sampleLast - sampleFirst);
         for( int isamp = sampleFirst+1; isamp < sampleLast; isamp++ ) {
           float valCurrent = val1 + (float)(isamp-sampleFirst)/length * ( val2 - val1 );
           samples[isamp] = valCurrent;
@@ -142,88 +151,182 @@ bool csDespike::computeRatios( float* samples, int numSamples ) {
   if( myWidthRefWin >= myNumSamples ) return false;
   if( numSamples != myNumSamples ) return false;
 
-  csVector<DespikePoint*> sortedList(myWidthRefWin);
-  int widthRefWinHalf  = myWidthRefWin / 2;
-  int widthMeanWinHalf = myWidthMeanWin / 2;
+  // Sorted sample lists: These are only needed for median option
+  csVector<DespikePoint*> sampleListRefWin( myWidthRefWin );     // List of sample values in reference window
+  csVector<DespikePoint*> sampleListSpikeWin( myWidthSpikeWin ); // List of sample values in spike window
+  int indexMidSpikeWin = myWidthSpikeWin / 2;
+  int indexMidRefWin   = myWidthRefWin   / 2;
 
-//---------------------------------------------------------------------
-// Set first window. Omit last sample so that the following loop also works for first window
-//
-  double currentSumRefWin = 0.0;
-  for( int i = 0; i < myWidthRefWin-1; i++ ) {
-    int sampleIndex = i + myStartSample;
-    float value = fabs(samples[sampleIndex]);
-    DespikePoint* p = new DespikePoint( sampleIndex, value );
-    int is = 0;
-    for( ; is < sortedList.size(); is++ ){
-      DespikePoint* ptmp = sortedList.at(is);
-      if( p->value < ptmp->value ) {
-        sortedList.insert( p, is );
-        break;
-      }
+  int sampleShiftSpikeWin = indexMidRefWin - indexMidSpikeWin;
+
+  //---------------------------------------------------------------------
+  // For first window, add sample values to sampleListRefWin and compute mean amplitude over reference window
+  // Omit last sample so that the following loop also works for first window
+  double currentSumRefWin   = 0.0;
+  double currentSumSpikeWin = 0.0;
+  double currentDebiasSumRefWin   = 0.0;
+  double currentDebiasSumSpikeWin = 0.0;
+
+  if( myPerformDebias ) {
+    for( int i = 0; i < myWidthRefWin; i++ ) {
+      currentDebiasSumRefWin += samples[i + myStartSample];
     }
-    if( is == sortedList.size() ) {
-      sortedList.insert( p, sortedList.size() );
-    }
-    if( myPerformDebias ) {
-      currentSumRefWin += samples[sampleIndex];
+    for( int i = sampleShiftSpikeWin; i < myWidthSpikeWin; i++ ) {
+      currentDebiasSumSpikeWin += samples[i + myStartSample];
     }
   }
 
-  double currentSumMeanWin = 0.0;
-  for( int i = 0; i < myWidthMeanWin-1; i++ ){
-    int sampleIndex = i + widthRefWinHalf + myStartSample - widthMeanWinHalf;
-    //fprintf(stderr,"Sum add %d %f\n", sampleIndex, samples[sampleIndex] );
-    currentSumMeanWin += fabs( samples[sampleIndex] );
+  for( int i = 0; i < myWidthRefWin; i++ ) {
+    int sampleIndex = i + myStartSample;
+    float value = fabs(samples[sampleIndex]);
+    if( myPerformDebias ) {
+      value = fabs( samples[sampleIndex] - (currentDebiasSumRefWin/(double)myWidthRefWin) );
+    }
+    if( myMethodRefWin == csDespike::METHOD_WIN_MEDIAN ) {
+      insertNewValue( new DespikePoint( sampleIndex, value ), &sampleListRefWin );
+      /*
+      DespikePoint* p = new DespikePoint( sampleIndex, value );
+      int is = 0;
+      for( ; is < sampleListRefWin.size(); is++ ) {
+        DespikePoint* ptmp = sampleListRefWin.at(is);
+        if( p->value < ptmp->value ) {
+          sampleListRefWin.insert( p, is );
+          break;
+        }
+      }
+      if( is == sampleListRefWin.size() ) {
+        sampleListRefWin.insert( p, sampleListRefWin.size() );
+      }
+      */
+    }
+    currentSumRefWin += value;
+  }
+
+  for( int i = 0; i < myWidthSpikeWin; i++ ) {
+    int sampleIndex = i + myStartSample + sampleShiftSpikeWin;
+    float value = fabs(samples[sampleIndex]);
+    if( myPerformDebias ) {
+      value = fabs( samples[sampleIndex] - (currentDebiasSumSpikeWin/(double)myWidthSpikeWin) );
+    }
+    if( myMethodSpikeWin == csDespike::METHOD_WIN_MEDIAN ) {
+      insertNewValue( new DespikePoint( sampleIndex, value ), &sampleListSpikeWin );
+      /*
+      DespikePoint* p = new DespikePoint( sampleIndex, value );
+      int is = 0;
+      for( ; is < sampleListSpikeWin.size(); is++ ){
+        DespikePoint* ptmp = sampleListSpikeWin.at(is);
+        if( p->value < ptmp->value ) {
+          sampleListSpikeWin.insert( p, is );
+          break;
+        }
+      }
+      if( is == sampleListSpikeWin.size() ) {
+        sampleListSpikeWin.insert( p, sampleListSpikeWin.size() );
+      }
+      */
+    }
+    currentSumSpikeWin += value;
   }
 
 //----------------------------------------------------------------------
 // Main loop
 //
+
+
   for( int iwin = 0; iwin < myNumWindows; iwin++ ) {
-// (1) Determine median value in reference window (sort all values, pick middle one)
     int sampleFirst = iwin * myIncWin + myStartSample;
     int sampleLast  = sampleFirst + myWidthRefWin - 1;
-    int sampleMid   = widthRefWinHalf + sampleFirst;
-    float value     = fabs(samples[sampleLast]);
+    float valueRef   = fabs(samples[sampleLast]);
+    float valueSpike = fabs(samples[sampleLast-sampleShiftSpikeWin]);
 
-    int sampleFirstMean = sampleMid - widthMeanWinHalf;
-    int sampleLastMean  = sampleMid + widthMeanWinHalf;
-// Remove previous point
-    DespikePoint* p = NULL;
     if( iwin > 0 ) {
-      int sample_del = sampleFirst - 1;
-      int length = sortedList.size();
-      for( int is = 0; is < length; is++ ) {   // Currently assumes that window increment is 1
-        p = sortedList.at(is);
-        if( p->index == sample_del ) {
-          sortedList.remove(is);
+      int sampleDelRef   = sampleFirst - 1;
+      int sampleDelSpike = sampleFirst - 1 + sampleShiftSpikeWin;
+      if( myPerformDebias ) {
+        currentDebiasSumRefWin = currentDebiasSumRefWin - samples[sampleDelRef] + samples[sampleLast];
+        valueRef =  fabs(samples[sampleLast] - (currentDebiasSumRefWin / (double)myWidthRefWin) );
+        currentDebiasSumSpikeWin = currentDebiasSumSpikeWin - samples[sampleDelSpike] + samples[sampleLast-sampleShiftSpikeWin];
+        valueSpike = (float)( samples[sampleLast-sampleShiftSpikeWin] - (currentDebiasSumSpikeWin / (double)myWidthSpikeWin) );
+      }
+      currentSumRefWin -= fabs(samples[sampleDelRef]);
+      currentSumRefWin += valueRef;
+
+      currentSumSpikeWin -= fabs(samples[sampleDelSpike]);
+      currentSumSpikeWin += valueSpike;
+    }
+    if( iwin > 0 && myMethodRefWin == csDespike::METHOD_WIN_MEDIAN ) {
+// (1) Determine median value in reference window (sort all values, pick middle one)
+//      fprintf(stderr,"Median start Index: %d %d %d\n", sampleFirst, sampleLast, sampleShiftSpikeWin );
+
+      //-------------------- Reference WINDOW -------------------------
+      // Remove previous last sample from sample List
+      DespikePoint* p = NULL;
+      int sampleDelRef = sampleFirst - 1;
+      int length = sampleListRefWin.size();
+      int is = 0; 
+      for( ; is < length; is++ ) {   // Currently assumes that window increment is 1
+        p = sampleListRefWin.at(is);
+        if( p->index == sampleDelRef ) {
+          sampleListRefWin.remove(is);
+          p->index = sampleLast;
+          p->value = valueRef;
           break;
         }
       }
-      //fprintf(stderr,"-Sum min %d %f\n", sampleFirstMean-1, samples[sampleFirstMean-1] );
-      currentSumMeanWin -= fabs((double)samples[sampleFirstMean-1]);
+      if( is == length ) { // ??? Previous sample not found ???
+        p = new DespikePoint( sampleLast, valueRef );
+      }
+      // Add new point by sliding the window one sample forwards
+      insertNewValue( p, &sampleListRefWin );
     }
-    else {
-      p = new DespikePoint( 0, 0 );
+    if( iwin > 0 && myMethodSpikeWin == csDespike::METHOD_WIN_MEDIAN ) {
+      //-------------------- Spike WINDOW -------------------------
+      // Remove previous last sample from sample List
+      DespikePoint* p = NULL;
+      int sampleDelSpike = sampleFirst - 1 + sampleShiftSpikeWin;
+      int length = sampleListSpikeWin.size();
+      int is = 0; 
+      for( ; is < length; is++ ) {   // Currently assumes that window increment is 1
+        p = sampleListSpikeWin.at(is);
+        if( p->index == sampleDelSpike ) {
+          sampleListSpikeWin.remove(is);
+          p->index = sampleLast - sampleShiftSpikeWin;
+          p->value = valueSpike;
+          break;
+        }
+      }
+      if( is == length ) { // ??? Previous sample not found ???
+        p = new DespikePoint( sampleLast - sampleShiftSpikeWin, valueSpike );
+      }
+      // Add new point by sliding the window one sample forwards
+      insertNewValue( p, &sampleListSpikeWin );
     }
-    //fprintf(stderr,"+Sum min %d %f\n", sampleLastMean, samples[sampleLastMean] );
-    if( myPerformDebias ) {
-      if( iwin > 0 ) currentSumRefWin -= (double)samples[sampleFirst - 1];
-      currentSumRefWin += (double)samples[sampleLast];
-      value -= (float)(currentSumRefWin / (double)myWidthRefWin);
-    }
-    p->index = sampleLast;
-    p->value = value;
-    insertNewValue( p, &sortedList );
 
-    double medianValue = sortedList.at( widthRefWinHalf )->value;
-    currentSumMeanWin += fabs((double)samples[sampleLastMean]);
-    myRatios[iwin] = (float)( currentSumMeanWin / (medianValue * myWidthMeanWin ) );  // Compute ratio from mean value
+    double resultRef;
+    double resultSpike;
+    if( myMethodRefWin == csDespike::METHOD_WIN_MEAN ) {
+      resultRef = currentSumRefWin / (double)myWidthRefWin;
+    }
+    else { // MEDIAN
+      resultRef = sampleListRefWin.at( indexMidRefWin )->value;
+    }
+    if( resultRef == 0.0 ) resultRef = 1.0;
+    if( myMethodSpikeWin == csDespike::METHOD_WIN_MEAN ) {
+      resultSpike = currentSumSpikeWin / (double)myWidthSpikeWin;
+    }
+    else { // MEDIAN
+      resultSpike = sampleListRefWin.at( indexMidSpikeWin )->value;
+    }
+    myRatios[iwin] = resultSpike / resultRef;
+    //    myValueRefWin[iwin] = currentDebiasSumRefWin;
+    //    fprintf(stdout,"%d %e %e  %e  %d\n", iwin, resultRef, resultSpike, myRatios[iwin], sampleMid);
   }
   // Free memory
-  for( int is = 0; is < sortedList.size(); is++ ) {
-    delete sortedList.at( is );
+  for( int is = 0; is < sampleListRefWin.size(); is++ ) {
+    delete sampleListRefWin.at( is );
+  }
+  for( int is = 0; is < sampleListSpikeWin.size(); is++ ) {
+    delete sampleListSpikeWin.at( is );
   }
   return true;
 }
@@ -234,6 +337,13 @@ void csDespike::insertNewValue( DespikePoint* p, csVector<DespikePoint*>* sorted
   int id1 = 0;
   int id2 = sortedList->size() - 1;
   float value = p->value;
+
+  if( id2 < 0 ) {
+    sortedList->insertEnd(p);
+    return;
+  }
+  //  fprintf(stdout,"ID %d %d - num: %d\n", id1, id2, sortedList->size());
+  //  fflush(stdout);
 
   while( true ) {
     int id0 = (id1+id2)/2;
@@ -275,6 +385,8 @@ void csDespike::getDefaultFrequencySpikeConfig( DespikeConfig& config ) {
   config.performDebias = true;
   config.maxRatio      = 3.0;
   config.method        = csDespike::LINEAR_INTERPOLATION;
+  config.methodRefWin     = csDespike::METHOD_WIN_MEDIAN;
+  config.methodSpikeWin     = csDespike::METHOD_WIN_MEAN;
 }
 void csDespike::getDefaultTimeNoiseBurstConfig( DespikeConfig& config ) {
   config.widthRefWin = 3000;
@@ -288,5 +400,7 @@ void csDespike::getDefaultTimeNoiseBurstConfig( DespikeConfig& config ) {
   config.performDebias = false;
   config.maxRatio   = 5.0;
   config.method     = csDespike::COSINE_TAPER;
+  config.methodRefWin     = csDespike::METHOD_WIN_MEDIAN;
+  config.methodSpikeWin     = csDespike::METHOD_WIN_MEAN;
 }
 

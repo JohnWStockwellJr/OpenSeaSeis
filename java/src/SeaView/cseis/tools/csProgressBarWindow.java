@@ -14,6 +14,7 @@ import cseis.general.csStandard;
  * Shows progress while loading seismic traces
  * @author 2007 Bjorn Olofsson
  */
+@SuppressWarnings("serial")
 public class csProgressBarWindow extends JWindow {
   private JProgressBar myBar;
   private JProgressBar myBar2;

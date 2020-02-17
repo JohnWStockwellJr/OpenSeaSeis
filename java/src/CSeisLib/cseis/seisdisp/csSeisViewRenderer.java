@@ -97,6 +97,11 @@ public abstract class csSeisViewRenderer implements csISeisViewListener {
     }
     myIsComputingDerivatives = false;
   }
+  @Override
+  public void traceBufferChanged( csISeismicTraceBuffer traceBuffer ) {
+    // Nothing to be done
+  }
+  @Override
   public void changedSettings( csSeisDispSettings ds ) {
     boolean resetSpline = ( myVA_yDerivative2Values == null &&
         (ds.isVIDisplay != mySettings.isVIDisplay || ds.wiggleType != mySettings.wiggleType) &&
@@ -108,6 +113,7 @@ public abstract class csSeisViewRenderer implements csISeisViewListener {
       resetSplineFields();
     }
   }
+  public void mouseExited() {}
   protected abstract boolean resetScreenBuffer( int width, int height, DataBuffer dataBuffer );
   protected abstract void copyBufferHorz( int width, int height, int xfrom, int xto );
   protected abstract void copyBufferVert( int width, int height, int yfrom, int yto );

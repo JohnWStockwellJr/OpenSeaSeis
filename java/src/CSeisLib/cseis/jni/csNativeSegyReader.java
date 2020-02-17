@@ -26,8 +26,9 @@ public class csNativeSegyReader implements csISeismicReader {
   public static final int HDR_MAP_SU       = 1117;
   public static final int HDR_MAP_SU_ONLY  = 1118;
   public static final int HDR_MAP_SU_BOTH  = 1119;
+  public static final int HDR_MAP_DAS      = 1120;
   
-  public static final int NUM_DEFAULT_MAPS = 10;
+  public static final int NUM_DEFAULT_MAPS = 11;
   public static final int[] DEFAULT_MAPS = {
     HDR_MAP_STANDARD,
     HDR_MAP_OBC,
@@ -38,7 +39,8 @@ public class csNativeSegyReader implements csISeismicReader {
     HDR_MAP_NODE2,
     HDR_MAP_SU,
     HDR_MAP_SU_ONLY,
-    HDR_MAP_SU_BOTH
+    HDR_MAP_SU_BOTH,
+    HDR_MAP_DAS
   };
   public static final String[] NAME_DEFAULT_MAPS = {
     "Standard",
@@ -50,7 +52,8 @@ public class csNativeSegyReader implements csISeismicReader {
     "NODE2",
     "SU (cseis)",
     "SU (orig)",
-    "SU (cseis+orig)"
+    "SU (cseis+orig)",
+    "DAS"
   };
 
   private native long native_createInstance(
@@ -89,7 +92,7 @@ public class csNativeSegyReader implements csISeismicReader {
           String headerName,
           int sortOrder,
           int sortMethod,
-          csISelectionNotifier notifier );
+          csITraceHeaderScanNotifier notifier );
   private native int native_getNumSelectedTraces( long ptr );
   private native void native_getSelectedValues( long ptr, csSelectedHeaderBundle hdrBundle );
   
@@ -225,7 +228,7 @@ public class csNativeSegyReader implements csISeismicReader {
   //
   @Override
   public boolean setSelection( String hdrValueSelectionText, String headerName, int sortOrder, int sortMethod,
-          csISelectionNotifier notifier ) {
+          csITraceHeaderScanNotifier notifier ) {
     if( notifier == null ) return false;
     return native_setSelection( myNativePtr, hdrValueSelectionText, headerName, sortOrder, sortMethod, notifier );
   }

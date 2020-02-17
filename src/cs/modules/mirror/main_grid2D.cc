@@ -8,7 +8,7 @@
 #include <string>
 #include <cstring>
 #include "geolib_string_utils.h"
-#include "csPoint.h"
+#include "csPoint3D.h"
 #include "csVector.h"
 #include "geolib_string_utils.h"
 
@@ -16,8 +16,8 @@ using namespace std;
 using namespace cseis_geolib;
 
 void interpolate2D_regular_grid( int numPointsIn,
-                                 csPoint const* pin,
-                                 csPoint p1,
+                                 csPoint3D const* pin,
+                                 csPoint3D p1,
                                  double xinc,
                                  double yinc,
                                  int nxOut,
@@ -142,7 +142,7 @@ int main(int argc, char **argv) {
 
   char buffer[1024];
 //  FILE* file = fopen("file.in","r");
-  csVector<csPoint> pointList(1000);
+  csVector<csPoint3D> pointList(1000);
   csVector<std::string> tokenList;
 
   double xmin = std::numeric_limits<double>::max();
@@ -166,13 +166,13 @@ int main(int argc, char **argv) {
     if( x > xmax ) xmax = x;
     if( y < ymin ) ymin = y;
     if( y > ymax ) ymax = y;
-    pointList.insertEnd( csPoint(x,y,z) );
+    pointList.insertEnd( csPoint3D(x,y,z) );
   }
 
   int numPoints = pointList.size();
 
-  csPoint p1(xmin,ymin,0);
-  csPoint p2(xmax,ymax,0);
+  csPoint3D p1(xmin,ymin,0);
+  csPoint3D p2(xmax,ymax,0);
 
   int nx = (int)( (p2.x-p1.x)/xinc ) + 1;
   int ny = (int)( (p2.y-p1.y)/yinc ) + 1;

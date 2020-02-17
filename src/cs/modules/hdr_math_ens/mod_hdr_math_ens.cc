@@ -10,6 +10,8 @@
 #include "cseis_curveFitting.h"
 #include "csSelectionManager.h"
 #include "geolib_methods.h"
+#include "csPoint3D.h"
+#include "csPlane3D.h"
 
 using std::string;
 using namespace cseis_geolib;
@@ -27,10 +29,15 @@ namespace mod_hdr_math_ens {
     int  nHeaders;
     int  hdrId1;
     int  hdrId2;
+    int  hdrId3;
     int  hdrStddevId1;
     int  hdrStddevId2;
     char hdrType1;
     char hdrType2;
+    char hdrType3;
+    int hdrId_plane_p1;
+    int hdrId_plane_p2;
+    int hdrId_plane_p3;
     int  method;
     int  nTraces;
     int  output_option;
@@ -42,14 +49,23 @@ namespace mod_hdr_math_ens {
     int hdrId_selectFail;
     cseis_geolib::type_t hdrType_selectFail;
     double selectFailValue;
+    int numTraces;
+    int periodicity;
   };
   static const int MEDIAN  = 1;
   static const int MEAN    = 2;
   static const int XCOR_COS2 = 3;
-  static const int LINEAR   = 4;
+  static const int FIT_LINEAR = 4;
   static const int MAXIMUM  = 5;
   static const int MINIMUM  = 6;
   static const int MEAN_ANGLE = 7;
+  static const int MEAN_FILT  = 8;
+  static const int MEDIAN_FILT  = 9;
+  static const int SUM   = 10;
+  static const int FIT_QUADRATIC = 11;
+  static const int FIT_PLANE = 12;
+  static const int ASSIGN_FIRST = 13;
+
 
   static const int OUTPUT_ALL     = 0;
   static const int OUTPUT_FIRST   = 1;
@@ -63,22 +79,19 @@ namespace mod_hdr_math_ens {
 
 #define EPSILON 0.000001
 
-void ls_linear_fit( double const* xValuesIn, double const* yValuesIn, int numValues, double* valuesOut );
-
 //*************************************************************************************************
 // Init phase
 //
 //
 //
 //*************************************************************************************************
-void init_mod_hdr_math_ens_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_hdr_math_ens_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
-	//  csSuperHeader*    shdr = env->superHeader;
+  //  csSuperHeader*    shdr = env->superHeader;
   mod_hdr_math_ens::VariableStruct* vars = new mod_hdr_math_ens::VariableStruct();
   edef->setVariables( vars );
-  edef->setExecType( EXEC_TYPE_MULTITRACE );
   edef->setTraceSelectionMode( TRCMODE_ENSEMBLE, 2 );
 
   vars->nHeaders = 1;
@@ -99,6 +112,12 @@ void init_mod_hdr_math_ens_( csParamManager* param, csInitPhaseEnv* env, csLogWr
   vars->hdrId_selectFail = -1;
   vars->hdrType_selectFail = TYPE_UNKNOWN;
   vars->selectFailValue = 0;
+  vars->numTraces = 10;
+  vars->periodicity = 1;
+
+  vars->hdrId_plane_p1 = -1;
+  vars->hdrId_plane_p2 = -1;
+  vars->hdrId_plane_p3 = -1;
 
   //----------------------------------------------------------------
   std::string text;
@@ -115,6 +134,18 @@ void init_mod_hdr_math_ens_( csParamManager* param, csInitPhaseEnv* env, csLogWr
     vars->method = mod_hdr_math_ens::MEAN;
     param->getString( "header1", &headerName1 );
   }
+  else if( !text.compare("mean_filt") ) {
+    vars->method = mod_hdr_math_ens::MEAN_FILT;
+    param->getString( "header1", &headerName1 );
+    param->getInt( "ntraces", &vars->numTraces );
+    if( param->exists("header_select") ) writer->error("User parameter 'header_select' does nor apply to mean filter: All input traces must be used in filter");
+  }
+  else if( !text.compare("median_filt") ) {
+    vars->method = mod_hdr_math_ens::MEDIAN_FILT;
+    param->getString( "header1", &headerName1 );
+    param->getInt( "ntraces", &vars->numTraces );
+    if( param->exists("header_select") ) writer->error("User parameter 'header_select' does nor apply to median filter: All input traces must be used in filter");
+  }
   else if( !text.compare("minimum") ) {
     vars->method = mod_hdr_math_ens::MINIMUM;
     param->getString( "header1", &headerName1 );
@@ -123,12 +154,25 @@ void init_mod_hdr_math_ens_( csParamManager* param, csInitPhaseEnv* env, csLogWr
     vars->method = mod_hdr_math_ens::MAXIMUM;
     param->getString( "header1", &headerName1 );
   }
+  else if( !text.compare("sum") ) {
+    vars->method = mod_hdr_math_ens::SUM;
+    param->getString( "header1", &headerName1 );
+  }
   else if( !text.compare("mean_angle") ) {
     vars->method = mod_hdr_math_ens::MEAN_ANGLE;
     param->getString( "header1", &headerName1 );
+    if( param->exists("periodicity") ) {
+      param->getInt( "periodicity",  &vars->periodicity );
+      if( vars->periodicity < 1 ) writer->error("Periodicity (=%d) needs to be 1,2,3... cos(periodicity*angle)", vars->periodicity);
+    }
+    else {
+      writer->warning("Recommend to specify user parameter 'periodicity' when using method 'mean_angle'. Default will be used = %d", vars->periodicity);
+    }
   }
-  else if( !text.compare("linear") ) {
-    vars->method = mod_hdr_math_ens::LINEAR;
+  else if( !text.compare("fit_linear") || !text.compare("fit_quadratic") || !text.compare("fit_plane") ) {
+    if( !text.compare("fit_linear") ) vars->method = mod_hdr_math_ens::FIT_LINEAR;
+    else if( !text.compare("fit_quadratic") ) vars->method = mod_hdr_math_ens::FIT_QUADRATIC;
+    else if( !text.compare("fit_plane") ) vars->method = mod_hdr_math_ens::FIT_PLANE;
     param->getString( "header1", &headerName1 );
     param->getString( "header2", &headerName2 );
     if( hdef->headerExists( headerName2.c_str() ) ) {
@@ -136,13 +180,44 @@ void init_mod_hdr_math_ens_( csParamManager* param, csInitPhaseEnv* env, csLogWr
       vars->hdrType2 = hdef->headerType( vars->hdrId2 );
       vars->nHeaders = 2;
       if( vars->hdrType2 != TYPE_FLOAT && vars->hdrType2 != TYPE_DOUBLE ) {
-        log->error("For method 'linear', trace header '%s' must be of floating point type", headerName2.c_str() );
+        writer->error("For method '%s', trace header '%s' must be of floating point type", text.c_str(), headerName2.c_str() );
       }
     }
     else {
-      log->line(" Trace header '%s' does not exist.", headerName2.c_str() );
+      writer->line(" Trace header '%s' does not exist.", headerName2.c_str() );
       env->addError();
     }
+    if( vars->method == mod_hdr_math_ens::FIT_PLANE ) {
+      param->getString( "header3", &headerName2 );
+      if( hdef->headerExists( headerName2.c_str() ) ) {
+        vars->hdrId3   = hdef->headerIndex( headerName2.c_str() );
+        vars->hdrType3 = hdef->headerType( vars->hdrId2 );
+        vars->nHeaders = 3;
+        if( vars->hdrType3 != TYPE_FLOAT && vars->hdrType3 != TYPE_DOUBLE ) {
+          writer->error("For method '%s', trace header '%s' must be of floating point type", text.c_str(), headerName2.c_str() );
+        }
+        if( !hdef->headerExists("plane_p1") ) {
+          hdef->addHeader(cseis_geolib::TYPE_VECTOR,"plane_p1","3D plane point 1");
+        }
+        if( !hdef->headerExists("plane_p2") ) {
+          hdef->addHeader(cseis_geolib::TYPE_VECTOR,"plane_p2","3D plane point 2");
+        }
+        if( !hdef->headerExists("plane_p3") ) {
+          hdef->addHeader(cseis_geolib::TYPE_VECTOR,"plane_p3","3D plane point 3");
+        }
+        vars->hdrId_plane_p1 = hdef->headerIndex("plane_p1");
+        vars->hdrId_plane_p2 = hdef->headerIndex("plane_p2");
+        vars->hdrId_plane_p3 = hdef->headerIndex("plane_p3");
+      }
+      else {
+        writer->line(" Trace header '%s' does not exist.", headerName2.c_str() );
+        env->addError();
+      }
+    }
+  }
+  else if( !text.compare("assign_first") ) {
+    vars->method = mod_hdr_math_ens::ASSIGN_FIRST;
+    param->getString( "header1", &headerName1 );
   }
   else if( !text.compare("xcor_cos2") ) {
     vars->method = mod_hdr_math_ens::XCOR_COS2;
@@ -153,16 +228,16 @@ void init_mod_hdr_math_ens_( csParamManager* param, csInitPhaseEnv* env, csLogWr
       vars->hdrType2 = hdef->headerType( vars->hdrId2 );
       vars->nHeaders = 2;
       if( vars->hdrType2 == TYPE_STRING ) {
-        log->error("Header '%s' is of type string. This module requires trace headers to be of number type", headerName2.c_str() );
+        writer->error("Header '%s' is of type string. This module requires trace headers to be of number type", headerName2.c_str() );
       }
     }
     else {
-      log->line(" Trace header '%s' does not exist.", headerName2.c_str() );
+      writer->line(" Trace header '%s' does not exist.", headerName2.c_str() );
       env->addError();
     }
   }
   else {
-    log->line("Method not recognized: %s.", text.c_str());
+    writer->line("Method not recognized: %s.", text.c_str());
     env->addError();
   }
 
@@ -171,11 +246,11 @@ void init_mod_hdr_math_ens_( csParamManager* param, csInitPhaseEnv* env, csLogWr
     vars->hdrId1   = hdef->headerIndex( headerName1.c_str() );
     vars->hdrType1 = hdef->headerType( vars->hdrId1 );
     if( vars->hdrType1 == TYPE_STRING ) {
-      log->error("Header '%s' is of type string. This module requires trace headers to be of number type", headerName1.c_str() );
+      writer->error("Header '%s' is of type string. This module requires trace headers to be of number type", headerName1.c_str() );
     }
   }
   else {
-    log->line(" Trace header '%s' does not exist.", headerName1.c_str() );
+    writer->line(" Trace header '%s' does not exist.", headerName1.c_str() );
     env->addError();
   }
   //----------------------------------------------------------------
@@ -193,7 +268,7 @@ void init_mod_hdr_math_ens_( csParamManager* param, csInitPhaseEnv* env, csLogWr
       vars->output_option = mod_hdr_math_ens::OUTPUT_LAST;
     }
     else {
-      log->line("Output option not recognized: %s.", outputText.c_str());
+      writer->line("Output option not recognized: %s.", outputText.c_str());
       env->addError();
     }
   }
@@ -209,7 +284,7 @@ void init_mod_hdr_math_ens_( csParamManager* param, csInitPhaseEnv* env, csLogWr
         hdef->addHeader( vars->hdrType1, headerName_stddev, "Standard deviation" );
       }
       else if( vars->hdrType1 != hdef->headerType( headerName_stddev ) ) {
-        log->error("Trace header '%s' already exists but has wrong type. Should have same type as header '%s'.",
+        writer->error("Trace header '%s' already exists but has wrong type. Should have same type as header '%s'.",
                    headerName_stddev.c_str(), headerName1.c_str() );
       }
       vars->hdrStddevId1 = hdef->headerIndex( headerName_stddev );
@@ -218,7 +293,7 @@ void init_mod_hdr_math_ens_( csParamManager* param, csInitPhaseEnv* env, csLogWr
       vars->computeStddev = false;
     }
     else {
-      log->line("Option not recognized: %s. Should be 'yes' or 'no'", yesno.c_str());
+      writer->line("Option not recognized: %s. Should be 'yes' or 'no'", yesno.c_str());
       env->addError();
     }
   }
@@ -230,14 +305,14 @@ void init_mod_hdr_math_ens_( csParamManager* param, csInitPhaseEnv* env, csLogWr
   //---------------------------------------------------------
   // Create new headers
   if( param->exists("header_select") ) {
-    if( vars->method == mod_hdr_math_ens::LINEAR ) {
-      log->error("Sorry, header selection (header_select) is currently not supported for linear fitting method");
+    if( vars->method == mod_hdr_math_ens::FIT_LINEAR || vars->method == mod_hdr_math_ens::FIT_QUADRATIC || vars->method == mod_hdr_math_ens::FIT_PLANE  ) {
+      writer->error("Header selection (header_select) is not supported for curve/plane fitting methods");
     }
     csVector<std::string> valueList;
     param->getAll( "header_select", &valueList );
 
     if( valueList.size() == 0 ) {
-      log->line("Wrong number of arguments for user parameter 'header_select'. Expected: >0, found: %d.", valueList.size());
+      writer->line("Wrong number of arguments for user parameter 'header_select'. Expected: >0, found: %d.", valueList.size());
       env->addError();
     }
     else {
@@ -251,7 +326,7 @@ void init_mod_hdr_math_ens_( csParamManager* param, csInitPhaseEnv* env, csLogWr
       }
       catch( csException& e ) {
         vars->selectionManager = NULL;
-        log->error( "%s", e.getMessage() );
+        writer->error( "%s", e.getMessage() );
       }
       if( edef->isDebug() ) vars->selectionManager->dump();
     }
@@ -272,7 +347,7 @@ void init_mod_hdr_math_ens_( csParamManager* param, csInitPhaseEnv* env, csLogWr
         vars->selectFailOption = mod_hdr_math_ens::SELECT_FAIL_HEADER;
         param->getString( "select_fail", &text, 1 );
         if( !hdef->headerExists(text) ) {
-          log->line("Trace header does not exist: %s.", text.c_str());
+          writer->line("Trace header does not exist: %s.", text.c_str());
           env->addError();
         }
         else {
@@ -281,7 +356,7 @@ void init_mod_hdr_math_ens_( csParamManager* param, csInitPhaseEnv* env, csLogWr
         }
       }
       else {
-        log->line("Output option not recognized: %s.", text.c_str());
+        writer->line("Output option not recognized: %s.", text.c_str());
         env->addError();
       }
     }
@@ -300,7 +375,7 @@ void exec_mod_hdr_math_ens_(
                             int* port,
                             int* numTrcToKeep,
                             csExecPhaseEnv* env,
-                            csLogWriter* log )
+                            csLogWriter* writer )
 {
   mod_hdr_math_ens::VariableStruct* vars = reinterpret_cast<mod_hdr_math_ens::VariableStruct*>( env->execPhaseDef->variables() );
   csExecPhaseDef* edef = env->execPhaseDef;
@@ -344,9 +419,10 @@ void exec_mod_hdr_math_ens_(
   }
   double* values  = NULL;
   double* values2 = NULL;
+  double* values3 = NULL;
 
   if( nTracesSelected == 0 ) {
-    log->warning("Module HDR_MATH_ENS: No traces match selection criteria");
+    writer->warning("Module HDR_MATH_ENS: No traces match selection criteria");
     nTracesSelected = nTracesIn;
     for( int itrc = 0; itrc < nTracesIn; itrc++) {
       isSelected[itrc] = true;
@@ -374,7 +450,7 @@ void exec_mod_hdr_math_ens_(
         else if( vars->hdrType1 == TYPE_INT64 ) {
           traceGather->trace(itrc)->getTraceHeader()->setInt64Value( vars->hdrId1, (csInt64_t)value );
         }
-        if( vars->nHeaders == 2 ) {
+        if( vars->nHeaders > 1 ) {
           if( vars->hdrType2 == TYPE_FLOAT ) {
             traceGather->trace(itrc)->getTraceHeader()->setFloatValue( vars->hdrId2, (float)value );
           }
@@ -387,6 +463,14 @@ void exec_mod_hdr_math_ens_(
           else if( vars->hdrType2 == TYPE_INT64 ) {
             traceGather->trace(itrc)->getTraceHeader()->setInt64Value( vars->hdrId2, (csInt64_t)value );
           }
+          /*          if( vars->nHeaders > 2 ) {
+            if( vars->hdrType3 == TYPE_FLOAT ) {
+              traceGather->trace(itrc)->getTraceHeader()->setFloatValue( vars->hdrId3, (float)value );
+            }
+            else if( vars->hdrType3 == TYPE_DOUBLE ) {
+              traceGather->trace(itrc)->getTraceHeader()->setDoubleValue( vars->hdrId3, value );
+            }
+            } */
         }
       }
     }
@@ -416,9 +500,9 @@ void exec_mod_hdr_math_ens_(
       }
     }
     else {
-      log->error("mod_hdr_math_ens: Unsupported trace header type, code: %d", vars->hdrType1 );
+      writer->error("mod_hdr_math_ens: Unsupported trace header type, code: %d", vars->hdrType1 );
     }
-    if( vars->nHeaders == 2 ) {
+    if( vars->nHeaders >= 2 ) {
       int counter = 0;
       values2 = new double[nTracesSelected];
       if( vars->hdrType2 == TYPE_FLOAT ) {
@@ -441,6 +525,20 @@ void exec_mod_hdr_math_ens_(
           if( isSelected[itrc] ) values2[counter++] = (double)traceGather->trace(itrc)->getTraceHeader()->int64Value(vars->hdrId2);
         }
       }
+      if( vars->nHeaders >= 3 ) {
+        int counter = 0;
+        values3 = new double[nTracesSelected];
+        if( vars->hdrType3 == TYPE_FLOAT ) {
+          for( int itrc = 0; itrc < nTracesIn; itrc++) {
+            if( isSelected[itrc] ) values3[counter++] = (double)traceGather->trace(itrc)->getTraceHeader()->floatValue(vars->hdrId3);
+          }
+        }
+        else { // if( vars->hdrType2 == TYPE_DOUBLE ) {
+          for( int itrc = 0; itrc < nTracesIn; itrc++) {
+            if( isSelected[itrc] ) values3[counter++] = traceGather->trace(itrc)->getTraceHeader()->doubleValue(vars->hdrId3);
+          }
+        }
+      }
     }
 
   //----------------------------------------------------
@@ -453,24 +551,53 @@ void exec_mod_hdr_math_ens_(
     vars->sortObj->treeSort( values, nTracesSelected );
     result = values[nTracesSelected/2];
   }
-  else if( vars->method == mod_hdr_math_ens::MEAN ) {
+  else if( vars->method == mod_hdr_math_ens::MEAN || vars->method == mod_hdr_math_ens::SUM ) {
     for( int itrc = 0; itrc < nTracesSelected; itrc++) {
       result += values[itrc];
     }
-    result /= nTracesSelected;
+    if( vars->method == mod_hdr_math_ens::MEAN ) result /= nTracesSelected;
+  }
+  else if( vars->method == mod_hdr_math_ens::MEAN_FILT || vars->method == mod_hdr_math_ens::MEDIAN_FILT ) {
+    if( nTracesSelected != nTracesIn ) writer->error("mod_hdr_math_ens: Unexpected error occurred when applying mean (or median) filter: Inconsistent number of input traces: %d vs %d", nTracesIn, nTracesSelected); 
+    double* valuesOut = new double[nTracesSelected];
+    int numTracesFilt = std::min(vars->numTraces,nTracesIn);
+
+    if( vars->method == mod_hdr_math_ens::MEAN_FILT ) {
+      cseis_geolib::meanFilter( values, valuesOut, nTracesSelected, numTracesFilt );
+    }
+    else { // MEDIAN filter
+      cseis_geolib::medianFilter( values, valuesOut, nTracesSelected, numTracesFilt, true ); // true: Apply median filter at edges
+    }
+    for( int itrc = 0; itrc < nTracesIn; itrc++) {
+      if( vars->hdrType1 == TYPE_FLOAT ) {
+        traceGather->trace(itrc)->getTraceHeader()->setFloatValue( vars->hdrId1, (float)valuesOut[itrc] );
+      }
+      else if( vars->hdrType1 == TYPE_DOUBLE ) {
+        traceGather->trace(itrc)->getTraceHeader()->setFloatValue( vars->hdrId1, valuesOut[itrc] );
+      }
+      else if( vars->hdrType1 == TYPE_INT ) {
+        traceGather->trace(itrc)->getTraceHeader()->setInt64Value( vars->hdrId1, (int)round(valuesOut[itrc]) );
+      }
+      else if( vars->hdrType1 == TYPE_INT64 ) {
+        traceGather->trace(itrc)->getTraceHeader()->setInt64Value( vars->hdrId1, (csInt64_t)round(valuesOut[itrc]) );
+      }
+    }
+    delete [] valuesOut;
+    return;
   }
   else if( vars->method == mod_hdr_math_ens::MEAN_ANGLE ) {
     // Assumes input values are angles in degrees
     // --> Take average of angular vector, then compute back average angle
+    //    double periodicity = 2;
     for( int itrc = 0; itrc < nTracesSelected; itrc++) {
-      double an_rad = values[itrc] * M_PI / 180.0;
+      double an_rad = (double)vars->periodicity*values[itrc] * M_PI / 180.0;
       result  += sin(an_rad);
       result2 += cos(an_rad);
     }
     result  /= nTracesSelected;
     result2 /= nTracesSelected;
     // Convert vector back into angle:
-    result  = fmod( atan2(result,result2) * 180.0 / M_PI + 360.0, 360.0 );
+    result  = fmod( atan2(result,result2) * 180.0 / M_PI + 360.0, 360.0 ) / (double)vars->periodicity;
   }
   else if( vars->method == mod_hdr_math_ens::MAXIMUM ) {
     result = values[0];
@@ -484,14 +611,28 @@ void exec_mod_hdr_math_ens_(
       if( values[itrc] < result ) result = values[itrc];
     }
   }
-  else if( vars->method == mod_hdr_math_ens::LINEAR ) {
-    double coefficients[2];
-    polynom_fit( values, values2, nTracesSelected, 1, coefficients );
+  else if( vars->method == mod_hdr_math_ens::FIT_LINEAR || vars->method == mod_hdr_math_ens::FIT_QUADRATIC ) {
+    int order = 0;
+    if( vars->method == mod_hdr_math_ens::FIT_LINEAR ) {
+      order = 1;
+    }
+    else { // if( vars->method == mod_hdr_math_ens::FIT_QUADRATIC ) {
+      order = 2;
+    }
+    double* coefficients = new double[order+1];
+    polynom_fit( values, values2, nTracesSelected, order, coefficients );
 
-    if( edef->isDebug() ) log->line("HDR_MATH_ENS: Linear polynomial coefficients: %e x^0  %e x^1\n", coefficients[0], coefficients[1]);
-    //    ls_linear_fit( values, values2, nTraces, values2 );
-    for( int itrc = 0; itrc < nTracesSelected; itrc++) {
-      values2[itrc] = values[itrc] * coefficients[1] + coefficients[0];
+    if( vars->method == mod_hdr_math_ens::FIT_LINEAR ) {
+      if( edef->isDebug() ) writer->line("HDR_MATH_ENS: Linear polynomial coefficients: %e x^0  %e x^1\n", coefficients[0], coefficients[1]);
+      for( int itrc = 0; itrc < nTracesSelected; itrc++) {
+        values2[itrc] = values[itrc] * coefficients[1] + coefficients[0];
+      }
+    }
+    else { // if( vars->method == mod_hdr_math_ens::FIT_QUADRATIC ) 
+      if( edef->isDebug() ) writer->line("HDR_MATH_ENS: Quadratic polynomial coefficients: %e x^0  %e x^1  %e x^2\n", coefficients[0], coefficients[1], coefficients[2]);
+      for( int itrc = 0; itrc < nTracesSelected; itrc++) {
+        values2[itrc] = values[itrc] * ( values[itrc] * coefficients[2] + coefficients[1] ) + coefficients[0];
+      }
     }
 
     if( vars->hdrType2 == TYPE_FLOAT ) {
@@ -507,6 +648,52 @@ void exec_mod_hdr_math_ens_(
     if( values != NULL ) delete [] values;
     if( values2 != NULL ) delete [] values2;
     if( isSelected != NULL )  delete [] isSelected;
+    return;
+  }
+  else if( vars->method == mod_hdr_math_ens::FIT_PLANE ) {
+    csPlane3D plane;
+    plane.fitToPoints( values, values2, values3, nTracesSelected, writer->getFile() );
+    double xmin = values[0];
+    double xmax = values[0];
+    double ymin = values[1];
+    double ymax = values[1];
+    for( int itrc = 0; itrc < nTracesSelected; itrc++) {
+      values3[itrc] = plane.computeZ( values[itrc], values2[itrc] );
+      if( values[itrc]  < xmin ) xmin = values[itrc];
+      if( values[itrc]  > xmax ) xmax = values[itrc];
+      if( values2[itrc] < ymin ) ymin = values2[itrc];
+      if( values2[itrc] > ymax ) ymax = values2[itrc];
+    }
+    csPoint3D vecNorm = plane.normalVector();
+    writer->line(" Plane3D dip azim coef  %.5e %.5e   %.5e %.5e %.5e %.5e", plane.dipAngle(), plane.azimuthAngle(), vecNorm.x, vecNorm.y, vecNorm.z, plane.getD() );
+
+    // Compute three points on plane that define the plane
+    csPoint3D p1( xmin, ymin, 0 );
+    csPoint3D p2( xmin, ymax, 0 );
+    csPoint3D p3( xmax, ymax, 0 );
+    p1.z = plane.computeZ( p1.x, p1.y );
+    p2.z = plane.computeZ( p2.x, p2.y );
+    p3.z = plane.computeZ( p3.x, p3.y );
+
+    if( vars->hdrType3 == TYPE_FLOAT ) {
+      for( int itrc = 0; itrc < nTracesIn; itrc++) {
+        traceGather->trace(itrc)->getTraceHeader()->setFloatValue( vars->hdrId3, (float)values3[itrc] );
+      }
+    }
+    else if( vars->hdrType3 == TYPE_DOUBLE ) {
+      for( int itrc = 0; itrc < nTracesIn; itrc++) {
+        traceGather->trace(itrc)->getTraceHeader()->setDoubleValue( vars->hdrId3, values3[itrc] );
+      }
+    }
+    for( int itrc = 0; itrc < nTracesIn; itrc++) {
+      traceGather->trace(itrc)->getTraceHeader()->setVectorValue( vars->hdrId_plane_p1, p1 );
+      traceGather->trace(itrc)->getTraceHeader()->setVectorValue( vars->hdrId_plane_p2, p2 );
+      traceGather->trace(itrc)->getTraceHeader()->setVectorValue( vars->hdrId_plane_p3, p3 );
+    }
+    if( values != NULL ) delete [] values;
+    if( values2 != NULL ) delete [] values2;
+    if( values3 != NULL ) delete [] values3;
+    if( isSelected != NULL )  delete [] isSelected;
 
     return;
   }
@@ -518,72 +705,40 @@ void exec_mod_hdr_math_ens_(
     for( int itrc = 0; itrc < nTracesSelected; itrc++) {
       values[itrc] = DEG2RAD( fmod(values[itrc],360.0) );
     }
-    computeXcorCos( values, values2, nTracesSelected, periodicity, vars->computeStddev, result, stddev, result2 );
-
-/*
-    result  = values[0];
-    result2 = values2[0];
-    int maxtrc = 0;
-    for( int itrc = 1; itrc < nTracesSelected; itrc++) {
-//      fprintf(stdout,"%d   %f %f %f\n", itrc, values[itrc], RAD2DEG(values[itrc]), values2[itrc]);
-      if( values2[itrc] > result2 ) {
-        result2 = values2[itrc];
-        result = values[itrc];
-        maxtrc = itrc;
-      //  fprintf(stdout,"  %d %f %f %f\n", itrc, result, RAD2DEG(result), result2);
-      }
-    }
-    //fprintf(stdout,"\n");
-    
-    
-    float val2[3];
-    if( maxtrc == 0 ) {
-      values[2] = values[1];
-      values[1] = values[0];
-      values[0] = values[nTracesSelected-1];
-      val2[2] = values2[1];
-      val2[1] = values2[0];
-      val2[0] = values2[nTracesSelected-1];
-      maxtrc = 1;
-    }
-    else if( maxtrc == nTracesSelected-1 ) {
-      values[2] = values[0];
-      values[1] = values[nTracesSelected-1];
-      values[0] = values[nTracesSelected-2];
-      val2[2] = values2[0];
-      val2[1] = values2[nTracesSelected-1];
-      val2[0] = values2[nTracesSelected-2];
-      maxtrc = 1;
-    }
-    else {
-      values[2] = values[maxtrc+1];
-      values[1] = values[maxtrc];
-      values[0] = values[maxtrc-1];
-      val2[2] = values2[maxtrc+1];
-      val2[1] = values2[maxtrc];
-      val2[0] = values2[maxtrc-1];
-      maxtrc = 1;
-    }
-    float result3;
-    float sampleIndex_maxAmp_float = getQuadMaxSample( val2, maxtrc, nTracesSelected, &result3 );
-    result2 = (double)result3;
-    int sampleIndex_int = (int)sampleIndex_maxAmp_float;
-    if( sampleIndex_int == 2 ) sampleIndex_int = 1;
-    result = (sampleIndex_maxAmp_float-sampleIndex_int) * ( values[sampleIndex_int+1]-values[sampleIndex_int] ) + values[sampleIndex_int];
-
-     stddev = 0;
-*/
+    double angleInc_deg = 1.0;
+    computeXcorCos( values, values2, nTracesSelected, periodicity, angleInc_deg, vars->computeStddev, result, stddev, result2 );
   }
+  else if( vars->method == mod_hdr_math_ens::ASSIGN_FIRST ) {
+    result = values[0];
+  }
+
   // Standard deviation
-  if( vars->computeStddev && vars->method != mod_hdr_math_ens::XCOR_COS2 ) {
-    for( int itrc = 0; itrc < nTracesSelected; itrc++) {
-      stddev += CS_SQR( values[itrc] - result );
+  if( vars->computeStddev ) {
+    if( vars->method == mod_hdr_math_ens::MEAN_ANGLE ) {
+      double maxAngle_deg = 360.0/(double)vars->periodicity;
+      for( int itrc = 0; itrc < nTracesSelected; itrc++) {
+        double diff = values[itrc] - result;
+        if( diff > maxAngle_deg/2 ) {
+          diff -= maxAngle_deg;
+        }
+        else if( diff < -maxAngle_deg/2 ) {
+          diff += maxAngle_deg;
+        }
+        stddev += CS_SQR( diff );
+      }
+      stddev = sqrt( stddev/(double)nTracesSelected );
     }
-    stddev = sqrt( stddev/(double)nTracesSelected );
+    else if( vars->method != mod_hdr_math_ens::XCOR_COS2 ) {
+      for( int itrc = 0; itrc < nTracesSelected; itrc++) {
+        stddev += CS_SQR( values[itrc] - result );
+      }
+      stddev = sqrt( stddev/(double)nTracesSelected );
+    }
   }
 
   if( values != NULL ) delete [] values;
   if( values2 != NULL ) delete [] values2;
+  if( values3 != NULL ) delete [] values3;
   if( isSelected != NULL ) delete [] isSelected;
   //--------------------------------------------------------
   // Free traces that shall not be output from this module
@@ -624,11 +779,11 @@ void exec_mod_hdr_math_ens_(
   }
   else if( vars->hdrType1 == TYPE_INT ) {
     for( int itrc = 0; itrc < nTracesOut; itrc++) {
-      traceGather->trace(itrc)->getTraceHeader()->setIntValue( vars->hdrId1, (int)result );
+      traceGather->trace(itrc)->getTraceHeader()->setIntValue( vars->hdrId1, (int)round(result) );
     }
     if( vars->computeStddev ) {
       for( int itrc = 0; itrc < nTracesOut; itrc++) {
-        traceGather->trace(itrc)->getTraceHeader()->setIntValue( vars->hdrStddevId1, (int)stddev );
+        traceGather->trace(itrc)->getTraceHeader()->setIntValue( vars->hdrStddevId1, (int)round(stddev) );
       }
     }
   }
@@ -661,16 +816,25 @@ void params_mod_hdr_math_ens_( csParamDef* pdef ) {
   pdef->addValue( "", VALTYPE_OPTION );
   pdef->addOption( "median", "Compute median value of header1" );
   pdef->addOption( "mean", "Compute mean value of header1" );
-  pdef->addOption( "linear", "Fit linear polynom to header1/header2 value pairs" );
+  pdef->addOption( "fit_linear", "Fit linear polynom to header1/header2 value pairs" );
+  pdef->addOption( "fit_quadratic", "Fit quadratic polynom to header1/header2 value pairs" );
+  pdef->addOption( "fit_plane", "Fit 3D plane to header1/header2/header3(=x,y,z) value triplets" );
   pdef->addOption( "xcor_cos2", "Cross-correlate with cosine function (2*theta variation)", "header2: S1 azimuth [deg], header2: Time lag from cross-correlation" );
   pdef->addOption( "minimum", "Take minimum value of header1" );
   pdef->addOption( "maximum", "Take maximum value of header1" );
   pdef->addOption( "mean_angle", "Compute mean value of header1 (contains angle in degrees)" );
+  pdef->addOption( "mean_filt", "Apply mean filter to header1", "Specify number of traces to use in filter, user parameter 'ntraces'" );
+  pdef->addOption( "median_filt", "Apply median filter to header1", "Specify number of traces to use in filter, user parameter 'ntraces'" );
+  pdef->addOption( "sum", "Compute sum of value" );
+  pdef->addOption( "assign_first", "Assign value of first trace to all tracesin gather" );
 
   pdef->addParam( "header1", "Trace header 1 to be used in computation", NUM_VALUES_FIXED );
   pdef->addValue( "", VALTYPE_STRING, "Trace header name" );
 
   pdef->addParam( "header2", "Trace header 2 to be used in computation", NUM_VALUES_FIXED );
+  pdef->addValue( "", VALTYPE_STRING, "Trace header name" );
+
+  pdef->addParam( "header3", "Trace header 3 to be used in computation", NUM_VALUES_FIXED );
   pdef->addValue( "", VALTYPE_STRING, "Trace header name" );
 
   pdef->addParam( "output", "", NUM_VALUES_FIXED );
@@ -699,45 +863,55 @@ void params_mod_hdr_math_ens_( csParamDef* pdef ) {
   pdef->addOption( "value", "Set specified trace header to constant value" );
   pdef->addOption( "header", "Set specified trace header to value from another trace header" );
   pdef->addValue( "", VALTYPE_STRING, "For option 'value': Constant value; for option 'header': Name of trace header; otherwise blank");
+
+  pdef->addParam( "ntraces", "Number of traces to be used in computation", NUM_VALUES_FIXED, "This parameter only applies to certain methods, see 'method'" );
+  pdef->addValue( "10", VALTYPE_NUMBER );
+
+  pdef->addParam( "periodicity", "Periodicity of cosine/sin function", NUM_VALUES_FIXED, "Only used in case of method 'mean_angle'" );
+  pdef->addValue( "1", VALTYPE_NUMBER, "Periodicity of cosine function: cos(periodicity*angle)" );
+}
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_hdr_math_ens_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_hdr_math_ens::VariableStruct* vars = reinterpret_cast<mod_hdr_math_ens::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_hdr_math_ens_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_hdr_math_ens::VariableStruct* vars = reinterpret_cast<mod_hdr_math_ens::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  if( vars->sortObj != NULL ) {
+    delete vars->sortObj;
+    vars->sortObj = NULL;
+  }
+  if( vars->selectionManager ) {
+    delete vars->selectionManager; vars->selectionManager = NULL;
+  }
+  delete vars; vars = NULL;
 }
 
 extern "C" void _params_mod_hdr_math_ens_( csParamDef* pdef ) {
   params_mod_hdr_math_ens_( pdef );
 }
-extern "C" void _init_mod_hdr_math_ens_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_hdr_math_ens_( param, env, log );
+extern "C" void _init_mod_hdr_math_ens_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_hdr_math_ens_( param, env, writer );
 }
-extern "C" void _exec_mod_hdr_math_ens_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* log ) {
-  exec_mod_hdr_math_ens_( traceGather, port, numTrcToKeep, env, log );
+extern "C" bool _start_exec_mod_hdr_math_ens_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_hdr_math_ens_( env, writer );
 }
-
-void ls_linear_fit( double const* xValuesIn, double const* yValuesIn, int numValues, double* valuesOut ) {
-
-  double sum_x = 0.0;
-  double sum_y = 0.0;
-  double sum_xx = 0.0;
-  double sum_xy = 0.0;
-  for( int ival = 0; ival < numValues; ival++ ) {
-    double xval = xValuesIn[ival];
-    double yval = yValuesIn[ival];
-
-    sum_x += xval;
-    sum_y += yval;
-
-    sum_xx += xval*xval;
-    sum_xy += xval*yval;
-  }
-
-  double tmp1 = sum_x*sum_x - numValues*sum_xx;
-
-  if( fabs(tmp1) != 0.0 ) {
-    double aa = ((sum_x * sum_xy) - (sum_xx * sum_y)) / tmp1;
-    double bb = ((sum_x * sum_y) - (numValues * sum_xy)) / tmp1;
-    for( int ival = 0; ival < numValues; ival++ ) {
-      valuesOut[ival] = aa * xValuesIn[ival] + bb;
-    }
-  }
-
+extern "C" void _exec_mod_hdr_math_ens_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_hdr_math_ens_( traceGather, port, numTrcToKeep, env, writer );
 }
-
-
+extern "C" void _cleanup_mod_hdr_math_ens_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_hdr_math_ens_( env, writer );
+}

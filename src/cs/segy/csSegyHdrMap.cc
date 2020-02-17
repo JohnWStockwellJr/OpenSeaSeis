@@ -2,7 +2,7 @@
 /* All rights reserved.                       */
 
 #include "csSegyHdrMap.h"
-#include "csSegyHeader.h"
+#include "csSegyDefines.h"
 #include "csSegyHeaderInfo.h"
 #include "csVector.h"
 #include "csGeolibUtils.h"
@@ -221,28 +221,28 @@ bool csSegyHdrMap::addHeader( std::string const& theName, int theByteLoc, int th
   if( myIsInitScalars ) {
     throw( csException("csSegyHdrMap::addHeader: Accessing method to set new header AFTER initializing headers. This is a program bug in the calling method") );
   }
-  if( theByteLoc > csSegyHeader::SIZE_TRCHDR ) {
+  if( theByteLoc > cseis_segy::SIZE_TRCHDR ) {
     throw csException("Specified byte location is larger than actual SEGY header block");
   }
   else if( theByteLoc < 0 ) {
     throw csException("Specified byte location is smaller than zero");
   }
-  else if( theByteLoc+theByteSize > csSegyHeader::SIZE_TRCHDR ) {
+  else if( theByteLoc+theByteSize > cseis_segy::SIZE_TRCHDR ) {
     throw csException("Specified byte location (+ byte size) is larger than SEGY trace header block");
   }
 
   int hdrIndex;
   int hdrIndexByteLoc;
   if( !getHdrIndex( theName, &hdrIndex, theByteLoc, &hdrIndexByteLoc ) ) {
-    //    myHdrList->insertEnd( new csSegyHeaderInfo( theByteLoc, theByteSize, theInType, theOutType, theName, theDesc ) );
-    myHdrList->insert( new csSegyHeaderInfo( theByteLoc, theByteSize, theInType, theOutType, theName, theDesc ), hdrIndexByteLoc );
+    myHdrList->insertEnd( new csSegyHeaderInfo( theByteLoc, theByteSize, theInType, theOutType, theName, theDesc ) );
+    // myHdrList->insert( new csSegyHeaderInfo( theByteLoc, theByteSize, theInType, theOutType, theName, theDesc ), hdrIndexByteLoc );
     return true;
   }
   else if( myReplaceExistingHeader ) {
     removeHeader( hdrIndex );
     if( !getHdrIndex( theName, &hdrIndex, theByteLoc, &hdrIndexByteLoc ) ) {
-      //      myHdrList->insertEnd( new csSegyHeaderInfo( theByteLoc, theByteSize, theInType, theOutType, theName, theDesc ) );
-      myHdrList->insert( new csSegyHeaderInfo( theByteLoc, theByteSize, theInType, theOutType, theName, theDesc ), hdrIndexByteLoc );
+      myHdrList->insertEnd( new csSegyHeaderInfo( theByteLoc, theByteSize, theInType, theOutType, theName, theDesc ) );
+      //  myHdrList->insert( new csSegyHeaderInfo( theByteLoc, theByteSize, theInType, theOutType, theName, theDesc ), hdrIndexByteLoc );
       return true;
     }
     else {
@@ -345,7 +345,8 @@ void csSegyHdrMap::applyCoordinateScalar( cseis_geolib::csFlexHeader* hdrValues 
     for( int i = 0; i < myCoordHdrIDList->size(); i++ ) {
       int headerIndex = myCoordHdrIDList->at(i);
       hdrValues[headerIndex].setDoubleValue( (double)(hdrValues[headerIndex].intValue()) * scalarCoord );
-      //  fprintf(stdout,"Scale header %1d %d %f\n", i, hdrValues[headerIndex].intValue(), hdrValues[headerIndex].doubleValue() );
+      //      fprintf(stdout,"Scale header %1d %d %f   %s  %d %d\n", i, hdrValues[headerIndex].intValue(), hdrValues[headerIndex].doubleValue(), myHdrList->at(headerIndex)->name.c_str(),
+      //         myHdrList->at(headerIndex)->byteLoc, myHdrList->at(headerIndex)->byteSize );
     }
   }
   if( scalarStat != 0.0 ) {
@@ -362,6 +363,10 @@ void csSegyHdrMap::applyCoordinateScalarWriting( cseis_geolib::csFlexHeader* hdr
   double scalarElev  = (double)hdrValues[myHdrID_scalar_elev].intValue();
   double scalarCoord = (double)hdrValues[myHdrID_scalar_coord].intValue();
   double scalarStat  = (double)hdrValues[myHdrID_scalar_stat].intValue();
+  // Swap scalar polarity on output
+  hdrValues[myHdrID_scalar_elev].setIntValue( -scalarElev );
+  hdrValues[myHdrID_scalar_coord].setIntValue( -scalarCoord );
+  hdrValues[myHdrID_scalar_stat].setIntValue( -scalarStat );
   if( scalarElev  < 0 ) scalarElev  = -1/scalarElev;
   if( scalarCoord < 0 ) scalarCoord = -1/scalarCoord;
   if( scalarStat < 0 ) scalarStat = -1/scalarStat;
@@ -767,6 +772,38 @@ void csSegyHdrMap::init( bool initScalars_in ) {
 
     addHeader( "dc", 236, 4, TYPE_INT, TYPE_FLOAT, "DC bias" );
   }
+  else if( myDefaultMap == SEGY_DAS ) {
+    removeHeader( HDR_CMP.name );
+    removeHeader( HDR_CHAN_ENS.name );
+    removeHeader( HDR_STAT_SOU.name );
+    removeHeader( HDR_MUTE_START.name );
+    removeHeader( HDR_MUTE_END.name );
+
+    addHeader( "das_rec_elev_kb", 20, 4, TYPE_INT, TYPE_FLOAT, "DAS - Kelly Bushing receiver elevation" );
+    addHeader( "das_sou_elev_kb", 24, 4, TYPE_INT, TYPE_FLOAT, "DAS - Kelly Bushing source elevation" );
+    addHeader( "das_stage", 98, 2, TYPE_SHORT, TYPE_INT, "DAS - Perforation stage number" );
+
+    addHeader( "das_perf", 100, 2, TYPE_SHORT, TYPE_INT, "DAS - Perforation cluster number" );
+
+    addHeader( "das_shot_tvd", 110, 4, TYPE_INT, TYPE_FLOAT, "DAS - True vertical depth of shot below KB" );
+    addHeader( 168, 4, TYPE_INT, HDR_TIME_USEC);
+    addHeader( 174, 4, TYPE_INT, HDR_SEQ);
+    addHeader( "das_acqseq", 178, 4, TYPE_INT, TYPE_INT, "DAS - Acquisition sequence number" );
+
+    addHeader( 180, 4, TYPE_INT, HDR_REC_LINE);
+    addHeader( "rec_point", 184, 4, TYPE_INT, "Receiver point number" );
+    addHeader( "das_rec_point_scale", 188, 4, TYPE_INT, "Receiver point scalar" );
+    addHeader( 192, 4, TYPE_INT, HDR_SOU_LINE);
+    addHeader( "sp_num", 196, 4, TYPE_INT, "Shotpoint number (SEGY)");
+    addHeader( "das_sp_num_scale", 200, 2, TYPE_INT, "Shotpoint scalar" );
+    addHeader( "trace_unit", 202, 2, TYPE_INT, "Trace unit: -1(Other) 0(unknown) 1(Pa) 2(V) 3(mV) 4(A) 5/m 6(m/s) 7(m/s2) 8(N) 9(W)" );
+    addHeader( "das_rec_tvd", 204, 4, TYPE_INT, TYPE_FLOAT, "DAS - True vertical depth of receiver below KB" );
+    addHeader( "das_rec_tvdss", 208, 4, TYPE_INT, TYPE_FLOAT, "DAS - True vertical depth of receiver below MS" );
+    addHeader( "device_ident", 212, 2, TYPE_INT, "Device/trace identifier");
+    addHeader( "das_ping_rate", 232, 2, TYPE_INT, "Interrogator unit ping rate [kHz]");
+    addHeader( 234, 4, TYPE_INT, HDR_REC_Z);
+    addHeader( "das_gauge_len", 238, 2, TYPE_INT, "Interrogator unit gauge length [ns]");
+  }
   //  if( myDefaultMap != csSegyHdrMap::NONE && initScalars_in ) {
   if( initScalars_in ) {
     initScalars();  
@@ -824,7 +861,7 @@ void csSegyHdrMap::readHdrMapExternalFile( std::string filename ) {
     if( tokenList.size() > 4 ) desc = tokenList.at(4);
     if( byteLoc < 0 || byteLoc >= 240 ) {  // Internal byte location is between 0-239
       throw( csException("Inconsistent byte location in line #%d, input file '%s':\n'%s'. Must be number between 1-240",
-			 counterLines+1, filename.c_str(), buffer) );
+                         counterLines+1, filename.c_str(), buffer) );
     }
 
     if( !addHeader( byteLoc, typeNameIn, typeNameOut, name, desc ) ) {
@@ -855,6 +892,14 @@ bool csSegyHdrMap::addHeader( int byteLoc, std::string const& typeNameIn, std::s
   else if( !typeNameIn.compare("float") ) {
     typeIn   = TYPE_FLOAT;
     byteSize = 4;
+  }
+  else if( !typeNameIn.compare("float_ibm") ) {
+    typeIn   = TYPE_FLOAT_IBM;
+    byteSize = 4;
+  }
+  else if( !typeNameIn.compare("double") ) {
+    typeIn   = TYPE_DOUBLE;
+    byteSize = 8;
   }
   else if( !typeNameIn.compare("2") ) {
     typeIn   = TYPE_SHORT;
@@ -892,7 +937,7 @@ bool csSegyHdrMap::addHeader( int byteLoc, std::string const& typeNameIn, std::s
     csHeaderInfo const* stdInfo = csStandardHeaders::get( name );
     if( typeOut != stdInfo->type ) {
       throw csException("SeaSeis standard trace header with name '%s' exists, but with different type: %s  (user specified type: %s))",
-			name.c_str(), csGeolibUtils::typeText(stdInfo->type), csGeolibUtils::typeText(typeOut) );
+                        name.c_str(), csGeolibUtils::typeText(stdInfo->type), csGeolibUtils::typeText(typeOut) );
     }
     return addHeader( name.c_str(), byteLoc, byteSize, typeIn, stdInfo->type, stdInfo->description.c_str() );
   }

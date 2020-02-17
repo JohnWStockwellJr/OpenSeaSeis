@@ -44,7 +44,7 @@ public class csNativeRSFReader implements csISeismicReader {
           String headerName,
           int sortOrder,
           int sortMethod,
-          csISelectionNotifier notifier );
+          csITraceHeaderScanNotifier notifier );
   private native int native_getNumSelectedTraces( long ptr );
   private native void native_getSelectedValues( long ptr, csSelectedHeaderBundle hdrBundle );
   
@@ -159,7 +159,7 @@ public class csNativeRSFReader implements csISeismicReader {
   //
   @Override
   public boolean setSelection( String hdrValueSelectionText, String headerName, int sortOrder, int sortMethod,
-          csISelectionNotifier notifier ) {
+          csITraceHeaderScanNotifier notifier ) {
     if( notifier == null ) return false;
     return native_setSelection( myNativePtr, hdrValueSelectionText, headerName, sortOrder, sortMethod, notifier );
   }

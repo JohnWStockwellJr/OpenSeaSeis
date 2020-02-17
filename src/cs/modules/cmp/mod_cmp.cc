@@ -38,7 +38,7 @@ using namespace mod_cmp;
 //
 //
 //*************************************************************************************************
-void init_mod_cmp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_cmp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csExecPhaseDef*   edef = env->execPhaseDef;
 //  csSuperHeader*    shdr = env->superHeader;
@@ -46,7 +46,8 @@ void init_mod_cmp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
 
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
   vars->depth      = 0;
   vars->bin_scalar = 2.0;
@@ -71,7 +72,7 @@ void init_mod_cmp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
       param->getFloat( "depth", &vars->depth );
     }
     else {
-      log->error("Unknown option: '%s'", text.c_str());
+      writer->error("Unknown option: '%s'", text.c_str());
     }
   }
 
@@ -83,24 +84,24 @@ void init_mod_cmp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
   // Headers
   //
   if( !hdef->headerExists( "source" ) ) {
-    log->error("Trace header 'source' does not exist.");
+    writer->error("Trace header 'source' does not exist.");
   }
   if( !hdef->headerExists( "rcv" ) ) {
-    log->error("Trace header 'rcv' does not exist.");
+    writer->error("Trace header 'rcv' does not exist.");
   }
 
   if( vars->method == METHOD_OBC_ASYM ) {
     if( !hdef->headerExists( "offset" ) ) {
-      log->error("Trace header 'offset' does not exist.");
+      writer->error("Trace header 'offset' does not exist.");
     }
     else if( hdef->headerType( "offset" ) != TYPE_FLOAT && hdef->headerType( "offset" ) != TYPE_DOUBLE ) {
-      log->error("Trace header 'offset' exists but has the wrong number type. Should be FLOAT.");
+      writer->error("Trace header 'offset' exists but has the wrong number type. Should be FLOAT.");
     }
     if( !hdef->headerExists( "rec_elev" ) ) {
-      log->error("Trace header 'rec_elev' does not exist.");
+      writer->error("Trace header 'rec_elev' does not exist.");
     }
     if( !hdef->headerExists( "sou_z" ) ) {
-      log->error("Trace header 'sou_z' does not exist.");
+      writer->error("Trace header 'sou_z' does not exist.");
     }
     vars->hdrId_offset = hdef->headerIndex( "offset" );
     vars->hdrId_rec_elev = hdef->headerIndex( "rec_elev" );
@@ -125,19 +126,18 @@ void init_mod_cmp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log
 //
 //
 //*************************************************************************************************
-bool exec_mod_cmp_(
-  csTrace* trace,
+void exec_mod_cmp_(
+  csTraceGather* traceGather,
   int* port,
-  csExecPhaseEnv* env, csLogWriter* log )
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
 {
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
-  csExecPhaseDef* edef = env->execPhaseDef;
 //  csSuperHeader const* shdr = env->superHeader;
 
-  if( edef->isCleanup()){
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
 
   csTraceHeader* trcHdr = trace->getTraceHeader();
   double rcv     = (double)trcHdr->intValue( vars->hdrId_rcv );
@@ -154,7 +154,7 @@ bool exec_mod_cmp_(
 
     double dz       = rec_elev - sou_z;
     if( dz > vars->depth ) {
-      log->warning("Specified target depth (%f) is shallower than receiver depth (%f), rcv: %d, source: %d",
+      writer->warning("Specified target depth (%f) is shallower than receiver depth (%f), rcv: %d, source: %d",
         vars->depth, rec_elev, rcv, source );
     }
     double offset_pside = offset / ( 2.0 - dz/vars->depth );
@@ -163,7 +163,7 @@ bool exec_mod_cmp_(
 
   trcHdr->setIntValue( vars->hdrId_cmp, cmp );
 
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -186,13 +186,41 @@ void params_mod_cmp_( csParamDef* pdef ) {
   pdef->addValue( "", VALTYPE_NUMBER, "Target depth [m]" );
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_cmp_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_cmp::VariableStruct* vars = reinterpret_cast<mod_cmp::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_cmp_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_cmp::VariableStruct* vars = reinterpret_cast<mod_cmp::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_cmp_( csParamDef* pdef ) {
   params_mod_cmp_( pdef );
 }
-extern "C" void _init_mod_cmp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_cmp_( param, env, log );
+extern "C" void _init_mod_cmp_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_cmp_( param, env, writer );
 }
-extern "C" bool _exec_mod_cmp_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_cmp_( trace, port, env, log );
+extern "C" bool _start_exec_mod_cmp_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_cmp_( env, writer );
 }
-
+extern "C" void _exec_mod_cmp_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_cmp_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_cmp_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_cmp_( env, writer );
+}

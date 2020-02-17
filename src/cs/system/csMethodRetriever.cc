@@ -40,14 +40,11 @@ void csMethodRetriever::getParamInitMethod( std::string const& name, int verMajo
 
   if( dlopen_error ) {
     throw( cseis_geolib::csException("Error occurred while opening shared library. ...does module '%s' exist? Does version '%d.%d' exist?\nSystem message: %s\n",
-                       name.c_str(), verMajor, verMinor, dlopen_error ) );
+                                     name.c_str(), verMajor, verMinor, dlopen_error ) );
   }
 
   param = getParamMethod( nameLower, handle );
   init  = getInitMethod( nameLower, handle );
-
-  //  dlclose(handle);
-  //  fprintf(stderr,"Param method pointer found: %x\n", param);
 }
 //----------------------------------------------------------------------------
 //
@@ -60,7 +57,7 @@ MParamPtr csMethodRetriever::getParamMethod( std::string const& nameLower, char 
             nameLower.c_str(), dlopen_error );
     fflush(stdout);
     throw( cseis_geolib::csException("Error occurred while opening shared library. ...does module '%s' exist?\nSystem message: %s\n",
-      				     nameLower.c_str(), dlopen_error ) );
+                                     nameLower.c_str(), dlopen_error ) );
   }
   return getParamMethod( nameLower, handle );
 }
@@ -90,10 +87,7 @@ MParamPtr csMethodRetriever::getParamMethod( std::string const& name, std::strin
 MInitPtr csMethodRetriever::getInitMethod( std::string const& nameLower, void* handle  ) {
   char* methodName = new char[200];
   sprintf( methodName, "_init_mod_%s_", nameLower.c_str() );
-  
-  //  fprintf(stderr,"Init method name:  '%s'\n", methodName );
 
-  //  MInitPtr method = reinterpret_cast<MInitPtr>( dlsym(handle,methodName) );
   MInitPtr method;
   void *ptr = dlsym(handle,methodName);
   memcpy(&method, &ptr, sizeof(void *));
@@ -111,7 +105,6 @@ MParamPtr csMethodRetriever::getParamMethod( std::string const& nameLower, void*
   char* methodName = new char[200];
   sprintf( methodName, "_params_mod_%s_", nameLower.c_str() );
 
-  //  MParamPtr method = reinterpret_cast<MParamPtr>( dlsym(handle,methodName) );
   MParamPtr method;
   void *ptr = dlsym(handle,methodName);
   memcpy(&method, &ptr, sizeof(void *));
@@ -127,7 +120,7 @@ MParamPtr csMethodRetriever::getParamMethod( std::string const& nameLower, void*
 }
 //--------------------------------------------------------------------
 //
-void csMethodRetriever::getExecMethodSingleTrace( std::string const& name, int verMajor, int verMinor, MExecSingleTracePtr& exec ) {
+void csMethodRetriever::getExecMethod( std::string const& name, int verMajor, int verMinor, MExecStartPtr& execStart, MExecPtr& exec, MCleanupPtr& cleanup ) {
   std::string nameLower = cseis_geolib::toLowerCase( name );
 
   char* soName     = new char[200];
@@ -140,49 +133,38 @@ void csMethodRetriever::getExecMethodSingleTrace( std::string const& name, int v
 
   if( dlopen_error ) {
     throw( cseis_geolib::csException("Error occurred while opening shared library. ...does module '%s' exist? Does version '%d.%d' exist?\nSystem message: %s\n",
-                       name.c_str(), verMajor, verMinor, dlopen_error ) );
+                                     name.c_str(), verMajor, verMinor, dlopen_error ) );
   }
 
-  exec  = getExecMethodSingleTrace( nameLower, handle );
-
-  //  myMethodNameList.insertEnd(nameLower);
-  //  myExecList.insertEnd(exec);
-}
-//----------------------------------------------------------
-//
-void csMethodRetriever::getExecMethodMultiTrace( std::string const& name, int verMajor, int verMinor, MExecMultiTracePtr& exec ) {
-
-  std::string nameLower = cseis_geolib::toLowerCase( name );
-
-  char* soName     = new char[200];
-  char const* ptr  = nameLower.c_str();
-  sprintf(soName,"libmod_%s.so.%d.%d",ptr,verMajor,verMinor);
-
-  void* handle = dlopen( soName, RTLD_LAZY );
-  const char *dlopen_error = dlerror();
-  delete [] soName;
-
-  if( dlopen_error ) {
-    //    dlclose(handle);
-    throw( cseis_geolib::csException("Error occurred while opening shared library. ...does module '%s' exist? Does version '%d.%d' exist?\nSystem message: %s\n",
-                       name.c_str(), verMajor, verMinor, dlopen_error ) );
-  }
-
-  exec  = getExecMethodMultiTrace( nameLower, handle );
-
-  //  myMethodNameList.insertEnd(nameLower);
-  // myExecList.insertEnd(exec);
+  execStart = getExecStartMethod( nameLower, handle );
+  exec      = getExecMethod( nameLower, handle );
+  cleanup   = getCleanupMethod( nameLower, handle );
 }
 //
 //---------------------------------------------------------
-MExecSingleTracePtr csMethodRetriever::getExecMethodSingleTrace( std::string const& nameLower, void* handle  ) {
+MExecStartPtr csMethodRetriever::getExecStartMethod( std::string const& nameLower, void* handle  ) {
+  char* methodName = new char[200];
+  sprintf( methodName, "_start_exec_mod_%s_", nameLower.c_str() );
+
+  MExecStartPtr method;
+  void *ptr = dlsym(handle,methodName);
+  memcpy(&method, &ptr, sizeof(void *));
+
+  const char *dlsym_error = dlerror();
+  delete [] methodName;
+  if( dlsym_error ) {
+    return NULL; // Do not enforce Exec Start Method for backward compatibility
+    //    throw( cseis_geolib::csException("Cannot find startExec definition method. System message:\n%s\n", dlsym_error) );
+  }
+  return method;
+}
+
+//---------------------------------------------------------
+MExecPtr csMethodRetriever::getExecMethod( std::string const& nameLower, void* handle  ) {
   char* methodName = new char[200];
   sprintf( methodName, "_exec_mod_%s_", nameLower.c_str() );
-  
-  //  fprintf(stderr,"Exec method name:  '%s'\n", methodName );
 
-  //  MExecSingleTracePtr method = reinterpret_cast<MExecSingleTracePtr>( dlsym(handle,methodName) );
-  MExecSingleTracePtr method;
+  MExecPtr method;
   void *ptr = dlsym(handle,methodName);
   memcpy(&method, &ptr, sizeof(void *));
 
@@ -193,22 +175,21 @@ MExecSingleTracePtr csMethodRetriever::getExecMethodSingleTrace( std::string con
   }
   return method;
 }
-//---------------------------------------------------------
-MExecMultiTracePtr csMethodRetriever::getExecMethodMultiTrace( std::string const& nameLower, void* handle  ) {
-  char* methodName = new char[200];
-  sprintf( methodName, "_exec_mod_%s_", nameLower.c_str() );
-  
-  //  fprintf(stderr,"Exec method name:  '%s'\n", methodName );
 
-  //  MExecMultiTracePtr method = reinterpret_cast<MExecMultiTracePtr>( dlsym(handle,methodName) );
-  MExecMultiTracePtr method;
+//---------------------------------------------------------
+MCleanupPtr csMethodRetriever::getCleanupMethod( std::string const& nameLower, void* handle  ) {
+  char* methodName = new char[200];
+  sprintf( methodName, "_cleanup_mod_%s_", nameLower.c_str() );
+
+  MCleanupPtr method;
   void *ptr = dlsym(handle,methodName);
   memcpy(&method, &ptr, sizeof(void *));
 
   const char *dlsym_error = dlerror();
   delete [] methodName;
   if( dlsym_error ) {
-    throw( cseis_geolib::csException("Cannot find exec definition method. System message:\n%s\n", dlsym_error) );
+    return NULL; // Do not enforce Cleanup Method for backward compatibility
+    //    throw( cseis_geolib::csException("Cannot find cleanup definition method. System message:\n%s\n", dlsym_error) );
   }
   return method;
 }
@@ -253,18 +234,12 @@ MParamPtr csMethodRetriever::getParamMethod( std::string const& name ) {
 }
 //--------------------------------------------------------------------
 //
-void csMethodRetriever::getExecMethodSingleTrace( std::string const& name, int verMajor, int verMinor, MExecSingleTracePtr& exec ) {
+void csMethodRetriever::getExecMethod( std::string const& name, int verMajor, int verMinor, MExecStartPtr& execStart, MExecPtr& exec, MCleanupPtr& cleanup ) {
   int index = getMethodIndex( name );
   if( index >= 0 ) {
-    exec = METHODS_EXEC_SINGLE[index];
-  }
-}
-//----------------------------------------------------------
-//
-void csMethodRetriever::getExecMethodMultiTrace( std::string const& name, int verMajor, int verMinor, MExecMultiTracePtr& exec ) {
-  int index = getMethodIndex( name );
-  if( index >= 0 ) {
-    exec = METHODS_EXEC_MULTI[index];
+    execStart = METHODS_EXEC_START[index];
+    exec      = METHODS_EXEC[index];
+    cleanup   = METHODS_CLEANUP[index];
   }
 }
 //--------------------------------------------------------------------

@@ -6,6 +6,7 @@ package cseis.seaview;
 
 import cseis.seis.csTraceBuffer;
 import cseis.seisdisp.csSeisView;
+import cseis.seisdisp.csISeisOverlay;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
@@ -15,6 +16,7 @@ import javax.swing.JFrame;
  * Seismic display used for image plot.
  * @author 2009 Bjorn Olofsson
  */
+@SuppressWarnings("serial")
 public class csPlotImageSeisView extends csSeisView {
   private int myNewHeight;
   private int myNewWidth;
@@ -23,15 +25,10 @@ public class csPlotImageSeisView extends csSeisView {
   private int myMinSample;
 //  int myMaxSample;
   private int myViewMin;
-  private int myColorBarOption;
-  private float myColorBarStep;
-  private int myColorBarSize;
 
   public csPlotImageSeisView( JFrame parentFrame, csTraceBuffer buffer, double sampleInt ) {
     super( parentFrame, buffer, sampleInt );
     myMinSample = 0;
-    myColorBarOption = PlotImage.COLORBAR_NONE;
-    myColorBarStep = 1;
 //    myMaxSample = myNumSamples - 1;
   }
   public int set( int width, int height, int marginTopBottom, int marginLeftRight, boolean evenTraceSpacing,
@@ -42,7 +39,6 @@ public class csPlotImageSeisView extends csSeisView {
     myNewMarginTopBottom = marginTopBottom;  //
 //    myColorBarOption = colorBarOption;
 //    myColorBarStep   = colorBarStep;
-    myColorBarSize   = colorBarWidth;
     myMinSample = (int)( minTime / mySampleInt + 0.5f );
     if( myMinSample < 0 ) myMinSample = 0;
     int maxSample = (int)( maxTime / mySampleInt + 0.5f );
@@ -92,6 +88,12 @@ public class csPlotImageSeisView extends csSeisView {
     g2.setColor(  Color.white );
     g2.fillRect( 0, 0, myNewWidth, myNewMarginTopBottom );
     g2.fillRect( 0, myNewHeight-myNewMarginTopBottom, myNewWidth, myNewMarginTopBottom );
+
+    for( int ioverlay = 0; ioverlay < mySeisOverlays.size(); ioverlay++ ) {
+      csISeisOverlay ol = mySeisOverlays.get(ioverlay);
+      ol.draw( this, g2 );
+    }
+ 
   }
   /**
    * Override in order to control image size

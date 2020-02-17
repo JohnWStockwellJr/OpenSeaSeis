@@ -11,16 +11,18 @@
 
 using namespace cseis_system;
 
-csExecPhaseDef::csExecPhaseDef( std::string& moduleName ) {
+csExecPhaseDef::csExecPhaseDef( std::string& moduleName, int mpiProcID ) {
   myModuleName = moduleName;
+  myMPIProcID  = mpiProcID;
   numTraces  = 1;
   traceMode  = TRCMODE_UNKNOWN;
-  myExecType   = EXEC_TYPE_SINGLETRACE;
+  myExecType   = EXEC_TYPE_NORMAL;
   varPtr       = NULL;
   myIsCleanup  = false;
   myIsDebug    = false;
   myTracesAreWaiting = false;
   myIsLastCall  = false;
+  myIsMPISupported = false;
 }
 csExecPhaseDef::~csExecPhaseDef() {
 }
@@ -60,4 +62,7 @@ int csExecPhaseDef::getTraceMode() const {
 }
 void csExecPhaseDef::setCleanUp( bool isCleanUp ) {
   myIsCleanup = isCleanUp;
+}
+void csExecPhaseDef::setMPISupport( bool isSupported ) {
+  myIsMPISupported = isSupported;
 }

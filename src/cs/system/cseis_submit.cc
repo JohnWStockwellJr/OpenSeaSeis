@@ -6,7 +6,6 @@
 #include <stdarg.h>
 #include <iostream>
 #include <string>
-
 #include "cseis_defines.h"
 #include "csTrace.h"
 #include "csLogWriter.h"
@@ -30,6 +29,10 @@
 #include <sys/timeb.h>
 #include <ctime>
 #include <sys/time.h>
+
+#ifdef USE_MPI
+ #include <mpi.h>
+#endif
 
 using namespace cseis_system;
 
@@ -73,8 +76,6 @@ int main( int argc, char** argv ) {
   csLogWriter* f_log = NULL;
   std::string moduleName;
   cseis_geolib::csVector<std::string> filenameList;
-  //      csVector<string> userConstNames;
-  //      csVector<string> userConstValues;
 
   bool isSpreadSheet  = false;
   bool isRunMaster    = false;
@@ -89,9 +90,21 @@ int main( int argc, char** argv ) {
   char* flowOutputName= NULL;
   int memoryPolicy    = csMemoryPoolManager::POLICY_SPEED;
   cseis_geolib::csCompareVector<csUserConstant> globalConstList;
-
+  int mpiNumProc = 1;
+  int mpiProcID  = 0;
+  
   gl_error_stream = stderr;
 
+  //--------------------------------------------------------------------------------
+  // Start MPI
+  //
+#ifdef USE_MPI
+  MPI_Init(&argc,&argv);
+  MPI_Comm_rank(MPI_COMM_WORLD, &mpiProcID);
+  MPI_Comm_size(MPI_COMM_WORLD, &mpiNumProc);
+  fprintf(stderr,"MPI proc ID: %d, num MPI procs: %d\n", mpiProcID, mpiNumProc);
+#endif
+  
   //--------------------------------------------------------------------------------
   // Command line options
   //
@@ -151,7 +164,7 @@ int main( int argc, char** argv ) {
       }
       else if ( option == 'v' ) {
         fprintf( stderr, "SeaSeis version %s, build date %s\n", CSEIS_VERSION, __DATE__ );
-        fprintf( stderr, "Copyright (C) 2006-2012  Bjorn Olofsson\n" );
+        fprintf( stderr, "Copyright (c) Colorado School of Mines, 2013\n" );
         fprintf( stderr, "This program comes with ABSOLUTELY NO WARRANTY;\n");
         fprintf( stderr, "This is free software. Redistribution and use in source and binary forms, with or without\n");
         fprintf( stderr, "modification, are permitted provided that the conditions given in the license agreement are met.\n");
@@ -219,12 +232,19 @@ int main( int argc, char** argv ) {
           fprintf(stderr,"Missing argument for option -%c\n", option);
           return(-1);
         }
-        filenameLog = new char [(strlen(argv[iArg])+1)];
-        memcpy( filenameLog, argv[iArg], strlen(argv[iArg]) );
-        filenameLog[strlen(argv[iArg])] = '\0';
-        if( !strcmp(filenameLog,"stdout") ) {
+        int len_name = strlen(argv[iArg]);
+        int len_name_all = len_name + 1;
+        if( !strcmp(argv[iArg],"stdout") ) {
           isLogStdout = true;
         }
+        else {
+          // In case of MPI jobs (more than one job): Add MPI Proc ID to log name
+          if( mpiProcID > 0 ) len_name_all += 5;
+          filenameLog = new char [len_name_all];
+          memcpy( filenameLog, argv[iArg], len_name );
+          if( mpiProcID > 0 ) sprintf( &filenameLog[len_name], "%05d", mpiProcID );
+        }
+        filenameLog[len_name_all-1] = '\0';
         ++iArg;
       }
       else if ( option == 's' ) {
@@ -322,6 +342,10 @@ int main( int argc, char** argv ) {
         }
         else {
           ++iArg;
+          if( iArg >= argc ) {
+            fprintf(stderr," Syntax error in command line: Option '-d' has no argument\n");
+            return(-1);
+          }
           int length = strlen(argv[iArg]);
           lengthDir = length+1;
           dirLog = new char [lengthDir+1];
@@ -450,48 +474,47 @@ int main( int argc, char** argv ) {
       fprintf(stderr,"Flow cannot not be submitted...\n\n");
       continue;  // Try to submit next flow instead...
     }
-    int length = filenameList.at(i).length();
+    int lengthFlow       = filenameList.at(i).length();
+    int lengthLog        = lengthFlow;
+    int lengthLog_mpiAdd = ( mpiProcID == 0 ) ? 0 : 4; // In case of MPI jobs (more than one job): Add MPI Proc ID to log name
     if( filenameLog == NULL ) {
       if( dirLog == NULL ) {
-        filenameLog = new char [( length)];
-        memcpy( filenameLog, filenameFlow, length );
+        filenameLog = new char [lengthLog+lengthLog_mpiAdd];
+        memcpy( filenameLog, filenameFlow, lengthFlow );
       }
       else {  // Log pathname was specified. Do not copy flow pathname (if there is any)
-//        int lengthDir = strlen(dirLog);
-        int counter = length-1;
-        while( counter >= 0 && filenameFlow[counter] != FORWARD_SLASH &&
-               filenameFlow[counter] != BACK_SLASH ) counter--;
-        length -= counter+1;
+        int counter = lengthFlow-1;
+        while( counter >= 0 && filenameFlow[counter] != FORWARD_SLASH && filenameFlow[counter] != BACK_SLASH ) counter--;
+        lengthLog -= counter+1;
         if( isUserConstant ) {
           csUserConstant us = globalConstList.at(0);
           int lengthValue = us.value.length();
-          filenameLog = new char [(length+lengthDir+lengthValue+1)*sizeof(char)];  // +1 to add underscore '_'
+          filenameLog = new char [(lengthLog+lengthDir+lengthValue+1+lengthLog_mpiAdd)*sizeof(char)];  // +1 to add underscore '_'
           memcpy( filenameLog, dirLog, lengthDir );
-          memcpy( filenameLog+lengthDir, filenameFlow+counter+1, length );
-          filenameLog[lengthDir+length-5] = '_';
-          memcpy( &filenameLog[lengthDir+length-4], us.value.c_str(), lengthValue );
-          length = length + lengthDir + lengthValue + 1;  // +1: Underscore
-          filenameLog[length-5] = '.';
+          memcpy( filenameLog+lengthDir, filenameFlow+counter+1, lengthLog );
+          filenameLog[lengthDir+lengthLog-5] = '_';
+          memcpy( &filenameLog[lengthDir+lengthLog-4], us.value.c_str(), lengthValue );
+          lengthLog = lengthLog + lengthDir + lengthValue + 1;  // +1: Underscore
+          filenameLog[lengthLog-5] = '.';
         }
         else {
-          filenameLog = new char [(length+lengthDir)*sizeof(char)];
+          filenameLog = new char [(lengthLog+lengthDir+lengthLog_mpiAdd)*sizeof(char)];
           memcpy( filenameLog, dirLog, lengthDir );
-          memcpy( filenameLog+lengthDir, filenameFlow+counter+1, length );
-          length += lengthDir;
+          memcpy( filenameLog+lengthDir, filenameFlow+counter+1, lengthLog );
+          lengthLog += lengthDir;
         }
       }
-      filenameLog[length-4] = 'l';
-      filenameLog[length-3] = 'o';
-      filenameLog[length-2] = 'g';
-      filenameLog[length-1] = '\0';
+      filenameLog[lengthLog-4] = 'l';
+      filenameLog[lengthLog-3] = 'o';
+      filenameLog[lengthLog-2] = 'g';
     } // END: if filenameLog == NULL
     else if( dirLog != NULL ) {  // log name was specified, and log dir was specified
       if( isLogStdout ) {
         fprintf(stderr,"When specifying option -d stdout (standard output), no log directory should be given using option -d <logDir>\n");
         return(-1);
       }
-      length = strlen(filenameLog);
-      int counter = length-1;
+      lengthLog     = strlen(filenameLog);
+      int counter   = lengthLog-1;
       int lengthDir = strlen(dirLog);
       while( counter >= 0 && filenameLog[counter] != FORWARD_SLASH && filenameLog[counter] != BACK_SLASH ) counter--;
       if( counter >= 0 ) {
@@ -499,13 +522,18 @@ int main( int argc, char** argv ) {
         fprintf(stderr,"must be given without any preceding path.\n");
         return(-1);
       }
-      char* tmp = new char[(length+lengthDir+1)];
+      char* tmp = new char[(lengthLog+lengthDir+lengthLog_mpiAdd+1)];
       memcpy( tmp, dirLog, lengthDir );
-      memcpy( tmp+lengthDir, filenameLog, length );
-      tmp[length+lengthDir] = '\0';
+      memcpy( tmp+lengthDir, filenameLog, lengthLog );
       delete [] filenameLog;
       filenameLog = tmp;
+      lengthLog += lengthDir + 1;
     }
+    if( mpiProcID != 0 ) {
+      sprintf( &filenameLog[lengthLog-1], "%04d", mpiProcID );
+    }
+    filenameLog[lengthLog+lengthLog_mpiAdd-1] = '\0';
+
     if( isVerbose ) {
       fprintf(stderr,"Job flow:   %s\n", filenameFlow);
       fprintf(stderr,"Job log :   %s\n", isLogStdout ? "Redirected to standard output" : filenameLog );
@@ -524,8 +552,10 @@ int main( int argc, char** argv ) {
     }
 
     //--------------------------------------------------------------------------------
+    // Main processing block: RunManager
+    //
     try {
-      csRunManager runManager( f_log, memoryPolicy, isDebug );
+      csRunManager runManager( f_log, memoryPolicy, mpiProcID, mpiNumProc, isDebug );
       if( isOutputFlow ) {
         FILE* f_flow_in;
         FILE* f_flow_out;
@@ -543,14 +573,26 @@ int main( int argc, char** argv ) {
       }
       if( isRunFlow ) {
         returnFlag = runManager.runInitPhase( filenameFlow, f_flow, &globalConstList );
+        fclose(f_flow);
         if( returnFlag == 0 && isRunExec ) {
-          returnFlag = runManager.runExecPhase();    
+          returnFlag = runManager.runExecStartPhase();    
         }
         if( returnFlag != 0 ) {
-          fprintf(stderr,"SeaSeis runtime process returned error code: %d\n", returnFlag);
+          fprintf(stderr,"Exec START phase process returned error code: %d\n", returnFlag);
         }
-        else if( isVerbose ) {
-          fprintf(stderr,"Successful completion...\n");
+        else {
+          if( mpiProcID == 0 ) {
+            returnFlag = runManager.runExecPhase();
+          }
+          else {
+            returnFlag = runManager.mpi_runExecPhase();
+          }
+          if( returnFlag != 0 ) {
+            fprintf(stderr,"Exec phase process returned error code: %d\n", returnFlag);
+          }
+          else if( isVerbose ) {
+            fprintf(stderr,"Successful completion...\n");
+          }
         }
       }
     }
@@ -560,7 +602,6 @@ int main( int argc, char** argv ) {
     }
 
     // Clean up...
-    fclose(f_flow);
     if( f_log ) {
       delete f_log;
       f_log = NULL;
@@ -667,14 +708,3 @@ void check_all_modules_for_bugs() {
   }
 
 }
-/*
-  void dump_all_standard_headers() {
-  csVector<csHeaderInfo const*> hdrList(40);
-  csStandardHeaders::getAll( &hdrList );
-  for( int ihdr = 0; ihdr < hdrList.size(); ihdr++ ) {
-  csHeaderInfo const* info = hdrList.at(ihdr);
-  fprintf(stdout,"Trace header #%3d: %-20s %-10s %s\n", ihdr+1, info->name.c_str(), csGeolibUtils::typeText(info->type), info->description.c_str() );
-  }
-  }
-*/
-

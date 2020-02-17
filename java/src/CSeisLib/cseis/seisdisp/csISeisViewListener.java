@@ -3,6 +3,7 @@
 
 
 package cseis.seisdisp;
+import cseis.seis.csISeismicTraceBuffer;
 import java.awt.Dimension;
 
 /**
@@ -14,6 +15,8 @@ public interface csISeisViewListener {
   public void vertScrollChanged( int scrollValue );
   public void horzScrollChanged( int scrollValue );
   public void sizeChanged( Dimension size );
+  public void traceBufferChanged( csISeismicTraceBuffer traceBuffer );
+  public void mouseExited();
 }
 
 

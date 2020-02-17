@@ -28,6 +28,14 @@ JNIEXPORT jstring JNICALL Java_cseis_jni_csNativeModuleHelp_native_1moduleHtmlEx
 
 /*
  * Class:     cseis_jni_csNativeModuleHelp
+ * Method:    native_moduleExample
+ * Signature: (Ljava/lang/String;)Ljava/lang/String;
+ */
+JNIEXPORT jstring JNICALL Java_cseis_jni_csNativeModuleHelp_native_1moduleExample
+  (JNIEnv *, jobject, jstring);
+
+/*
+ * Class:     cseis_jni_csNativeModuleHelp
  * Method:    native_moduleHtmlListing
  * Signature: ()Ljava/lang/String;
  */

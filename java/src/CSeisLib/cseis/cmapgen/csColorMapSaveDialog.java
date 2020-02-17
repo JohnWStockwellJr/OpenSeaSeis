@@ -23,6 +23,7 @@ import javax.swing.*;
  * Dialog window providing functionality to save all custom color maps as ASCII files.
  * @author 2013 Felipe Punto
  */
+@SuppressWarnings("serial")
 public class csColorMapSaveDialog extends JDialog {
   private JTextField myTextDirectory;
   private JButton myButtonSelect;
@@ -223,7 +224,7 @@ public class csColorMapSaveDialog extends JDialog {
             "Info", JOptionPane.INFORMATION_MESSAGE);
     return true;
   }
-  public java.util.List retrieveObsoleteColorMapFiles( String directoryName ) {
+  public java.util.List<String> retrieveObsoleteColorMapFiles( String directoryName ) {
     ArrayList<String> newFilenameList = new ArrayList<String>();
     for( int imap = 0; imap < myColorMapList.size(); imap++ ) {
       csCustomColorMap cmap = myColorMapList.get(imap);

@@ -62,7 +62,7 @@ void orientation_compute_roll_tilt (
   float dy = (float)(rcvy - srcy);
   float dz = (float)(rcvz - srcz);
 
-  float daoffset = std::max( sqrt(dx*dx + dy*dy + dz*dz), 0.0001 );
+  float daoffset = (float)std::max( sqrt(dx*dx + dy*dy + dz*dz), 0.0001 );
   float angle_incidence = acos(dz/daoffset);  // Always positive, assumes dz > 0
   float angle_transmitted = sin(angle_incidence) / v1v2_ratio;
   if( fabs(angle_transmitted) <= 1.0 ) {

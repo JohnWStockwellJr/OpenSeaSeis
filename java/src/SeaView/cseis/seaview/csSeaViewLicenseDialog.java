@@ -32,6 +32,7 @@ import javax.swing.JTextField;
  * Dialog window showing license information
  * @author 2013 Felipe Punto
  */
+@SuppressWarnings("serial")
 public class csSeaViewLicenseDialog extends JDialog {
   private static final String DUMMY_ADDRESS = "name@site.com";
   private JButton myButtonYes;

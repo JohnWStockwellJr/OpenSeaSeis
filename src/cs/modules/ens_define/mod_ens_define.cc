@@ -28,14 +28,15 @@ using namespace mod_ens_define;
 //
 //*******************************************************************
 
-void init_mod_ens_define_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log )
+void init_mod_ens_define_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer )
 {
   csTraceHeaderDef* hdef = env->headerDef;
   csExecPhaseDef*   edef = env->execPhaseDef;
   csSuperHeader*    shdr = env->superHeader;
   VariableStruct* vars = new VariableStruct();
   edef->setVariables( vars );
-  edef->setExecType( EXEC_TYPE_SINGLETRACE );
+  edef->setTraceSelectionMode( TRCMODE_FIXED, 1 );
+
 
   vars->hdrID_all = -1;
 
@@ -51,10 +52,10 @@ void init_mod_ens_define_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       if( hdef->headerExists("all") ) {
         type_t type = hdef->headerType("all");
         if( type != TYPE_INT ) {
-          log->error("Trace header 'all' already exists but has wrong type. Should be integer");
+          writer->error("Trace header 'all' already exists but has wrong type. Should be integer");
         }
         else {
-          log->warning("Trace header 'all' already exists and will be overwritten");
+          writer->warning("Trace header 'all' already exists and will be overwritten");
         }
       }
       else {
@@ -63,7 +64,7 @@ void init_mod_ens_define_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
       vars->hdrID_all = hdef->headerIndex("all");
     }
     else {
-      log->line("Unknown option: '%s'", text.c_str());
+      writer->line("Unknown option: '%s'", text.c_str());
     }
     shdr->setEnsembleKey( "all" );
   }
@@ -72,14 +73,14 @@ void init_mod_ens_define_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     csVector<std::string> valueList;
     param->getAll( "header", &valueList );
     if( vars->hdrID_all >= 0 ) {
-      log->line("Error: User parameter 'header' cannot be used in conjunction with user parameter 'all'. Specify one of these two parameters only.");
+      writer->line("Error: User parameter 'header' cannot be used in conjunction with user parameter 'all'. Specify one of these two parameters only.");
       env->addError();
     }
     else {
       for( int i = 0; i < valueList.size(); i++ ) {
         string name = valueList.at(i);
         if( !hdef->headerExists( name ) ) {
-          log->line("Error: Unknown trace header '%s'", name.c_str() );
+          writer->line("Error: Unknown trace header '%s'", name.c_str() );
           env->addError();
         }
         shdr->setEnsembleKey( name, i );
@@ -87,7 +88,7 @@ void init_mod_ens_define_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
     }
   }
   else if( !param->exists("all") ) {
-    log->error("No user parameter specified: 'header' or 'all'");
+    writer->error("No user parameter specified: 'header' or 'all'");
   }
 
 }
@@ -98,20 +99,23 @@ void init_mod_ens_define_( csParamManager* param, csInitPhaseEnv* env, csLogWrit
 //
 //
 //*************************************************************************************************
-bool exec_mod_ens_define_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  csExecPhaseDef* edef = env->execPhaseDef;
+void exec_mod_ens_define_(
+  csTraceGather* traceGather,
+  int* port,
+  int* numTrcToKeep,
+  csExecPhaseEnv* env,
+  csLogWriter* writer )
+{
   VariableStruct* vars = reinterpret_cast<VariableStruct*>( env->execPhaseDef->variables() );
 
-  if( edef->isCleanup()){
-    delete vars; vars = NULL;
-    return true;
-  }
+  csTrace* trace = traceGather->trace(0);
+
 
   if( vars->hdrID_all >= 0 ) {
     trace->getTraceHeader()->setIntValue( vars->hdrID_all, 1 );
   }
 
-  return true;
+  return;
 }
 
 //*************************************************************************************************
@@ -133,14 +137,41 @@ void params_mod_ens_define_( csParamDef* pdef ) {
 
 }
 
+
+//************************************************************************************************
+// Start exec phase
+//
+//*************************************************************************************************
+bool start_exec_mod_ens_define_( csExecPhaseEnv* env, csLogWriter* writer ) {
+//  mod_ens_define::VariableStruct* vars = reinterpret_cast<mod_ens_define::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+//  csSuperHeader const* shdr = env->superHeader;
+//  csTraceHeaderDef const* hdef = env->headerDef;
+  return true;
+}
+
+//************************************************************************************************
+// Cleanup phase
+//
+//*************************************************************************************************
+void cleanup_mod_ens_define_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  mod_ens_define::VariableStruct* vars = reinterpret_cast<mod_ens_define::VariableStruct*>( env->execPhaseDef->variables() );
+//  csExecPhaseDef* edef = env->execPhaseDef;
+  delete vars; vars = NULL;
+}
+
 extern "C" void _params_mod_ens_define_( csParamDef* pdef ) {
   params_mod_ens_define_( pdef );
 }
-extern "C" void _init_mod_ens_define_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* log ) {
-  init_mod_ens_define_( param, env, log );
+extern "C" void _init_mod_ens_define_( csParamManager* param, csInitPhaseEnv* env, csLogWriter* writer ) {
+  init_mod_ens_define_( param, env, writer );
 }
-extern "C" bool _exec_mod_ens_define_( csTrace* trace, int* port, csExecPhaseEnv* env, csLogWriter* log ) {
-  return exec_mod_ens_define_( trace, port, env, log );
+extern "C" bool _start_exec_mod_ens_define_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  return start_exec_mod_ens_define_( env, writer );
 }
-
-
+extern "C" void _exec_mod_ens_define_( csTraceGather* traceGather, int* port, int* numTrcToKeep, csExecPhaseEnv* env, csLogWriter* writer ) {
+  exec_mod_ens_define_( traceGather, port, numTrcToKeep, env, writer );
+}
+extern "C" void _cleanup_mod_ens_define_( csExecPhaseEnv* env, csLogWriter* writer ) {
+  cleanup_mod_ens_define_( env, writer );
+}

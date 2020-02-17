@@ -542,4 +542,3 @@ public class csSeisViewRenderer32bit extends csSeisViewRenderer {
   }
 }
 
-

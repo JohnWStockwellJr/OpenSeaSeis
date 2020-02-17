@@ -64,7 +64,7 @@ public class csSideLabelMouseHandler implements MouseListener, MouseMotionListen
   }
   public void mouseReleased( MouseEvent e ) {
     if( myIsMousePressed && myMouseMode != MOUSE_NONE ) {
-      int button = e.getButton();
+//      int button = e.getButton();
       if( SwingUtilities.isLeftMouseButton(e) ) {
         myZoomMode = csSeisPane.ZOOM_IN;
       }

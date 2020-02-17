@@ -1,13 +1,22 @@
 
-How to enable syntax highlighting in text editor 'kate'
+How to enable syntax highlighting in the text editor 'kate'
 
-(1) Place the xml file (cseis.xml) in the syntax directory of the kate text editor. The local directory is located in:
+(1) Locate the 'syntax' sub-folder in the configuration directory of the kate text editor.
+This is the most tricky part. Depending on the version of kate (and of Linux), this folder can be in various places. It may also be missing on some systems. If you have any of the following local directories, try them first. If you cannot find any of them, create and test them one by one.
 $HOME/.kde/share/apps/katepart/syntax
-If this directory does not exist, create it.
-(System location is sometimes: /usr/share/kde4/apps/katepart/syntax)
+$HOME/.kde/share/apps/katepart5/syntax
+$HOME/.local/share/apps/katepart/syntax
+$HOME/.local/share/apps/katepart5/syntax
+Potential system locations of the 'syntax' sub-folder: 
+/usr/share/kde4/apps/katepart/syntax
+/usr/share/katepart5/syntax
 
-(2) Next, start kate and open a SeaSeis flow file, or create a new/empty one (must have .flow extension)
+Next, try steps 2-4. If the new syntax highlighting rule does not show up in kate, try another directory.
 
-(3) In the menu, select Menu->Tool->Highlighting->Scientific->SeaSeis
-From now on, all SeaSeis flows should be automatically associated with this syntax format.
+(2) Place the xml file (cseis.xml) in the 'syntax' directory located or created in step (1).
+
+(3) (re-)Start kate and open an OpenSeaSeis flow file, or create a new/empty one (must have .flow extension)
+
+(4) In the kate menu, select Menu->Tools->Highlighting->Scientific->OpenSeaSeis
+From now on, all OpenSeaSeis flows should be automatically associated with this syntax format.
 

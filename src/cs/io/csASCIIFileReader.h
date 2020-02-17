@@ -18,10 +18,10 @@ class ASCIIParam {
   ASCIIParam();
   ~ASCIIParam();
   float sample(int index) const;
-  float time(int index) const;
+  double time(int index) const;
   int numSamples() const;
   float const* getSamples() const;
-  float const* getTimes() const;
+  double const* getTimes() const;
   void clear();
 
   float sampleInt;
@@ -33,7 +33,7 @@ class ASCIIParam {
  private:
   int myNumSamples;
   cseis_geolib::csVector<float>* sampleList;
-  cseis_geolib::csVector<float>* timeList;
+  cseis_geolib::csVector<double>* timeList;
 };
 
 class csASCIIFileReader {
@@ -72,7 +72,7 @@ class csASCIIFileReader {
                                  int maxSamplesToRead,
                                  int* newTraceNumber,
                                  bool bailOut = true );
-  bool readOneTraceSpikogramFormat( cseis_geolib::csVector<float>* timeList,
+  bool readOneTraceSpikogramFormat( cseis_geolib::csVector<double>* timeList,
                                     cseis_geolib::csVector<float>* sampleList );
 
   FILE* myFileASCII;

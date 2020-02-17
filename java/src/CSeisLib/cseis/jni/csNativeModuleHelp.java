@@ -12,6 +12,7 @@ package cseis.jni;
 public class csNativeModuleHelp {
   private native String native_moduleHtmlHelp( String moduleName );
   private native String native_moduleHtmlExample( String moduleName );
+  private native String native_moduleExample( String moduleName );
   private native String native_moduleHtmlListing();
   private native String native_standardHeaderHtmlListing();
 
@@ -22,6 +23,9 @@ public class csNativeModuleHelp {
   }
   public String moduleHtmlExample( String moduleName ) {
     return native_moduleHtmlExample( moduleName );
+  }
+  public String moduleExample( String moduleName ) {
+    return native_moduleExample( moduleName );
   }
   public String moduleHtmlListing() {
     return native_moduleHtmlListing();

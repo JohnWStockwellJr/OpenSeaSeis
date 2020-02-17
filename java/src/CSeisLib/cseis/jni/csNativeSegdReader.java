@@ -199,7 +199,7 @@ public class csNativeSegdReader implements csISeismicReader {
   //
   @Override
   public boolean setSelection( String hdrValueSelectionText, String headerName, int sortOrder, int sortMethod,
-          csISelectionNotifier notifier ) {
+          csITraceHeaderScanNotifier notifier ) {
     return false;
   }
   @Override

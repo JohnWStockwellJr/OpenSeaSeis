@@ -1,17 +1,16 @@
 
 
+OBJ_GEOLIB  = $(OBJDIR)/csAbsoluteTime.o $(OBJDIR)/csDespike.o $(OBJDIR)/cseis_curveFitting.o $(OBJDIR)/csEquationSolver.o $(OBJDIR)/csException.o $(OBJDIR)/csFFT.o $(OBJDIR)/csFFTDesignature.o $(OBJDIR)/csFFTTools.o $(OBJDIR)/csFFTTools_ORIG.o $(OBJDIR)/csFileUtils.o $(OBJDIR)/csFlexHeader.o $(OBJDIR)/csFlexNumber.o $(OBJDIR)/csGeolibUtils.o $(OBJDIR)/csHeaderInfo.o $(OBJDIR)/csInterpolation2D.o $(OBJDIR)/csInterpolation.o $(OBJDIR)/csIOSelection.o $(OBJDIR)/csIReader.o $(OBJDIR)/csLine3D.o $(OBJDIR)/csProfile.o $(OBJDIR)/csNMOCorrection.o $(OBJDIR)/csPlane3D.o $(OBJDIR)/csPoint2D.o $(OBJDIR)/csPoint3D.o $(OBJDIR)/csReflector2D.o $(OBJDIR)/csRotation.o $(OBJDIR)/csSelection.o $(OBJDIR)/csSelectionFieldDouble.o $(OBJDIR)/csSelectionFieldInt.o $(OBJDIR)/csSortManager.o $(OBJDIR)/csSplineInterpolation2D.o $(OBJDIR)/csSplineInterpolation.o $(OBJDIR)/csStandardHeaders.o $(OBJDIR)/csTableAll.o $(OBJDIR)/csTable.o $(OBJDIR)/csTableNew.o $(OBJDIR)/csTaper.o $(OBJDIR)/csTimer.o $(OBJDIR)/csTimeStretch.o $(OBJDIR)/csToken.o $(OBJDIR)/fft.o $(OBJDIR)/geolib_endian.o $(OBJDIR)/geolib_math.o $(OBJDIR)/geolib_mem.o $(OBJDIR)/geolib_string_utils.o $(OBJDIR)/methods_ccp.o $(OBJDIR)/methods_linefit.o $(OBJDIR)/methods_number_conversions.o $(OBJDIR)/methods_orientation.o $(OBJDIR)/methods_polarity_correction.o $(OBJDIR)/methods_pzsum.o $(OBJDIR)/methods_rotation.o $(OBJDIR)/methods_sampleInterpolation.o $(OBJDIR)/svd_decomposition.o $(OBJDIR)/svd_linsolve.o
 
-OBJ_GEOLIB  = $(OBJDIR)/geolib_endian.o $(OBJDIR)/methods_linefit.o $(OBJDIR)/methods_pzsum.o $(OBJDIR)/geolib_mem.o $(OBJDIR)/geolib_string_utils.o $(OBJDIR)/csEquationSolver.o $(OBJDIR)/methods_polarity_correction.o $(OBJDIR)/methods_rotation.o $(OBJDIR)/svd_decomposition.o $(OBJDIR)/svd_linsolve.o $(OBJDIR)/csSelectionFieldDouble.o $(OBJDIR)/csSelectionFieldInt.o $(OBJDIR)/csSelection.o $(OBJDIR)/csException.o $(OBJDIR)/csToken.o $(OBJDIR)/csTimer.o $(OBJDIR)/methods_sampleInterpolation.o $(OBJDIR)/methods_number_conversions.o $(OBJDIR)/csFlexNumber.o $(OBJDIR)/methods_orientation.o $(OBJDIR)/csTable.o $(OBJDIR)/csTableAll.o $(OBJDIR)/csNMOCorrection.o $(OBJDIR)/cseis_curveFitting.o $(OBJDIR)/csRotation.o $(OBJDIR)/csTimeStretch.o $(OBJDIR)/methods_ccp.o $(OBJDIR)/csFileUtils.o $(OBJDIR)/csFlexHeader.o $(OBJDIR)/csStandardHeaders.o $(OBJDIR)/csHeaderInfo.o $(OBJDIR)/csAbsoluteTime.o $(OBJDIR)/csDespike.o $(OBJDIR)/geolib_math.o $(OBJDIR)/csGeolibUtils.o $(OBJDIR)/csFFTTools.o $(OBJDIR)/fft.o $(OBJDIR)/csSortManager.o $(OBJDIR)/csInterpolation.o $(OBJDIR)/csTableNew.o $(OBJDIR)/csFFTDesignature.o
+OBJ_SEGY = $(OBJDIR)/csSegyBinHeader.o $(OBJDIR)/csSegyHdrMap.o $(OBJDIR)/csSegyReader.o $(OBJDIR)/csSegyTraceHeader.o $(OBJDIR)/csSegyWriter.o
 
-OBJ_SEGY = $(OBJDIR)/csSegyTraceHeader.o $(OBJDIR)/csSegyHdrMap.o $(OBJDIR)/csSegyWriter.o $(OBJDIR)/csSegyBinHeader.o $(OBJDIR)/csSegyReader.o
+OBJ_SEGD = $(OBJDIR)/csExternalHeader.o $(OBJDIR)/csGCS90Header.o $(OBJDIR)/csNavHeader.o $(OBJDIR)/csNavInterface.o $(OBJDIR)/csSegdBuffer.o $(OBJDIR)/csSegdFunctions.o $(OBJDIR)/csSegdHdrValues.o $(OBJDIR)/csSegdHeader.o $(OBJDIR)/csSegdHeader_DIGISTREAMER.o $(OBJDIR)/csSegdHeader_FAIRFIELD.o $(OBJDIR)/csSegdHeader_GEORES.o $(OBJDIR)/csSegdHeader_SEAL.o $(OBJDIR)/csSegdReader.o $(OBJDIR)/csStandardSegdHeader.o 
 
-OBJ_SEGD = $(OBJDIR)/csExternalHeader.o $(OBJDIR)/csGCS90Header.o $(OBJDIR)/csNavHeader.o $(OBJDIR)/csSegdHeader.o $(OBJDIR)/csSegdHeader_SEAL.o $(OBJDIR)/csSegdFunctions.o $(OBJDIR)/csSegdReader.o $(OBJDIR)/csSegdHeader_GEORES.o $(OBJDIR)/csNavInterface.o $(OBJDIR)/csSegdBuffer.o $(OBJDIR)/csStandardSegdHeader.o $(OBJDIR)/csSegdHdrValues.o $(OBJDIR)/csSegdHeader_DIGISTREAMER.o
+OBJ_SYSTEM  = $(OBJDIR)/cseis_methods.o $(OBJDIR)/csExecPhaseDef.o $(OBJDIR)/csInitExecEnv.o $(OBJDIR)/csLogWriter.o $(OBJDIR)/csMemoryPoolManager.o $(OBJDIR)/csMethodRetriever.o $(OBJDIR)/csModule.o $(OBJDIR)/csParamDef.o $(OBJDIR)/csParamManager.o $(OBJDIR)/csRandomDataReader.o $(OBJDIR)/csSeismicReader.o $(OBJDIR)/csSeismicWriter.o $(OBJDIR)/csSelectionManager.o $(OBJDIR)/csStackUtil.o $(OBJDIR)/csSuperHeader.o $(OBJDIR)/csTableManager.o $(OBJDIR)/csTableManagerNew.o $(OBJDIR)/csTrace.o $(OBJDIR)/csTraceData.o $(OBJDIR)/csTraceGather.o $(OBJDIR)/csTraceHeader.o $(OBJDIR)/csTraceHeaderData.o $(OBJDIR)/csTraceHeaderDef.o $(OBJDIR)/csTraceHeaderInfoPool.o $(OBJDIR)/csTracePool.o $(OBJDIR)/csUserConstant.o $(OBJDIR)/csUserParam.o
 
-OBJ_SYSTEM  = $(OBJDIR)/csTrace.o $(OBJDIR)/csTracePool.o $(OBJDIR)/csTraceHeaderDef.o $(OBJDIR)/csTraceHeaderData.o $(OBJDIR)/csTraceHeader.o $(OBJDIR)/csModule.o $(OBJDIR)/csMethodRetriever.o $(OBJDIR)/csTraceGather.o $(OBJDIR)/csExecPhaseDef.o $(OBJDIR)/csUserConstant.o $(OBJDIR)/csUserParam.o $(OBJDIR)/csParamDef.o $(OBJDIR)/geolib_methods.o $(OBJDIR)/csSuperHeader.o $(OBJDIR)/csParamManager.o $(OBJDIR)/csTraceHeaderInfoPool.o $(OBJDIR)/csLogWriter.o $(OBJDIR)/csInitExecEnv.o $(OBJDIR)/csMemoryPoolManager.o $(OBJDIR)/csTraceData.o $(OBJDIR)/csSelectionManager.o $(OBJDIR)/csSeismicWriter.o $(OBJDIR)/csSeismicReader.o $(OBJDIR)/csStackUtil.o $(OBJDIR)/csTableManager.o $(OBJDIR)/csTableManagerNew.o
+OBJ_IO = $(OBJDIR)/csASCIIFileReader.o $(OBJDIR)/csGeneralSeismicReader.o $(OBJDIR)/csP190Reader.o $(OBJDIR)/csRSFHeader.o $(OBJDIR)/csRSFReader.o $(OBJDIR)/csRSFWriter.o $(OBJDIR)/csSeismicIOConfig.o $(OBJDIR)/csSeismicReader_ver00.o $(OBJDIR)/csSeismicReader_ver01.o $(OBJDIR)/csSeismicReader_ver02.o $(OBJDIR)/csSeismicReader_ver03.o $(OBJDIR)/csSeismicReader_ver04.o $(OBJDIR)/csSeismicReader_ver.o $(OBJDIR)/csSeismicWriter_ver.o 
 
-OBJ_IO = $(OBJDIR)/csSeismicWriter_ver.o $(OBJDIR)/csSeismicIOConfig.o $(OBJDIR)/csSeismicReader_ver.o $(OBJDIR)/csSeismicReader_ver00.o $(OBJDIR)/csSeismicReader_ver01.o $(OBJDIR)/csSeismicReader_ver02.o $(OBJDIR)/csSeismicReader_ver03.o $(OBJDIR)/csSeismicReader_ver04.o $(OBJDIR)/csASCIIFileReader.o $(OBJDIR)/csIOSelection.o $(OBJDIR)/csIReader.o $(OBJDIR)/csRSFHeader.o $(OBJDIR)/csRSFReader.o $(OBJDIR)/csRSFWriter.o $(OBJDIR)/csP190Reader.o
-
-OBJ_MODULES = $(OBJDIR)/mod_if.o $(OBJDIR)/mod_elseif.o $(OBJDIR)/mod_else.o $(OBJDIR)/mod_endif.o $(OBJDIR)/mod_endsplit.o $(OBJDIR)/mod_split.o $(OBJDIR)/mod_input_segy.o $(OBJDIR)/mod_input_ascii.o $(OBJDIR)/mod_hdr_print.o $(OBJDIR)/mod_kill.o $(OBJDIR)/mod_scaling.o $(OBJDIR)/mod_input_segd.o $(OBJDIR)/mod_ens_define.o $(OBJDIR)/mod_hdr_del.o $(OBJDIR)/mod_hdr_math.o $(OBJDIR)/mod_repeat.o $(OBJDIR)/mod_select.o $(OBJDIR)/mod_trc_print.o $(OBJDIR)/mod_select_time.o $(OBJDIR)/mod_despike.o $(OBJDIR)/mod_correlation.o $(OBJDIR)/mod_orient_convert.o $(OBJDIR)/mod_orient.o $(OBJDIR)/mod_resequence.o $(OBJDIR)/mod_read_ascii.o $(OBJDIR)/mod_trc_interpol.o $(OBJDIR)/mod_output_segy.o $(OBJDIR)/mod_output.o $(OBJDIR)/mod_input.o $(OBJDIR)/mod_fft.o $(OBJDIR)/mod_fft_2d.o $(OBJDIR)/mod_off2angle.o $(OBJDIR)/mod_rotate.o $(OBJDIR)/mod_hodogram.o $(OBJDIR)/mod_sort.o $(OBJDIR)/mod_stack.o $(OBJDIR)/mod_statics.o $(OBJDIR)/mod_resample.o $(OBJDIR)/mod_rms.o $(OBJDIR)/mod_picking.o $(OBJDIR)/mod_input_sinewave.o $(OBJDIR)/mod_poscalc.o $(OBJDIR)/mod_hdr_math_ens.o $(OBJDIR)/mod_debias.o $(OBJDIR)/mod_geotools.o $(OBJDIR)/mod_gain.o $(OBJDIR)/mod_semblance.o $(OBJDIR)/mod_filter.o $(OBJDIR)/mod_nmo.o $(OBJDIR)/mod_mute.o $(OBJDIR)/mod_ccp.o $(OBJDIR)/mod_cmp.o $(OBJDIR)/mod_splitting.o $(OBJDIR)/mod_kill_ens.o $(OBJDIR)/mod_time_stretch.o $(OBJDIR)/mod_trc_math.o $(OBJDIR)/mod_trc_math_ens.o $(OBJDIR)/mod_trc_split.o $(OBJDIR)/mod_concatenate.o $(OBJDIR)/mod_hdr_set.o $(OBJDIR)/mod_overlap.o $(OBJDIR)/mod_trc_add_ens.o $(OBJDIR)/mod_test.o $(OBJDIR)/mod_test_multi_ensemble.o $(OBJDIR)/mod_test_multi_fixed.o $(OBJDIR)/mod_input_create.o $(OBJDIR)/mod_attribute.o $(OBJDIR)/mod_lmo.o $(OBJDIR)/mod_histogram.o $(OBJDIR)/mod_image.o $(OBJDIR)/mod_time_slice.o $(OBJDIR)/mod_pz_sum.o $(OBJDIR)/mod_bin.o $(OBJDIR)/mod_mirror.o $(OBJDIR)/mod_beam_forming.o $(OBJDIR)/mod_sumodule.o $(OBJDIR)/mod_designature.o $(OBJDIR)/mod_ray2d.o $(OBJDIR)/mod_input_rsf.o $(OBJDIR)/mod_output_rsf.o $(OBJDIR)/mod_convolution.o $(OBJDIR)/mod_p190.o
+OBJ_MODULES = $(OBJDIR)/mod_attribute.o $(OBJDIR)/mod_beam_forming.o $(OBJDIR)/mod_bin.o $(OBJDIR)/mod_ccp.o $(OBJDIR)/mod_cmp.o $(OBJDIR)/mod_concatenate.o $(OBJDIR)/mod_convolution.o $(OBJDIR)/mod_correlation.o $(OBJDIR)/mod_debias.o $(OBJDIR)/mod_designature.o $(OBJDIR)/mod_despike.o $(OBJDIR)/mod_else.o $(OBJDIR)/mod_elseif.o $(OBJDIR)/mod_endif.o $(OBJDIR)/mod_endsplit.o $(OBJDIR)/mod_ens_define.o $(OBJDIR)/mod_fft.o $(OBJDIR)/mod_fft_2d.o $(OBJDIR)/mod_filter.o $(OBJDIR)/mod_fxdecon.o $(OBJDIR)/mod_gain.o $(OBJDIR)/mod_geotools.o $(OBJDIR)/mod_hdr_del.o $(OBJDIR)/mod_hdr_math.o $(OBJDIR)/mod_hdr_math_ens.o $(OBJDIR)/mod_hdr_print.o $(OBJDIR)/mod_hdr_set.o $(OBJDIR)/mod_histogram.o $(OBJDIR)/mod_hodogram.o $(OBJDIR)/mod_if.o $(OBJDIR)/mod_image.o $(OBJDIR)/mod_input.o $(OBJDIR)/mod_input_ascii.o $(OBJDIR)/mod_input_create.o $(OBJDIR)/mod_input_interpolate.o $(OBJDIR)/mod_input_rsf.o $(OBJDIR)/mod_input_segd.o $(OBJDIR)/mod_input_segy.o $(OBJDIR)/mod_input_sinewave.o $(OBJDIR)/mod_kill.o $(OBJDIR)/mod_kill_ens.o $(OBJDIR)/mod_lmo.o $(OBJDIR)/mod_mirror.o $(OBJDIR)/mod_mute.o $(OBJDIR)/mod_nmo.o $(OBJDIR)/mod_off2angle.o $(OBJDIR)/mod_orient.o $(OBJDIR)/mod_orient_convert.o $(OBJDIR)/mod_output.o $(OBJDIR)/mod_output_ascii.o $(OBJDIR)/mod_output_rsf.o $(OBJDIR)/mod_output_segy.o $(OBJDIR)/mod_overlap.o $(OBJDIR)/mod_p190.o $(OBJDIR)/mod_picking.o $(OBJDIR)/mod_poscalc.o $(OBJDIR)/mod_pz_sum.o $(OBJDIR)/mod_ray2d.o $(OBJDIR)/mod_read_ascii.o $(OBJDIR)/mod_reflpath_3d.o $(OBJDIR)/mod_repeat.o $(OBJDIR)/mod_resample.o $(OBJDIR)/mod_resequence.o $(OBJDIR)/mod_rms.o $(OBJDIR)/mod_rotate.o $(OBJDIR)/mod_scaling.o $(OBJDIR)/mod_select.o $(OBJDIR)/mod_select_time.o $(OBJDIR)/mod_semblance.o $(OBJDIR)/mod_sort.o $(OBJDIR)/mod_spectrum.o $(OBJDIR)/mod_split.o $(OBJDIR)/mod_splitting.o $(OBJDIR)/mod_stack.o $(OBJDIR)/mod_statics.o $(OBJDIR)/mod_sumodule.o $(OBJDIR)/mod_test.o $(OBJDIR)/mod_test_multi_ensemble.o $(OBJDIR)/mod_test_multi_fixed.o $(OBJDIR)/mod_time_slice.o $(OBJDIR)/mod_time_stretch.o $(OBJDIR)/mod_trc_add_ens.o $(OBJDIR)/mod_trc_interpol.o $(OBJDIR)/mod_trc_math.o $(OBJDIR)/mod_trc_math_ens.o $(OBJDIR)/mod_trc_print.o $(OBJDIR)/mod_trc_split.o $(OBJDIR)/csFXDecon.o
 
 OBJ_RAY2D = $(OBJDIR)/model.o $(OBJDIR)/velocity.o $(OBJDIR)/get_min.o $(OBJDIR)/get_z.o $(OBJDIR)/get_acth.o $(OBJDIR)/get_boundray.o $(OBJDIR)/get_cornerrays.o $(OBJDIR)/get_flag.o $(OBJDIR)/get_rtsect.o $(OBJDIR)/sortraycode.o $(OBJDIR)/propagate.o $(OBJDIR)/do_interpol.o $(OBJDIR)/interpol.o $(OBJDIR)/collect.o $(OBJDIR)/paraxial.o $(OBJDIR)/intersect_ray.o $(OBJDIR)/intersect_wfront.o $(OBJDIR)/do_intersect.o $(OBJDIR)/intersect.o $(OBJDIR)/record.o $(OBJDIR)/interpol_extra.o $(OBJDIR)/sortsect.o $(OBJDIR)/runkutta.o $(OBJDIR)/coef8.o $(OBJDIR)/refstack.o $(OBJDIR)/wfront_sub.o $(OBJDIR)/wfront_check_params.o $(OBJDIR)/addRickerWavelet.o $(OBJDIR)/check_sou_loc.o
 
@@ -30,7 +29,7 @@ CXXFLAGS_MODULES = -I"src/cs/geolib"  -I"src/cs/system" -I"src/cs/io" -I"src/cs/
 CXXFLAGS_GEOLIB = $(COMMON_FLAGS) -I"src/cs/geolib"
 CXXFLAGS_SEGY   = $(COMMON_FLAGS) -I"src/cs/geolib" -I"src/cs/segy"
 CXXFLAGS_SEGD   = $(COMMON_FLAGS) -I"src/cs/geolib" -I"src/cs/modules/input_segd"
-CXXFLAGS_SYSTEM = $(COMMON_FLAGS) -I"src/cs/geolib" -I"src/cs/io" -I"src/cs/system"
+CXXFLAGS_SYSTEM = $(COMMON_FLAGS) -I"src/cs/geolib" -I"src/cs/io" -I"src/cs/system" -I"src/cs/segy"
 
 
 default:  $(OBJ_SYSTEM) $(OBJ_METHODS) $(OBJ_IO) $(OBJ_GEOLIB) $(OBJ_SEGY) $(OBJ_SEGD) $(OBJ_MODULES) $(OBJ_MAIN) $(OBJ_GRID2D) $(MAIN) $(MAIN_GRID2D)
@@ -43,10 +42,10 @@ bleach: clean
 
 
 $(MAIN): $(OBJ_MAIN)
-	$(CPP) $(GLOBAL_FLAGS) -static-libgcc -static-libstdc++ -static-libgfortran -static $(OBJ_MAIN) $(OBJ_SYSTEM) $(OBJ_IO) $(OBJ_GEOLIB) $(OBJ_SEGY) $(OBJ_SEGD) $(OBJ_MODULES) $(OBJ_RAY2D) $(OBJ_GRID2D) -o $(MAIN) -lgfortran
+	$(CPP) $(GLOBAL_FLAGS) -static-libgcc -static-libstdc++ -static-libgfortran -static $(OBJ_MAIN) $(OBJ_SYSTEM) $(OBJ_IO) $(OBJ_GEOLIB) $(OBJ_SEGY) $(OBJ_SEGD) $(OBJ_MODULES) $(OBJ_RAY2D) -o $(MAIN) -lgfortran -lquadmath
 
 $(MAIN_GRID2D): $(OBJ_GRID2D) $(OBJDIR)/main_grid2D.o
-	$(CPP) $(GLOBAL_FLAGS) -I$(SRCDIR)/cs/geolib $(OBJ_GRID2D) $(OBJDIR)/csException.o $(OBJDIR)/geolib_string_utils.o $(OBJDIR)/main_grid2D.o -o $(MAIN_GRID2D)
+	$(CPP) $(GLOBAL_FLAGS) -I$(SRCDIR)/cs/geolib $(OBJ_GRID2D) $(OBJDIR)/csPoint3D.o $(OBJDIR)/csException.o $(OBJDIR)/geolib_string_utils.o $(OBJDIR)/main_grid2D.o -o $(MAIN_GRID2D)
 
 
 
@@ -119,6 +118,12 @@ $(OBJDIR)/csGeolibUtils.o: src/cs/geolib/csGeolibUtils.cc src/cs/geolib/csGeolib
 $(OBJDIR)/csFFTTools.o: src/cs/geolib/csFFTTools.cc src/cs/geolib/csFFTTools.h
 	$(CPP) -c src/cs/geolib/csFFTTools.cc -o $(OBJDIR)/csFFTTools.o $(CXXFLAGS_GEOLIB)
 
+$(OBJDIR)/csFFTTools_ORIG.o: src/cs/geolib/csFFTTools_ORIG.cc src/cs/geolib/csFFTTools_ORIG.h
+	$(CPP) -c src/cs/geolib/csFFTTools_ORIG.cc -o $(OBJDIR)/csFFTTools_ORIG.o $(CXXFLAGS_GEOLIB)
+
+$(OBJDIR)/csFFT.o: src/cs/geolib/csFFT.cc src/cs/geolib/csFFT.h
+	$(CPP) -c src/cs/geolib/csFFT.cc -o $(OBJDIR)/csFFT.o $(CXXFLAGS_GEOLIB)
+
 $(OBJDIR)/fft.o: src/cs/geolib/fft.cc
 	$(CPP) -c src/cs/geolib/fft.cc -o $(OBJDIR)/fft.o $(CXXFLAGS_GEOLIB)
 
@@ -130,6 +135,36 @@ $(OBJDIR)/csDespike.o: src/cs/geolib/csDespike.cc src/cs/geolib/csDespike.h
 
 $(OBJDIR)/methods_sampleInterpolation.o: src/cs/geolib/methods_sampleInterpolation.cc 
 	$(CPP) -c src/cs/geolib/methods_sampleInterpolation.cc -o $(OBJDIR)/methods_sampleInterpolation.o $(CXXFLAGS_GEOLIB)
+
+$(OBJDIR)/csInterpolation2D.o: src/cs/geolib/csInterpolation2D.cc 
+	$(CPP) -c src/cs/geolib/csInterpolation2D.cc -o $(OBJDIR)/csInterpolation2D.o $(CXXFLAGS_GEOLIB)
+
+$(OBJDIR)/csSplineInterpolation.o: src/cs/geolib/csSplineInterpolation.cc 
+	$(CPP) -c src/cs/geolib/csSplineInterpolation.cc -o $(OBJDIR)/csSplineInterpolation.o $(CXXFLAGS_GEOLIB)
+
+$(OBJDIR)/csSplineInterpolation2D.o: src/cs/geolib/csSplineInterpolation2D.cc 
+	$(CPP) -c src/cs/geolib/csSplineInterpolation2D.cc -o $(OBJDIR)/csSplineInterpolation2D.o $(CXXFLAGS_GEOLIB)
+
+$(OBJDIR)/csPlane3D.o: src/cs/geolib/csPlane3D.cc  src/cs/geolib/csPlane3D.h
+	$(CPP) -c src/cs/geolib/csPlane3D.cc -o $(OBJDIR)/csPlane3D.o $(CXXFLAGS_GEOLIB)
+
+$(OBJDIR)/csPoint2D.o: src/cs/geolib/csPoint2D.cc  src/cs/geolib/csPoint2D.h
+	$(CPP) -c src/cs/geolib/csPoint2D.cc -o $(OBJDIR)/csPoint2D.o $(CXXFLAGS_GEOLIB)
+
+$(OBJDIR)/csPoint3D.o: src/cs/geolib/csPoint3D.cc  src/cs/geolib/csPoint3D.h
+	$(CPP) -c src/cs/geolib/csPoint3D.cc -o $(OBJDIR)/csPoint3D.o $(CXXFLAGS_GEOLIB)
+
+$(OBJDIR)/csLine3D.o: src/cs/geolib/csLine3D.cc src/cs/geolib/csLine3D.h
+	$(CPP) -c src/cs/geolib/csLine3D.cc -o $(OBJDIR)/csLine3D.o $(CXXFLAGS_GEOLIB)
+
+$(OBJDIR)/csProfile.o: src/cs/geolib/csProfile.cc src/cs/geolib/csProfile.h
+	$(CPP) -c src/cs/geolib/csProfile.cc -o $(OBJDIR)/csProfile.o $(CXXFLAGS_GEOLIB)
+
+$(OBJDIR)/csReflector2D.o: src/cs/geolib/csReflector2D.cc 
+	$(CPP) -c src/cs/geolib/csReflector2D.cc -o $(OBJDIR)/csReflector2D.o $(CXXFLAGS_GEOLIB)
+
+$(OBJDIR)/csTaper.o: src/cs/geolib/csTaper.cc 
+	$(CPP) -c src/cs/geolib/csTaper.cc -o $(OBJDIR)/csTaper.o $(CXXFLAGS_GEOLIB)
 
 $(OBJDIR)/methods_number_conversions.o: src/cs/geolib/methods_number_conversions.cc          src/cs/geolib/methods_number_conversions.h
 	$(CPP) -c src/cs/geolib/methods_number_conversions.cc -o $(OBJDIR)/methods_number_conversions.o $(CXXFLAGS_GEOLIB)
@@ -189,14 +224,17 @@ $(OBJDIR)/csUserParam.o: src/cs/system/csUserParam.cc         src/cs/system/csUs
 $(OBJDIR)/csParamDef.o: src/cs/system/csParamDef.cc src/cs/system/csParamDef.h   src/cs/geolib/csVector.h      src/cs/geolib/csException.h src/cs/geolib/csCollection.h   src/cs/geolib/geolib_math.h src/cs/geolib/geolib_string_utils.h   src/cs/system/cseis_defines.h src/cs/geolib/geolib_defines.h
 	$(CPP) -c src/cs/system/csParamDef.cc -o $(OBJDIR)/csParamDef.o $(CXXFLAGS_SYSTEM)
 
-$(OBJDIR)/geolib_methods.o: src/cs/system/cseis_methods.cc         src/cs/system/cseis_defines.h src/cs/geolib/geolib_defines.h   src/cs/geolib/geolib_string_utils.h src/cs/system/csUserConstant.h   src/cs/geolib/csCompareVector.h      src/cs/geolib/csVector.h src/cs/geolib/csException.h   src/cs/geolib/csCollection.h src/cs/geolib/geolib_math.h   src/cs/geolib/csKey.h src/cs/geolib/csVector.h   src/cs/geolib/csException.h
-	$(CPP) -c src/cs/system/cseis_methods.cc -o $(OBJDIR)/geolib_methods.o $(CXXFLAGS_SYSTEM)
+$(OBJDIR)/cseis_methods.o: src/cs/system/cseis_methods.cc
+	$(CPP) -c src/cs/system/cseis_methods.cc -o $(OBJDIR)/cseis_methods.o $(CXXFLAGS_SYSTEM)
 
 $(OBJDIR)/csSuperHeader.o: src/cs/system/csSuperHeader.cc   src/cs/system/csSuperHeader.h      src/cs/geolib/csVector.h      src/cs/geolib/csException.h src/cs/geolib/csCollection.h   src/cs/geolib/geolib_math.h src/cs/geolib/csException.h
 	$(CPP) -c src/cs/system/csSuperHeader.cc -o $(OBJDIR)/csSuperHeader.o $(CXXFLAGS_SYSTEM)
 
 $(OBJDIR)/csParamManager.o: src/cs/system/csParamManager.cc   src/cs/system/csParamManager.h      src/cs/system/csUserParam.h src/cs/geolib/csVector.h      src/cs/geolib/csException.h src/cs/geolib/csCollection.h   src/cs/geolib/geolib_math.h src/cs/system/csLogWriter.h
 	$(CPP) -c src/cs/system/csParamManager.cc -o $(OBJDIR)/csParamManager.o $(CXXFLAGS_SYSTEM)
+
+$(OBJDIR)/csRandomDataReader.o: src/cs/system/csRandomDataReader.cc   src/cs/system/csRandomDataReader.h
+	$(CPP) -c src/cs/system/csRandomDataReader.cc -o $(OBJDIR)/csRandomDataReader.o $(CXXFLAGS_SYSTEM)
 
 $(OBJDIR)/csTraceHeaderInfoPool.o: src/cs/system/csTraceHeaderInfoPool.cc   src/cs/system/csTraceHeaderInfoPool.h      src/cs/system/csTraceHeaderInfo.h src/cs/geolib/csVector.h      src/cs/geolib/csException.h src/cs/geolib/csCollection.h   src/cs/geolib/geolib_math.h
 	$(CPP) -c src/cs/system/csTraceHeaderInfoPool.cc -o $(OBJDIR)/csTraceHeaderInfoPool.o $(CXXFLAGS_SYSTEM)
@@ -249,9 +287,6 @@ $(OBJDIR)/csSeismicReader_ver03.o: src/cs/io/csSeismicReader_ver03.cc   src/cs/i
 $(OBJDIR)/csSeismicReader_ver04.o: src/cs/io/csSeismicReader_ver04.cc   src/cs/io/csSeismicReader_ver04.h
 	$(CPP) -c src/cs/io/csSeismicReader_ver04.cc -o $(OBJDIR)/csSeismicReader_ver04.o $(CXXFLAGS_SYSTEM)
 
-$(OBJDIR)/csASCIIFileReader.o: src/cs/io/csASCIIFileReader.cc   src/cs/io/csASCIIFileReader.h
-	$(CPP) -c src/cs/io/csASCIIFileReader.cc -o $(OBJDIR)/csASCIIFileReader.o $(CXXFLAGS_SYSTEM)
-
 $(OBJDIR)/csIReader.o: src/cs/geolib/csIReader.cc   src/cs/geolib/csIReader.h
 	$(CPP) -c src/cs/geolib/csIReader.cc -o $(OBJDIR)/csIReader.o $(CXXFLAGS_SYSTEM)
 
@@ -269,6 +304,12 @@ $(OBJDIR)/csRSFWriter.o: src/cs/io/csRSFWriter.cc   src/cs/io/csRSFWriter.h
 
 $(OBJDIR)/csP190Reader.o: src/cs/io/csP190Reader.cc   src/cs/io/csP190Reader.h
 	$(CPP) -c src/cs/io/csP190Reader.cc -o $(OBJDIR)/csP190Reader.o $(CXXFLAGS_SYSTEM)
+
+$(OBJDIR)/csGeneralSeismicReader.o: src/cs/io/csGeneralSeismicReader.cc   src/cs/io/csGeneralSeismicReader.h
+	$(CPP) -c src/cs/io/csGeneralSeismicReader.cc -o $(OBJDIR)/csGeneralSeismicReader.o $(CXXFLAGS_SYSTEM)
+
+$(OBJDIR)/csASCIIFileReader.o: src/cs/io/csASCIIFileReader.cc   src/cs/io/csASCIIFileReader.h
+	$(CPP) -c src/cs/io/csASCIIFileReader.cc -o $(OBJDIR)/csASCIIFileReader.o $(CXXFLAGS_SYSTEM)
 
 
 $(OBJDIR)/methods_orientation.o: src/cs/geolib/methods_orientation.cc
@@ -303,12 +344,6 @@ $(OBJDIR)/csTimeStretch.o: src/cs/geolib/csTimeStretch.cc src/cs/geolib/csTimeSt
 $(OBJDIR)/grid2D.o: src/cs/modules/mirror/grid2D.cc
 	$(CPP) -c $(CXXFLAGS_MODULES) -Isrc/cs/modules/mirror src/cs/modules/mirror/grid2D.cc -o $(OBJDIR)/grid2D.o
 
-$(OBJDIR)/csProfile.o: src/cs/modules/mirror/csProfile.cc
-	$(CPP) -c $(CXXFLAGS_MODULES) -Isrc/cs/modules/mirror src/cs/modules/mirror/csProfile.cc -o $(OBJDIR)/csProfile.o
-
-$(OBJDIR)/csLine3D.o: src/cs/modules/mirror/csLine3D.cc
-	$(CPP) -c $(CXXFLAGS_MODULES) -Isrc/cs/modules/mirror src/cs/modules/mirror/csLine3D.cc -o $(OBJDIR)/csLine3D.o
-
 $(OBJDIR)/main_grid2D.o: src/cs/modules/mirror/main_grid2D.cc
 	$(CPP) -c $(CXXFLAGS_MODULES) -Isrc/cs/modules/mirror src/cs/modules/mirror/main_grid2D.cc -o $(OBJDIR)/main_grid2D.o
 
@@ -322,7 +357,7 @@ $(OBJDIR)/csSegyTraceHeader.o: src/cs/segy/csSegyTraceHeader.cc src/cs/segy/csSe
 $(OBJDIR)/csSegyHdrMap.o: src/cs/segy/csSegyHdrMap.cc src/cs/segy/csSegyHdrMap.h
 	$(CPP) -c src/cs/segy/csSegyHdrMap.cc -o $(OBJDIR)/csSegyHdrMap.o $(CXXFLAGS_SEGY)
 
-$(OBJDIR)/csSegyReader.o: src/cs/segy/csSegyReader.cc src/cs/segy/csSegyReader.h src/cs/segy/csSegyHeader.h
+$(OBJDIR)/csSegyReader.o: src/cs/segy/csSegyReader.cc src/cs/segy/csSegyReader.h src/cs/segy/csSegyDefines.h
 	$(CPP) -c src/cs/segy/csSegyReader.cc -o $(OBJDIR)/csSegyReader.o $(CXXFLAGS_SEGY)
 
 $(OBJDIR)/csSegyWriter.o: src/cs/segy/csSegyWriter.cc src/cs/segy/csSegyWriter.h
@@ -335,6 +370,9 @@ $(OBJDIR)/csSegyBinHeader.o: src/cs/segy/csSegyBinHeader.cc src/cs/segy/csSegyBi
 
 $(OBJDIR)/csSegdHeader_SEAL.o:	$(SEGDDIR)/csSegdHeader_SEAL.cc $(SEGDDIR)/csSegdHeader_SEAL.h
 			$(CC) $(CXXFLAGS_SEGD) $(SEGDDIR)/csSegdHeader_SEAL.cc -c -o $(OBJDIR)/csSegdHeader_SEAL.o
+
+$(OBJDIR)/csSegdHeader_FAIRFIELD.o:	$(SEGDDIR)/csSegdHeader_FAIRFIELD.cc $(SEGDDIR)/csSegdHeader_FAIRFIELD.h
+			$(CC) $(CXXFLAGS_SEGD) $(SEGDDIR)/csSegdHeader_FAIRFIELD.cc -c -o $(OBJDIR)/csSegdHeader_FAIRFIELD.o
 
 $(OBJDIR)/csSegdHeader.o:	$(SEGDDIR)/csSegdHeader.cc $(SEGDDIR)/csSegdHeader.h
 			$(CC) $(CXXFLAGS_SEGD) $(SEGDDIR)/csSegdHeader.cc -c -o $(OBJDIR)/csSegdHeader.o
@@ -407,6 +445,9 @@ $(OBJDIR)/mod_input_ascii.o: src/cs/modules/input_ascii/mod_input_ascii.cc
 $(OBJDIR)/mod_input_rsf.o: src/cs/modules/input_rsf/mod_input_rsf.cc
 	$(CPP) -c $(CXXFLAGS_MODULES) src/cs/modules/input_rsf/mod_input_rsf.cc -o $(OBJDIR)/mod_input_rsf.o
 
+$(OBJDIR)/mod_input_interpolate.o: src/cs/modules/input_interpolate/mod_input_interpolate.cc
+	$(CPP) -c $(CXXFLAGS_MODULES) src/cs/modules/input_interpolate/mod_input_interpolate.cc -o $(OBJDIR)/mod_input_interpolate.o
+
 $(OBJDIR)/mod_output_rsf.o: src/cs/modules/output_rsf/mod_output_rsf.cc
 	$(CPP) -c $(CXXFLAGS_MODULES) src/cs/modules/output_rsf/mod_output_rsf.cc -o $(OBJDIR)/mod_output_rsf.o
 
@@ -415,6 +456,9 @@ $(OBJDIR)/mod_convolution.o: src/cs/modules/convolution/mod_convolution.cc
 
 $(OBJDIR)/mod_p190.o: src/cs/modules/p190/mod_p190.cc
 	$(CPP) -c $(CXXFLAGS_MODULES) src/cs/modules/p190/mod_p190.cc -o $(OBJDIR)/mod_p190.o
+
+$(OBJDIR)/mod_output_ascii.o: src/cs/modules/output_ascii/mod_output_ascii.cc
+	$(CPP) -c $(CXXFLAGS_MODULES) src/cs/modules/output_ascii/mod_output_ascii.cc -o $(OBJDIR)/mod_output_ascii.o
 
 $(OBJDIR)/mod_hdr_print.o: src/cs/modules/hdr_print/mod_hdr_print.cc
 	$(CPP) -c $(CXXFLAGS_MODULES) src/cs/modules/hdr_print/mod_hdr_print.cc -o $(OBJDIR)/mod_hdr_print.o
@@ -479,6 +523,9 @@ $(OBJDIR)/mod_trc_math_ens.o: src/cs/modules/trc_math_ens/mod_trc_math_ens.cc
 $(OBJDIR)/mod_repeat.o: src/cs/modules/repeat/mod_repeat.cc
 	$(CPP) -c $(CXXFLAGS_MODULES) src/cs/modules/repeat/mod_repeat.cc -o $(OBJDIR)/mod_repeat.o
 
+$(OBJDIR)/mod_reflpath_3d.o: src/cs/modules/reflpath_3d/mod_reflpath_3d.cc
+	$(CPP) -c $(CXXFLAGS_MODULES) src/cs/modules/reflpath_3d/mod_reflpath_3d.cc -o $(OBJDIR)/mod_reflpath_3d.o
+
 $(OBJDIR)/mod_select.o: src/cs/modules/select/mod_select.cc
 	$(CPP) -c $(CXXFLAGS_MODULES) src/cs/modules/select/mod_select.cc -o $(OBJDIR)/mod_select.o
 
@@ -487,6 +534,9 @@ $(OBJDIR)/mod_trc_print.o: src/cs/modules/trc_print/mod_trc_print.cc
 
 $(OBJDIR)/mod_select_time.o: src/cs/modules/select_time/mod_select_time.cc
 	$(CPP) -c $(CXXFLAGS_MODULES) src/cs/modules/select_time/mod_select_time.cc -o $(OBJDIR)/mod_select_time.o
+
+$(OBJDIR)/mod_spectrum.o: src/cs/modules/spectrum/mod_spectrum.cc
+	$(CPP) -c $(CXXFLAGS_MODULES) src/cs/modules/spectrum/mod_spectrum.cc -o $(OBJDIR)/mod_spectrum.o
 
 $(OBJDIR)/mod_despike.o: src/cs/modules/despike/mod_despike.cc
 	$(CPP) -c $(CXXFLAGS_MODULES) src/cs/modules/despike/mod_despike.cc -o $(OBJDIR)/mod_despike.o
@@ -557,8 +607,8 @@ $(OBJDIR)/mod_input.o: src/cs/modules/input/mod_input.cc
 $(OBJDIR)/mod_resequence.o: src/cs/modules/resequence/mod_resequence.cc
 	$(CPP) -c $(CXXFLAGS_MODULES) src/cs/modules/resequence/mod_resequence.cc -o $(OBJDIR)/mod_resequence.o
 
-$(OBJDIR)/mod_fft.o: src/cs/modules/fft/mod_fft_0.5.cc
-	$(CPP) -c $(CXXFLAGS_MODULES) src/cs/modules/fft/mod_fft_0.5.cc -o $(OBJDIR)/mod_fft.o -I"src/include"
+$(OBJDIR)/mod_fft.o: src/cs/modules/fft/mod_fft.cc
+	$(CPP) -c $(CXXFLAGS_MODULES) src/cs/modules/fft/mod_fft.cc -o $(OBJDIR)/mod_fft.o -I"src/include"
 
 $(OBJDIR)/mod_fft_2d.o: src/cs/modules/fft_2d/mod_fft_2d_dummy.cc
 	$(CPP) -c $(CXXFLAGS_MODULES) src/cs/modules/fft_2d/mod_fft_2d_dummy.cc -o $(OBJDIR)/mod_fft_2d.o -I"src/include"
@@ -607,6 +657,12 @@ $(OBJDIR)/mod_bin.o: src/cs/modules/bin/mod_bin.cc
 
 $(OBJDIR)/mod_mirror.o: src/cs/modules/mirror/mod_mirror.cc
 	$(CPP) -c $(CXXFLAGS_MODULES) src/cs/modules/mirror/mod_mirror.cc -o $(OBJDIR)/mod_mirror.o
+
+$(OBJDIR)/mod_fxdecon.o:  $(OBJDIR)/csFXDecon.o src/cs/modules/fxdecon/mod_fxdecon.cc
+	$(CPP) -c $(CXXFLAGS_MODULES) src/cs/modules/fxdecon/mod_fxdecon.cc -o $(OBJDIR)/mod_fxdecon.o
+
+$(OBJDIR)/csFXDecon.o: src/cs/modules/fxdecon/csFXDecon.cc
+	$(CPP) -c $(CXXFLAGS_MODULES) -Isrc/cs/modules/fxdecon src/cs/modules/fxdecon/csFXDecon.cc -o $(OBJDIR)/csFXDecon.o
 
 $(OBJDIR)/mod_beam_forming.o: src/cs/modules/beam_forming/mod_beam_forming.cc
 	$(CPP) -c $(CXXFLAGS_MODULES) src/cs/modules/beam_forming/mod_beam_forming.cc -o $(OBJDIR)/mod_beam_forming.o

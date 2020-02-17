@@ -28,11 +28,14 @@ public class csSeaViewProperties {
   public String dataDirectoryPath;
   public String screenDumpDirectoryPath;
   public String propertiesDirectoryPath;
+  public String velFieldDirectoryPath;
+  public String wellPathDirectoryPath;
   public int windowLayout;
 
   public csSegyAttr segyAttr;
   public csAnnotationAttributes annAttr;
   public int numTraces;
+  public int maxTabWidth;
   public boolean showFilename;
   public boolean showActivePaneFeedback;
   public int colorBitType;
@@ -48,6 +51,7 @@ public class csSeaViewProperties {
   public static final String PROPERTY_hdrMapSEGY       = "hdrMapSEGY";
   public static final String PROPERTY_autoScaleSEGY    = "autoScaleSEGY";
   public static final String PROPERTY_numTraces        = "numTraces";
+  public static final String PROPERTY_maxTabWidth      = "maxTabWidth";
   public static final String PROPERTY_showFilename     = "showFilename";
   public static final String PROPERTY_showActivePaneFeedback = "showActivePaneFeedback";
 
@@ -61,6 +65,8 @@ public class csSeaViewProperties {
   public static final String PROPERTY_dataDir          = "dataDir";
   public static final String PROPERTY_screenDumpDir    = "screenDumpDir";
   public static final String PROPERTY_propertyDir      = "propertyDir";
+  public static final String PROPERTY_velFieldDir      = "velFieldDir";
+  public static final String PROPERTY_wellPathDir      = "wellPathDir";
   
   private ArrayList<csCustomColorMap> myCustomColorMapList;
           
@@ -75,6 +81,7 @@ public class csSeaViewProperties {
     colorBitType   = csColorMap.COLOR_MAP_TYPE_32BIT;
     
     numTraces = csTraceSelectionParam.NUM_TRACES_DEFAULT;
+    maxTabWidth = 9999;
     showFilename = true;
     showActivePaneFeedback = true;
     segyAttr = new csSegyAttr();
@@ -167,6 +174,8 @@ public class csSeaViewProperties {
 
     value = p.getProperty( PROPERTY_numTraces );
     if( value != null ) numTraces  = Integer.parseInt( value );
+    value = p.getProperty( PROPERTY_maxTabWidth );
+    if( value != null ) maxTabWidth = Integer.parseInt( value );
     value = p.getProperty( PROPERTY_showFilename );
     if( value != null ) showFilename = Boolean.parseBoolean( value );
     value = p.getProperty( PROPERTY_showActivePaneFeedback );
@@ -175,12 +184,16 @@ public class csSeaViewProperties {
     propertiesDirectoryPath = p.getProperty( PROPERTY_propertyDir );
     dataDirectoryPath = p.getProperty( PROPERTY_dataDir );
     screenDumpDirectoryPath = p.getProperty( PROPERTY_screenDumpDir );
+    velFieldDirectoryPath = p.getProperty( PROPERTY_velFieldDir );
+    wellPathDirectoryPath = p.getProperty( PROPERTY_wellPathDir );
   }
   public void write() throws IOException {
     Properties p = new Properties();
-    p.setProperty( PROPERTY_dataDir, dataDirectoryPath );
-    p.setProperty( PROPERTY_screenDumpDir, screenDumpDirectoryPath );
-    p.setProperty( PROPERTY_propertyDir, propertiesDirectoryPath );
+    if( dataDirectoryPath != null ) p.setProperty( PROPERTY_dataDir, dataDirectoryPath );
+    if( screenDumpDirectoryPath != null ) p.setProperty( PROPERTY_screenDumpDir, screenDumpDirectoryPath );
+    if( propertiesDirectoryPath != null ) p.setProperty( PROPERTY_propertyDir, propertiesDirectoryPath );
+    if( velFieldDirectoryPath != null ) p.setProperty( PROPERTY_velFieldDir, velFieldDirectoryPath );
+    if( wellPathDirectoryPath != null ) p.setProperty( PROPERTY_wellPathDir, wellPathDirectoryPath );
     p.setProperty( PROPERTY_colorBitType, colorBitType+"" );
     
     p.setProperty( PROPERTY_endianSEGYHdr, segyAttr.endianSEGYHdr.toString() );
@@ -197,6 +210,7 @@ public class csSeaViewProperties {
     p.setProperty( PROPERTY_annotationTraceLabelStep, annAttr.traceLabelStep+"" );
 
     p.setProperty( PROPERTY_numTraces, numTraces+"" );
+    p.setProperty( PROPERTY_maxTabWidth, maxTabWidth+"" );
     p.setProperty( PROPERTY_showFilename, showFilename+"" );
     p.setProperty( PROPERTY_showActivePaneFeedback, showActivePaneFeedback+"" );
     

@@ -27,14 +27,21 @@
 #include "csTable.h"
 #include "csCompareVector.h"
 #include "geolib_string_utils.h"
+#include "csEquationSolver.h"
+
+#ifdef USE_MPI
+#include <mpi.h>
+#endif
 
 using namespace cseis_system;
+
+//#define return_data_tag 2002
 
 namespace cseis_system {
   extern std::string replaceUserConstants( char const* line, cseis_geolib::csVector<cseis_system::csUserConstant> const* list );
 }
 
-csRunManager::csRunManager( csLogWriter* log, int memoryPolicy, bool isDebug ) {
+csRunManager::csRunManager( csLogWriter* log, int memoryPolicy, int mpiProcID, int mpiNumProc, bool isDebug ) {
   myIsDebug = isDebug;
   myLog     = log;
   myModules = NULL;
@@ -45,6 +52,8 @@ csRunManager::csRunManager( csLogWriter* log, int memoryPolicy, bool isDebug ) {
   myTimerCPU = new cseis_geolib::csTimer();
   myTables = NULL;
   myNumTables = 0;
+  myMPIProcID  = mpiProcID;
+  myMPINumProc = mpiNumProc;
 }
 csRunManager::~csRunManager() {
   if( myTables != NULL ) {
@@ -285,7 +294,7 @@ int csRunManager::runInitPhase( char const* filenameFlow, FILE* f_flow, cseis_ge
       std::string const moduleName = tokenList.at(0).substr(1,tokenList.at(0).length()-1);   // substr() in order to skip leading 'module letter'
 
       //--------------- CREATE MODULE ---------------------
-      modules[moduleIndexCurr] = new csModule( moduleName, moduleIndexCurr, myMemoryPoolManager );
+      modules[moduleIndexCurr] = new csModule( moduleName, moduleIndexCurr, myMemoryPoolManager, myMPIProcID, myMPINumProc );
       myNextModuleID[moduleIndexCurr] = new cseis_geolib::csVector<int>(1);
       myPrevModuleID[moduleIndexCurr] = new cseis_geolib::csVector<int>(1);
       userParamList[moduleIndexCurr]  = new cseis_geolib::csVector<csUserParam*>(1);
@@ -502,6 +511,7 @@ int csRunManager::runInitPhase( char const* filenameFlow, FILE* f_flow, cseis_ge
       if( !parseVersionString( versionString, major, minor ) ) {
         myLog->error("Incorrect version string given: '%s'.  Version string must match the format  X.X (X=0-99)", versionString.c_str() );
       }
+      myLog->line("User specified version: %s", versionString.c_str() );
       module->setVersion( major, minor );
     }
     try {
@@ -522,14 +532,79 @@ int csRunManager::runInitPhase( char const* filenameFlow, FILE* f_flow, cseis_ge
       if( !csRunManager::checkParameters( module->getName(), &paramDef, userParamList[imodule], myLog ) ) {
         throw( cseis_geolib::csException("Error occurred while checking module parameters. See log file for details.") );
       }
-      module->submitInitPhase( &paramManager, myLog, myTables, myNumTables );
-
-      if( module->getExecType() == EXEC_TYPE_INPUT && imodule != 0 ) {
-        myLog->error( module->getName(), imodule, "Only the first module in the flow can be an INPUT module." );
-      }
-      if( imodule == 0 && module->getExecType() != EXEC_TYPE_INPUT ) {
-        myLog->warning( "Module %s: First module in flow must be an INPUT module. If not, no exec phase will be run", module->getName() );
-      }
+      // MPI master process: Submit init phase, check if module supports MPI. Send MPI support flag toall pocesses. If MPI is supported, run init phase for all MPI processes
+      if( myMPIProcID == 0 ) {
+        // (a) First, run init phase for master process
+        module->submitInitPhase( &paramManager, myLog, myTables, myNumTables );
+#ifdef USE_MPI
+        // START of MPI code
+        bool isMPISupported = module->isMPISupported();
+        int tag = 99;
+        // (b) Send MPI supportflag to all other processes
+        for( int mpiTargetProc = 1; mpiTargetProc < myMPINumProc; mpiTargetProc++ ) {
+          MPI_Send( &isMPISupported, 1, MPI::BOOL, mpiTargetProc, tag, MPI_COMM_WORLD );
+        }
+        // If MPI is not supported, need to copy SuperHeader and TraceHeaderDef to all processes since init phase is not run in these.
+        // Updated SuperHeader and TraceHeaderDef fields are needed in all MPI processes for subsequent modules which may support MPI
+        if( myMPINumProc > 1 && !isMPISupported ) {
+          int byteSize_shdr = module->getSuperHeader()->mpi_getByteSize();
+          int byteSize_hdef = module->getHeaderDef()->mpi_getByteSize();
+          int totalByteSize = byteSize_shdr + byteSize_hdef;
+          int execType = module->getExecType();
+          char* buffer = new char[totalByteSize];
+          module->getSuperHeader()->mpi_compress( &buffer[0] );
+          module->getHeaderDef()->mpi_compress( &buffer[byteSize_shdr] );
+          for( int mpiTargetProc = 1; mpiTargetProc < myMPINumProc; mpiTargetProc++ ) {
+            MPI_Send( &execType, 1, MPI::INT, mpiTargetProc, tag, MPI_COMM_WORLD );
+            MPI_Send( &byteSize_shdr, 1, MPI::INT, mpiTargetProc, tag, MPI_COMM_WORLD );
+            MPI_Send( &byteSize_hdef, 1, MPI::INT, mpiTargetProc, tag, MPI_COMM_WORLD );
+            MPI_Send( buffer, totalByteSize, MPI::CHAR, mpiTargetProc, tag, MPI_COMM_WORLD );
+          }
+          delete [] buffer;
+        }
+        // END of MPI code
+#endif
+        if( module->getExecType() == EXEC_TYPE_INPUT && imodule != 0 ) {
+          myLog->error( module->getName(), imodule, "Only the first module in the flow can be an INPUT module." );
+        }
+        if( imodule == 0 && module->getExecType() != EXEC_TYPE_INPUT ) {
+          myLog->warning( "Module %s: First module in flow must be an INPUT module. If not, no exec phase will be run", module->getName() );
+        }
+      } // END if MPIProc == 0 : Main process, or single process
+      else { // Other MPI processes (other than main)
+#ifdef USE_MPI
+        // START of MPI code
+        bool isMPISupported;
+        int tag = 99;
+        // (c) Receive MPI support flag from master process
+        MPI_Status stat;
+        MPI_Recv( &isMPISupported, 1, MPI::BOOL, 0, tag, MPI_COMM_WORLD, &stat );
+        // MPIDEBUG     if( myIsDebug ) fprintf(stderr,"Module #%2d, MPI proc %d. MPI supported: %s\n", imodule, myMPIProcID, isMPISupported ? "yes" : "no");
+        // (d) If MPI is supported for this module, run init phase for all MPI processes
+        if( isMPISupported ) {
+          module->submitInitPhase( &paramManager, myLog, myTables, myNumTables );
+        }
+        // (e) If MPI is NOT supported, need to update superheader and headerdef from proc #0 for potential later MPI-supported modules
+        else {
+          int execType;
+          int byteSize_shdr;
+          int byteSize_hdef;
+          MPI_Recv( &execType, 1, MPI::INT, 0, tag, MPI_COMM_WORLD, &stat );
+          module->setExecType( execType );
+          MPI_Recv( &byteSize_shdr, 1, MPI::INT, 0, tag, MPI_COMM_WORLD, &stat );
+          MPI_Recv( &byteSize_hdef, 1, MPI::INT, 0, tag, MPI_COMM_WORLD, &stat );
+          int totalByteSize = byteSize_shdr + byteSize_hdef;
+          char* buffer = new char[totalByteSize];
+          MPI_Recv( buffer, totalByteSize, MPI_BYTE, MPI_ANY_SOURCE, tag, MPI_COMM_WORLD, &stat );
+          module->mpi_decompressInitPhaseObjects( &buffer[0], &buffer[byteSize_shdr] );
+          delete [] buffer;
+        }
+        // END of MPI code
+#endif
+      } // END if/else other MPI processes
+      //      module->getHeaderDef()->dump( myLog->getFile() );
+      //      module->getSuperHeader()->dump( myLog->getFile() );
+      //####################################################################################################################################
     }
     catch( cseis_geolib::csException& e ) {
       myLog->line("\n");
@@ -541,8 +616,9 @@ int csRunManager::runInitPhase( char const* filenameFlow, FILE* f_flow, cseis_ge
       // Clean up...
       for( int imod2 = 0; imod2 <= imodule; imod2++ ) {
         module = modules[imod2];
-        // myLog->line("Run CLEANUP phase for module  #%-5d %s...", imod2+1, module->getName() );
-        module->submitCleanupPhase( myLog );
+        if( myMPIProcID == 0 || module->isMPISupported() ) {
+          module->submitCleanupPhase( myLog, false );
+        }
       }
       for( int imod2 = 0; imod2 < myNumModules; imod2++ ) {
         for( int i = 0; i < userParamList[imod2]->size(); i++ ) {
@@ -554,50 +630,55 @@ int csRunManager::runInitPhase( char const* filenameFlow, FILE* f_flow, cseis_ge
       throw( e );  // Rethrow to caller
     }
     catch(...) {
-      myLog->line("\n");
-      myLog->line("Module #%d %s:", imodule+1, module->getName());
-      myLog->line(" FATAL ERROR occurred in INIT phase.");
-      myLog->line(" Flow terminated.\n");
-
+      if( myMPIProcID == 0 ) {
+        myLog->line("\n");
+        myLog->line("Module #%d %s:", imodule+1, module->getName());
+        myLog->line(" FATAL ERROR occurred in INIT phase.");
+        myLog->line(" Flow terminated.\n");
+      }
       throw( cseis_geolib::csException("Program error. Flow terminated.") );  // Rethrow to caller
     }
 
-    for( int i = 0; i < userParamList[imodule]->size(); i++ ) {
-      if( paramManager.getNumValueCalls(i) == 0 ) {
-        myLog->line( " Warning: Unused user parameter in module setup: '%s'", userParamList[imodule]->at(i)->getName().c_str() );
-        int numLines = paramManager.getNumLines(userParamList[imodule]->at(i)->getName().c_str());
-        if( numLines > 1 ) {
-          myLog->error( modules[imodule]->getName(), imodule+1, "Duplicate user parameter '%s' (occurs %d times)",
-                        userParamList[imodule]->at(i)->getName().c_str(), numLines );
+    if( myMPIProcID == 0 ) {
+      for( int i = 0; i < userParamList[imodule]->size(); i++ ) {
+        if( paramManager.getNumValueCalls(i) == 0 ) {
+          myLog->line( " Warning: Unused user parameter in module setup: '%s'", userParamList[imodule]->at(i)->getName().c_str() );
+          int numLines = paramManager.getNumLines(userParamList[imodule]->at(i)->getName().c_str());
+          if( numLines > 1 ) {
+            myLog->error( modules[imodule]->getName(), imodule+1, "Duplicate user parameter '%s' (occurs %d times)",
+                          userParamList[imodule]->at(i)->getName().c_str(), numLines );
+          }
         }
       }
     }
   }
   prevModuleList.dispose();
 
-  if( myIsDebug ) {
+  if( myIsDebug && myMPIProcID == 0 ) {
     fprintf(stdout,"--------------------------------------\n\n");
     for( int imodule = 0; imodule < myNumModules; imodule++ ) {
       fprintf(stdout,"   Module %d %s header dump:\n", imodule, modules[imodule]->getName() );
-      modules[imodule]->getHeaderDef()->dump();
+      modules[imodule]->getHeaderDef()->dump(stdout);
     }
   }
   //------------------------------------------------------
   // Check that all input ports have same sample interval and number of samples
   // Check if all modules have a 'previous' modules: If not it cannot be reached
   //
-  for( int imodule = 1; imodule < myNumModules; imodule++ ) {
-    if( myPrevModuleID[imodule]->size() == 0 ) continue;
-    int firstModID = myPrevModuleID[imodule]->at(0);
-    csSuperHeader const* shdrFirst = modules[firstModID]->getSuperHeader();
-    for( int iport = 1; iport < myPrevModuleID[imodule]->size(); iport++ ) {
-      if( modules[myPrevModuleID[imodule]->at(iport)]->getType() == MODTYPE_ENDSPLIT ) continue; // Do not consider ENDSPLITs as 'previous' modules
-      csSuperHeader const* shdr = modules[myPrevModuleID[imodule]->at(iport)]->getSuperHeader();
-      if( shdrFirst->numSamples != shdr->numSamples ) {
-        myLog->error( modules[imodule]->getName(), imodule+1, "Unequal number of samples for input port %d", iport+1 );
-      }
-      else if( shdrFirst->sampleInt != shdr->sampleInt ) {
-        myLog->error( modules[imodule]->getName(), imodule+1, "Unequal sample interval for input port %d", iport+1 );
+  if( myMPIProcID == 0 ) {
+    for( int imodule = 1; imodule < myNumModules; imodule++ ) {
+      if( myPrevModuleID[imodule]->size() == 0 ) continue;
+      int firstModID = myPrevModuleID[imodule]->at(0);
+      csSuperHeader const* shdrFirst = modules[firstModID]->getSuperHeader();
+      for( int iport = 1; iport < myPrevModuleID[imodule]->size(); iport++ ) {
+        if( modules[myPrevModuleID[imodule]->at(iport)]->getType() == MODTYPE_ENDSPLIT ) continue; // Do not consider ENDSPLITs as 'previous' modules
+        csSuperHeader const* shdr = modules[myPrevModuleID[imodule]->at(iport)]->getSuperHeader();
+        if( shdrFirst->numSamples != shdr->numSamples ) {
+          myLog->error( modules[imodule]->getName(), imodule+1, "Unequal number of samples for input port %d", iport+1 );
+        }
+        else if( shdrFirst->sampleInt != shdr->sampleInt ) {
+          myLog->error( modules[imodule]->getName(), imodule+1, "Unequal sample interval for input port %d", iport+1 );
+        }
       }
     }
   }
@@ -605,45 +686,47 @@ int csRunManager::runInitPhase( char const* filenameFlow, FILE* f_flow, cseis_ge
   //***********************************************************************
   // Output module version in use
   //
-  cseis_geolib::csVector<std::string> valueList;
-  std::string flowText = "";
-  char lineText[132];
-  for( int imodule = 0; imodule < myNumModules; imodule++ ) {
-    csModule* module = modules[imodule];
-    sprintf(lineText,"\n%c%s\n", LETTER_MODULE, module->getName() );
-    flowText.append(lineText);
-    csParamManager paramManager( userParamList[imodule], myLog );
-    if( !paramManager.exists( "version" ) ) {
-      sprintf(lineText," %-14s  %-5s\n", "version", module->versionString().c_str() );
-      flowText.append(lineText);
-    }
-    for( int ip = 0; ip < userParamList[imodule]->size(); ip++ ) {
-      csUserParam* param = userParamList[imodule]->at(ip);
-      param->getValues(&valueList);
-      sprintf(lineText," %-14s  ",param->getName().c_str());
-      flowText.append(lineText);
-      for( int iv = 0; iv < valueList.size(); iv++ ) {
-        // !CHANGE! Only put in quotation marks if value contains spaces:
-        sprintf(lineText,"\"%s\" ", valueList.at(iv).c_str());
-        flowText.append(lineText);
-      }
-      flowText.append("\n");
-    }
-  }
-
   /*
    * Reproducable input flow:
    * Functionality is not implemented yet to use this, so it doesn't make sense to output it yet to the log file
    * The reproducable input flow shall enable running a flow by supplying the log file.
    * The reproducable input flow makes sure that it produces the exact same result as last time when the flow was run,
    * by specifying all parameters including the module version
-  myLog->line( "\n********************************************************************************" );
-  myLog->line( "********************************************************************************" );
-  myLog->line( "Reproducable input flow:" );
-  myLog->line( "%s", flowText.c_str() );
-  // !CHANGE! Output this flowText to SeaSeis output file (whenever one is generated in this flow)
-  myLog->line( "\n********************************************************************************" );
-  myLog->line( "********************************************************************************" );
+
+   cseis_geolib::csVector<std::string> valueList;
+   std::string flowText = "";
+   char lineText[1024];
+   //
+   for( int imodule = 0; imodule < myNumModules; imodule++ ) {
+   csModule* module = modules[imodule];
+   sprintf(lineText,"\n%c%s\n", LETTER_MODULE, module->getName() );
+   flowText.append(lineText);
+   csParamManager paramManager( userParamList[imodule], myLog );
+   if( !paramManager.exists( "version" ) ) {
+   sprintf(lineText," %-14s  %-5s\n", "version", module->versionString().c_str() );
+   flowText.append(lineText);
+   }
+   for( int ip = 0; ip < userParamList[imodule]->size(); ip++ ) {
+   csUserParam* param = userParamList[imodule]->at(ip);
+   param->getValues(&valueList);
+   sprintf(lineText," %-14s  ",param->getName().c_str());
+   flowText.append(lineText);
+   for( int iv = 0; iv < valueList.size(); iv++ ) {
+   // !CHANGE! Only put in quotation marks if value contains spaces:
+   sprintf(lineText,"\"%s\" ", valueList.at(iv).c_str());
+   flowText.append(lineText);
+   }
+   flowText.append("\n");
+   }
+   }
+
+   myLog->line( "\n********************************************************************************" );
+   myLog->line( "********************************************************************************" );
+   myLog->line( "Reproducable input flow:" );
+   myLog->line( "%s", flowText.c_str() );
+   // !CHANGE! Output this flowText to SeaSeis output file (whenever one is generated in this flow)
+   myLog->line( "\n********************************************************************************" );
+   myLog->line( "********************************************************************************" );
   */
 
   for( int imodule = 0; imodule < myNumModules; imodule++ ) {
@@ -658,44 +741,110 @@ int csRunManager::runInitPhase( char const* filenameFlow, FILE* f_flow, cseis_ge
   //----------------------------------------------------------------------
   // Dump init phase info
   //
-  myLog->line( "\n------------------------------------------------------------" );
-  myLog->line( "Init phase summary\n" );
-  myLog->line( "%3s  %-19s %11s %11s %9s", "#", "Module", "sampleInt", "numSamples", "#headers" );
-  for(int iModule = 0; iModule < myNumModules; iModule++ ) {
-    csSuperHeader const* h = modules[iModule]->getSuperHeader();
-    myLog->line( "%3d  %-19s %11.5f %11d %9d", iModule+1, modules[iModule]->getName(), h->sampleInt, h->numSamples,
-                 modules[iModule]->getHeaderDef()->numHeaders());
+  if( myMPIProcID == 0 ) {
+    myLog->line( "\n------------------------------------------------------------" );
+    myLog->line( "Init phase summary\n" );
+    myLog->line( "%3s  %-19s %11s %11s %9s", "#", "Module", "sampleInt", "numSamples", "#headers" );
+    for(int iModule = 0; iModule < myNumModules; iModule++ ) {
+      csSuperHeader const* h = modules[iModule]->getSuperHeader();
+      myLog->line( "%3d  %-19s %11.5f %11d %9d", iModule+1, modules[iModule]->getName(), h->sampleInt, h->numSamples,
+                   modules[iModule]->getHeaderDef()->numHeaders());
+    }
+    double timeCPUAll = myTimerCPU->getElapsedTime();
+    myLog->line( "\nInit phase processing time:  %12.6f seconds\n\n", timeCPUAll );
   }
-  double timeCPUAll = myTimerCPU->getElapsedTime();
-  myLog->line( "\nInit phase processing time:  %12.6f seconds\n\n", timeCPUAll );
 
   return 0;
 }
 
-//***********************************************************************
+//------------------------------------------------------------------------------------------------------------------------------------
 //
-// Exec phase processing loop
-//
-//
-int csRunManager::runExecPhase() {
-  csModule** modules = myModules;
-
+int csRunManager::runExecStartPhase() {
   int returnFlag = 0;
 
+  myLog->line( "\n================================================================================\n" );
+  myLog->line( "Run 'start exec' phase...\n" );
+
+  // Run start exec phase.
+  for( int iModule = 0; iModule < myNumModules; iModule++ ) {
+    //    if( myModules[iModule]->isMPISupported() ) {
+    if( !myModules[iModule]->submitExecStartPhase( myLog ) ) {
+      myLog->line("Error occurred during start exec phase of module #%d %s\n", iModule+1, myModules[iModule]->getName() );
+      returnFlag = 22;
+    }
+    //    }
+  }
+  return returnFlag;
+}
+
+//***********************************************************************
+//
+// Exec phase processing loop - Other processes (not #0)
+//
+int csRunManager::mpi_runExecPhase() {
+  int returnFlag = 0;
+#ifdef USE_MPI
+  // START of MPI code
+  csModule** modules = myModules;
+  bool atEOF = false;
+  int tag = 99;
+  int moduleIndex = -1;
+
+  MPI_Status stat;
+  try {
+    do {
+      // RECV: Wait for instructions from process #0
+      MPI_Recv( &moduleIndex, 1, MPI::INT, 0, tag, MPI_COMM_WORLD, &stat );
+      if( moduleIndex >= 0 ) {
+        int outPort = 0;
+        // bool success = modules[moduleIndex]->mpi_submitExecPhase( myLog, outPort );
+        modules[moduleIndex]->mpi_submitExecPhase( myLog, outPort );
+      }
+      else { // if( mpiInstructionFlag == csRunManager::MPI_TERMINATE ) {
+        atEOF = true;
+      }
+    } while( !atEOF );
+  }
+  catch( cseis_geolib::csException& e ) {
+    if( moduleIndex >= myNumModules || moduleIndex < 0 ) {
+      moduleIndex = 0;
+    }
+    myLog->line("\ncsRunManager::mpi_runExecPhase(): Exception caught while running exec phase, module #%2d %s. System message: \n%s",
+                moduleIndex+1, myModules[moduleIndex]->getName(), e.getMessage());
+    exit( -1 );
+  }
+
+  // Run cleanup phase. Cleaning up allocated memory in modules
+  for( int iModule = 0; iModule < myNumModules; iModule++ ) {
+    if( myModules[iModule]->isMPISupported() ) {
+      myModules[iModule]->submitCleanupPhase( myLog );
+    }
+  }
+  execPhaseCompletionTasks();
+  // END of MPI code
+#endif
+  return returnFlag;
+}
+
+//*************************************************
+// Exec phase processing loop - MPI process #0
+//
+int csRunManager::runExecPhase() {
+  int returnFlag = 0;
   int indexLastModule  = myNumModules-1;
   cseis_geolib::csModuleIndexStack stack_moduleIndex( myNumModules+1 );
 
-  myLog->line( "\n================================================================================\n" );
   myLog->line( "Run exec phase...\n" );
-
   if( myIsDebug ) fprintf(stdout,"--------------------------------------\n\n");
 
   myLog->flush();
   int iModule = 0;
+
+  //MPIDEBUG   myLog->line("csRunManager: MPI %d: RunManager exec phase loop\n", myMPIProcID);
   
   try {
     bool isInputFinished = false;
-    if( modules[0]->getExecType() != EXEC_TYPE_INPUT ) isInputFinished = true;
+    if( myModules[0]->getExecType() != EXEC_TYPE_INPUT ) isInputFinished = true;
     //---------------------------------------------------------------------
     // BIG LOOP FOR ALL INPUT TRACES
     //
@@ -703,13 +852,14 @@ int csRunManager::runExecPhase() {
       // STEP (1) Read in input trace. If none is read in, set isInputFinished = true. No trace will be passed on.
       int outPort = 0;
       iModule = myNumModules;
-      if( modules[0]->submitExecPhase( isInputFinished, myLog, outPort ) ) {  // Successful submission of exec phase
+
+      if( myModules[0]->submitExecPhase( isInputFinished, myLog, outPort ) ) {  // Successful submission of exec phase
         if( myNextModuleID[0]->size() > 0 ) {  // Only move on traces if Input module is not the only (=last) module in flow
           iModule = myNextModuleID[0]->at(0);
-          modules[iModule]->moveTracesFrom( modules[0], outPort );
+          myModules[iModule]->moveTracesFrom( myModules[0], outPort );
         }
         else {  // Input module is only module in flow --> clean up traces
-          modules[0]->lastModuleTraceCleanup();
+          myModules[0]->lastModuleTraceCleanup();
         }
       }
       else {
@@ -721,22 +871,25 @@ int csRunManager::runExecPhase() {
           iModule = myNumModules;  // ...for flows containing single module
         }
       }
+      //MPIDEBUG myLog->line("csRunManager: MPI %d: Is Input finished: %d", myMPIProcID, isInputFinished);
       //      if( isInputFinished ) printf("Input is finished...\n");
       //---------------------------------------------------------------------
       // INNER LOOP FOR ALL MODULES EXCEPT INPUT MODULE
       //
       while( iModule < myNumModules ) {
-        csModule* module = modules[iModule];
-        if( myIsDebug ) fprintf(stdout,"Module %2d %s...\n", iModule, module->getName());
+        csModule* module = myModules[iModule];
+        if( myIsDebug ) fprintf(stdout,"Module %2d %s... MPI process: %d\n", iModule, module->getName(), myMPIProcID);
+        //MPIDEBUG myLog->line("MPI %d: Module %2d %s...\n", myMPIProcID, iModule, module->getName());
         outPort = 0;
         // Force module to run when...
         // a) last trace has been read in, and
         // b) previous modules have finished processing (stackModuleIndex.isEmpty()), and
-        // c) current module has not finished processing yet  (this is checked inside method isReadyToSubmitExec)
+        // c) current module has not finished processing yet  (this is checked inside method isReadyToSubmitExecPhase)
         bool forceToRun = isInputFinished && stack_moduleIndex.isEmpty();
-        if( myIsDebug ) fprintf(stdout,"  Forced to run?  %d\n", forceToRun);
+        if( myIsDebug ) fprintf(stdout,"  Forced to run?  %d (module has %d stored traces)\n", forceToRun, module->tempNumTraces() );
+        //MPIDEBUG myLog->line("MPI %d:  Forced to run?  %d (module has %d stored traces)\n", myMPIProcID, forceToRun, module->tempNumTraces() );
         // STEP (2) Check if module is ready for submission
-        if( !module->isReadyToSubmitExec( forceToRun ) ) {
+        if( !module->isReadyToSubmitExecPhase( forceToRun ) ) {
           if( myIsDebug ) fprintf(stdout,"  ...is NOT ready to submit\n");
           if( !forceToRun ) {
             iModule = stack_moduleIndex.pop();  // returns myNumModules if empty
@@ -746,65 +899,83 @@ int csRunManager::runExecPhase() {
           }
         }
         // STEP (3) If module is ready for submission (or when forced), submit exec phase
-        else if( !module->submitExecPhase(forceToRun,myLog,outPort) ) {
-          if( myIsDebug ) fprintf(stdout,"  STEP 3 ...did NOT run correctly\n");
-          // Exec phase failed. This indicates that no trace was output
-          if( module->finishedProcessing() ) {
-            if( !forceToRun ) {
-              iModule = stack_moduleIndex.pop();  // returns myNumModules if empty
-            }
-            else {
-              iModule += 1;
-            }
-          }
-          // else: nothing to be done. Continue processing this module, keep iModule
-        }
-        // STEP (4) Module has been processed, current module is last module in flow
-        else if( iModule == indexLastModule ) {
-          if( myIsDebug ) fprintf(stdout,"  STEP 4 ...is last module\n");
-          module->lastModuleTraceCleanup();
-          if( module->finishedProcessing() ) {
-            iModule = stack_moduleIndex.pop();  // returns myNumModules if empty
-          } // else keep iModule, process next trace(s)
-        }
-        // STEP (5) Module has been processed...
         else {
-          if( myIsDebug ) fprintf(stdout,"  STEP 5 ...else\n");
-          if( outPort >= myNextModuleID[iModule]->size() ) {
-            throw( cseis_geolib::csException("ERROR in csRunManager:runExecPhase(): output port number exceeds number of output ports: (module #%d), %d %d %s",
-                               iModule, outPort, myNextModuleID[iModule]->size(), modules[iModule]->getName()) );
+#ifdef USE_MPI
+          // START of MPI code
+          static int tag = 99;
+          if( module->isMPISupported() ) {
+            for( int mpiTargetProc = 1; mpiTargetProc < myMPINumProc; mpiTargetProc++ ) {
+              MPI_Send( &iModule, 1, MPI::INT, mpiTargetProc, tag, MPI_COMM_WORLD );
+            }
           }
-          // STEP (6) Find correct combination: Output port of current module  <-->  Input port of next module
-          int nextModuleID = myNextModuleID[iModule]->at(outPort);
-          if( nextModuleID >= myNumModules ) { // Next module 'pointer' of given output port points beyond last module
-            if( myIsDebug ) fprintf(stdout,"  STEP 7a ...is last module\n");
+          // END of MPI code
+#endif
+          bool success = module->submitExecPhase(forceToRun,myLog,outPort);
+          if( !success ) {
+            //MPIDEBUG myLog->line("MPI %d:  STEP 3 ...did NOT run correctly\n", myMPIProcID );
+            if( myIsDebug ) fprintf(stdout,"  STEP 3 ...did NOT run correctly\n");
+            // Exec phase failed. This indicates that no trace was output
+            if( module->finishedProcessing() ) {
+              if( !forceToRun ) {
+                iModule = stack_moduleIndex.pop();  // returns myNumModules if empty
+              }
+              else {
+                iModule += 1;
+              }
+            }
+            // else: nothing to be done. Continue processing this module, keep iModule
+          }
+          // STEP (4) Module has been processed, current module is last module in flow
+          else if( iModule == indexLastModule ) {
+            //MPIDEBUG      myLog->line("MPI %d:  STEP 4 ...is last module\n", myMPIProcID );
+            if( myIsDebug ) fprintf(stdout,"  STEP 4 ...is last module\n");
             module->lastModuleTraceCleanup();
             if( module->finishedProcessing() ) {
               iModule = stack_moduleIndex.pop();  // returns myNumModules if empty
             } // else keep iModule, process next trace(s)
           }
+          // STEP (5) Module has been processed...
           else {
-            int inPort = 0;
-            while( myPrevModuleID[nextModuleID]->at(inPort) != iModule ) {  // Search matching input port
-              inPort++;
+            //MPIDEBUG myLog->line("MPI %d:  STEP 5 ...else\n", myMPIProcID );
+            if( myIsDebug ) fprintf(stdout,"  STEP 5 ...else\n");
+            if( outPort >= myNextModuleID[iModule]->size() ) {
+              throw( cseis_geolib::csException("ERROR in csRunManager:runExecPhase(): output port number exceeds number of output ports: (module #%d), %d %d %s",
+                                               iModule, outPort, myNextModuleID[iModule]->size(), myModules[iModule]->getName()) );
             }
-            // STEP (7) Move processed traces from current to next module, using correct output/input ports
-            modules[nextModuleID]->moveTracesFrom( modules[iModule], inPort );
-
-            if( !module->finishedProcessing() ) {
-              if( myIsDebug ) fprintf(stdout,"  STEP 7b ...not finished processing yet\n");
-              stack_moduleIndex.push( iModule );
-              iModule = myNextModuleID[iModule]->at( outPort );
-            }
-            else if( !forceToRun ) {
-              iModule = myNextModuleID[iModule]->at( outPort );
+            // STEP (6) Find correct combination: Output port of current module  <-->  Input port of next module
+            int nextModuleID = myNextModuleID[iModule]->at(outPort);
+            if( nextModuleID >= myNumModules ) { // Next module 'pointer' of given output port points beyond last module
+              if( myIsDebug ) fprintf(stdout,"  STEP 7a ...is last module\n");
+              module->lastModuleTraceCleanup();
+              if( module->finishedProcessing() ) {
+                iModule = stack_moduleIndex.pop();  // returns myNumModules if empty
+              } // else keep iModule, process next trace(s)
             }
             else {
-              iModule += 1;  // If input has finished reading in traces, make sure no module is missed on the way down during the last pass
+              int inPort = 0;
+              while( myPrevModuleID[nextModuleID]->at(inPort) != iModule ) {  // Search matching input port
+                inPort++;
+              }
+              // STEP (7) Move processed traces from current to next module, using correct output/input ports
+              myModules[nextModuleID]->moveTracesFrom( myModules[iModule], inPort );
+              
+              if( !module->finishedProcessing() ) {
+                if( myIsDebug ) fprintf(stdout,"  STEP 7b ...not finished processing yet\n");
+                stack_moduleIndex.push( iModule );
+                iModule = myNextModuleID[iModule]->at( outPort );
+              }
+              else if( !forceToRun ) {
+                iModule = myNextModuleID[iModule]->at( outPort );
+              }
+              else {
+                iModule += 1;  // If input has finished reading in traces, make sure no module is missed on the way down during the last pass
+              }
             }
-          }
-        } // END else (Step 5)
+            //MPIDEBUG myLog->line("MPI %d:  END OF STEP 6, module #%d\n", myMPIProcID, iModule );
+          } // END else (Step 5)
+        } // END else (Step 3)
       }  // while( iModule < myNumModules ) {
+      //MPIDEBUG myLog->line("MPI %d: LAST STEP, IsFinished %d\n", myMPIProcID, isInputFinished);
     }  // while( !isInputFinished ) {
   }
   catch( cseis_geolib::csException& e ) {
@@ -815,26 +986,31 @@ int csRunManager::runExecPhase() {
             iModule+1, myModules[iModule]->getName(), e.getMessage());
     myLog->line("\nException caught while running exec phase, module #%2d %s. System message: \n%s",
                 iModule+1, myModules[iModule]->getName(), e.getMessage());
+    mpi_terminateExecPhase();
     exit( -1 );
   }
   //  catch(...) {
   //  printf("Unknown exception occurred\n");
   // }
-
+  //MPIDEBUG myLog->line("MPI %d: EXITED exec phase\n", myMPIProcID);
+  
   // Run cleanup phase. Cleaning up allocated memory in modules
   for( int iModule = 0; iModule < myNumModules; iModule++ ) {
-    if( !myModules[iModule]->submitCleanupPhase( myLog ) ) {
-      myLog->line("Error occurred during cleanup phase of module #%d %s\n", iModule+1, myModules[iModule]->getName() );
-      returnFlag = 22;
-    }
+    myModules[iModule]->submitCleanupPhase( myLog );
   }
+
+  execPhaseCompletionTasks();
   //
   //
   // END Exec processing loop
   //
   //***********************************************************************
+  
+  mpi_terminateExecPhase();
+  return returnFlag;
+}
 
-
+void csRunManager::execPhaseCompletionTasks() {
   //----------------------------------------------------------------------
   // Dump exec phase info
   //
@@ -844,7 +1020,7 @@ int csRunManager::runExecPhase() {
 
   double timeCPUExecAll = 0.0;
   for( int iModule = 0; iModule < myNumModules; iModule++ ) {
-    csModule* module = modules[iModule];
+    csModule* module = myModules[iModule];
     double timeCPU  = module->getExecPhaseCPUTime();
     timeCPUExecAll += timeCPU;
     myLog->line( "%3d  %-19s %11d %11d %12.3f   %12.3f", iModule+1, module->getName(),
@@ -853,16 +1029,29 @@ int csRunManager::runExecPhase() {
   myLog->line( "\n------------------------------------------------------------\n" );
   
   time_t timer = time(NULL);
-  myLog->line( " Total processing time:  %12.6f seconds\n", myTimerCPU->getElapsedTime() );
+  myLog->line( " Total processing time:  %14.6f seconds / %10.3f hours\n", myTimerCPU->getElapsedTime(), myTimerCPU->getElapsedTime()/3600.0 );
   myLog->line( " Date: %s\n", asctime(localtime(&timer)) );
   myLog->line( " Trace allocation summary:");
   myMemoryPoolManager->dumpSummary( myLog->getFile() );
   myLog->line( "\n");
   myLog->line( "\n End of log." );  
   myLog->line( "================================================================================" );
-
-  return returnFlag;
 }
+
+void csRunManager::mpi_terminateExecPhase() {
+#ifdef USE_MPI
+  // START of MPI code
+  if( myMPIProcID == 0 ) {
+    int terminate = -1;
+    int tag = 99;
+    for( int mpiTargetProc = 1; mpiTargetProc < myMPINumProc; mpiTargetProc++ ) {
+      MPI_Send( &terminate, 1, MPI::INT, mpiTargetProc, tag, MPI_COMM_WORLD );
+    }
+  }
+  // END of MPI code
+#endif
+}
+
 //**********************************************************************
 //
 // Helper methods
@@ -893,24 +1082,24 @@ bool csRunManager::checkParameters( char const* moduleName, csParamDef const* pa
   int nDefinedParams = paramDefList.size();
 
   int nUserParams = userParams->size();
-
+  cseis_geolib::csEquationSolver equationSolver;
+     
   // Go through all parameters specified by user
   for( int iUserParam = 0; iUserParam < nUserParams; iUserParam++ ) {
     csUserParam* userParam = userParams->at(iUserParam);
-    char const* userParamName = userParam->getName().c_str();
     int ip = -1;
     // Go through all parameters defined for this module, try to find matching parameter name
     for( int i = 0; i < nDefinedParams; i++ ) {
-      if( !strcmp( userParamName, paramDefList.at(i)->name() ) ) {
+      if( userParam->getName().compare( paramDefList.at(i)->name() ) == 0 ) {
         ip = i;
         break;
       }
     }
     if( ip < 0 ) {
-      if( !strcmp(userParamName,"debug") || !strcmp(userParamName,"version") ) {
+      if( userParam->getName().compare("debug") == 0 || userParam->getName().compare("version") == 0 ) {
         continue;
       }
-      log->line("Error: Unknown user specified parameter: '%s'", userParamName);
+      log->line("Error: Unknown user specified parameter: '%s'", userParam->getName().c_str());
       returnFlag = false;
       continue;  // Check other parameters
     }
@@ -922,12 +1111,12 @@ bool csRunManager::checkParameters( char const* moduleName, csParamDef const* pa
     int nDefinedValues = valueDefList.size();   // Number of values DEFINED for this parameter
 
     if( paramDefList.at(ip)->type() == NUM_VALUES_FIXED && nUserValues < nDefinedValues ) {
-      log->line("Error: Too few user specified values for parameter '%s'. Required: %d, found: %d", userParamName, nDefinedValues, nUserValues );
+      log->line("Error: Too few user specified values for parameter '%s'. Required: %d, found: %d", userParam->getName().c_str(), nDefinedValues, nUserValues );
       returnFlag = false;
       continue;
     }
     else if( nUserValues == 0 ) {
-      log->line("Error: No value specified for parameter '%s'.", userParamName );
+      log->line("Error: No value specified for parameter '%s'.", userParam->getName().c_str() );
       returnFlag = false;
       continue;
     }
@@ -937,11 +1126,18 @@ bool csRunManager::checkParameters( char const* moduleName, csParamDef const* pa
     cseis_geolib::csFlexNumber valueTmp;
     for( int i = 0; i < minNumValues; i++ ) {
       int valueType = valueDefList.at(i)->type();
-      if( valueType == VALTYPE_NUMBER ) {
+      if( valueType == VALTYPE_NUMBER || valueType == VALTYPE_HEADER_NUMBER ) {
         std::string text = userParam->getValue( i );
         if( !valueTmp.convertToNumber( userParam->getValue( i ) ) ) {
-          log->line("Error: User parameter '%s': Value is not recognised as valid number: '%s'", userParamName, text.c_str() );
-          returnFlag = false;
+          if( !equationSolver.prepare( text ) ) {
+            if( valueType == VALTYPE_NUMBER ) {
+              log->line("Error: User parameter '%s': Value is not recognised as valid number: '%s'", userParam->getName().c_str(), text.c_str() );
+              returnFlag = false;
+            }
+          }
+          else {
+            userParam->setValue( i, equationSolver.solve() );
+          }
         }
       }
       else if( valueType == VALTYPE_OPTION ) {
@@ -967,20 +1163,20 @@ bool csRunManager::checkParameters( char const* moduleName, csParamDef const* pa
     // Go through all parameter values, check correctness of OPTION values
     for( int iv = 0; iv < minNumValues; iv++ ) {
       if( valueDefList.at(iv)->type() == VALTYPE_OPTION ) {
-        char const* userOptionName = userValueList.at(iv).c_str();
+        //        char const* userOptionName = userValueList.at(iv).c_str();
         // Check options:
         optionList.clear();
         paramDef->getOptions( ip, iv, &optionList );
         int optionFound = false;
         int nOptions = optionList.size();
         for( int io = 0; io < nOptions; io++ ) {
-          if( !strcmp( userOptionName, optionList.at(io)->name() ) ) {
+          if( userValueList.at(iv).compare( optionList.at(io)->name() ) == 0 ) {
             optionFound = true;
             break;
           }
         }
         if( !optionFound ) {
-          log->line("Error: Unknown user specified option for parameter '%s':  %s", userParamName, userOptionName );
+          log->line("Error: Unknown user specified option for parameter '%s':  %s", userParam->getName().c_str(), userValueList.at(iv).c_str() );
           log->write("Valid options are: ");
           for( int io = 0; io < nOptions; io++ ) {
             log->write("'%s' (%s)", optionList.at(io)->name(), optionList.at(io)->desc());
@@ -998,10 +1194,6 @@ bool csRunManager::checkParameters( char const* moduleName, csParamDef const* pa
     }
     
   }
-  
-  //int nParam = ;
-  //  for( int 
-
 
   return returnFlag;
 }

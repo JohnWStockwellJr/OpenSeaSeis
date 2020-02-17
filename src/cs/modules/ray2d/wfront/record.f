@@ -17,7 +17,7 @@ c ARRIVAL(6,irec,a)   : Ausgangswinkel von der Quelle an receiver 'irec', Anzahl
 c
       subroutine record(ray,tray,amplitude,phase,angle,kmah,nextray,fict,xzindex,
      &     xz_rec,nrec,int_rec,lay_rec,iii2,f_timeout,
-     &     time,amp_out,phase_out,comp_out,ccp,
+     &     time,amp_out,phase_out,angle_out,comp_out,ccp,
      &     layer, npoints_int,x_int,z_int,b_int,c_int,d_int,veltype, ptos,
      &     nx_grid,nz_grid,x_grid,z_grid,v_grid,rho1,rho2,dtray,flag_smooth,
      &     arrival,narrivals,error,
@@ -45,6 +45,7 @@ c
       real time(MAX_RECEIVERS,MAX_ARRIVALS)
       real amp_out(MAX_RECEIVERS,MAX_ARRIVALS)
       real phase_out(MAX_RECEIVERS,MAX_ARRIVALS)
+      real angle_out(MAX_RECEIVERS,MAX_ARRIVALS)
       integer comp_out
       real ccp(2,MAX_RECEIVERS)
       integer narrivals(MAX_RECEIVERS), error
@@ -123,7 +124,7 @@ c Normal: Geophon ist von Treffer links und rechts umschlossen
      &                       layer,npoints_int,x_int,z_int,b_int,c_int,d_int,iii2,veltype,ptos,
      &                       nx_grid,nz_grid,x_grid,z_grid,v_grid,rho1,rho2,dtray,
      &                       arrival(1,irec,narrtmp),time(irec,narrtmp),amp_out(irec,narrtmp),
-     &                       phase_out(irec,narrtmp),comp_out,ccp(1,irec),flag,error,
+     &                       phase_out(irec,narrtmp),angle_out(irec,narrtmp),comp_out,ccp(1,irec),flag,error,
      &                       MAX_INT,MAXPOINTS_INT,N_PARAM,N_RTPARAM,N_ARRPARAM,MAXP_XGRID,MAXP_ZGRID)
                         if (error .ne. 0) goto 999
                         if (flag .eq. 0) narrivals(irec) = narrtmp
@@ -140,7 +141,7 @@ c Sonderfall: Geophon wurde exakt getroffen:
      &                          layer, npoints_int, x_int, z_int,b_int, c_int, d_int,iii2,veltype, ptos,
      &                          nx_grid,nz_grid,x_grid,z_grid,v_grid,rho1,rho2,dtray,
      &                          arrival(1,irec,narrtmp),time(irec,narrtmp),amp_out(irec,narrtmp),
-     &                          phase_out(irec,narrtmp),comp_out,ccp(1,irec),flag,error,
+     &                          phase_out(irec,narrtmp),angle_out(irec,narrtmp),comp_out,ccp(1,irec),flag,error,
      &                          MAX_INT, MAXPOINTS_INT, N_PARAM, N_RTPARAM, N_ARRPARAM,MAXP_XGRID,MAXP_ZGRID)
                            if (error .ne. 0) goto 999
                            if (flag .eq. 0) narrivals(irec) = narrtmp
@@ -206,7 +207,7 @@ c                  write(*,*) " Treffer ",irec,narrivals(irec)
      &                    layer, npoints_int, x_int, z_int,b_int, c_int, d_int,iii2,veltype, ptos,
      &                    nx_grid,nz_grid,x_grid,z_grid,v_grid,rho1,rho2,dtray,
      &                    arrival(1,irec,narrtmp),time(irec,narrtmp),amp_out(irec,narrtmp),
-     &                    phase_out(irec,narrtmp),comp_out,ccp(1,irec),flag,error,
+     &                    phase_out(irec,narrtmp),angle_out(irec,narrtmp),comp_out,ccp(1,irec),flag,error,
      &                    MAX_INT, MAXPOINTS_INT, N_PARAM, N_RTPARAM, N_ARRPARAM,MAXP_XGRID,MAXP_ZGRID)
                      if (error .ne. 0) goto 999
                      if (flag .eq. 0) narrivals(irec) = narrtmp
@@ -223,7 +224,7 @@ c Sonderfall: Geophon wurde exakt getroffen:
      &                       layer, npoints_int, x_int, z_int,b_int, c_int, d_int,iii2, veltype, ptos,
      &                       nx_grid,nz_grid,x_grid,z_grid,v_grid,rho1,rho2,dtray,
      &                       arrival(1,irec,narrtmp),time(irec,narrtmp),amp_out(irec,narrtmp),
-     &                       phase_out(irec,narrtmp),comp_out,ccp(1,irec),flag,error,
+     &                       phase_out(irec,narrtmp),angle_out(irec,narrtmp),comp_out,ccp(1,irec),flag,error,
      &                       MAX_INT, MAXPOINTS_INT, N_PARAM, N_RTPARAM, N_ARRPARAM,MAXP_XGRID,MAXP_ZGRID)
                         if (error .ne. 0) goto 999
                         if (flag .eq. 0) narrivals(irec) = narrtmp
@@ -284,7 +285,7 @@ c
      &     xz_rec,xzindex,int_rec,lay_rec,f_timeout,updownflag,fict,
      &     layer, npoints_int, x_int, z_int,b_int, c_int, d_int,iii2,veltype, ptos,
      &     nx_grid,nz_grid,x_grid,z_grid,v_grid,rho1,rho2,dtray,
-     &     arrival,time,amp_out,phase_out,comp_out,ccp,flag,error,
+     &     arrival,time,amp_out,phase_out,angle_out,comp_out,ccp,flag,error,
      &     MAX_INT, MAXPOINTS_INT, N_PARAM, N_RTPARAM, N_ARRPARAM,MAXP_XGRID,MAXP_ZGRID)
 
       implicit none
@@ -302,7 +303,7 @@ c
       real v_grid(4,MAXP_ZGRID,MAXP_XGRID,MAX_INT)
 
       real arrival(N_ARRPARAM)
-      real time, amp_out, phase_out, ccp(2)
+      real time, amp_out, phase_out, angle_out, ccp(2)
       integer flag,error,comp_out
 
       integer NRTPARAM_LOCAL, actp, oldveltype, otherlayer
@@ -517,6 +518,7 @@ c
       time = arrival(1)
       amp_out = arrival(comp_out)
       phase_out = arrival(comp_out+2)
+      angle_out = arrival(6)
 
       if (f_timeout .ne. 0) then
 c 7&8 not fully initialized here:

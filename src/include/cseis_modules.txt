@@ -3,9 +3,10 @@
 # Listing of all CSEIS modules to be included in executable
 # The order in which the modules appear is of no importance
 # Listing of modules:
-#  <module name>  <SINGLE | MULTI | INPUT>  [version number]
-# The version number is optional. When specified, the version number needs to have one decimal place, such as 1.0 or 1.2
-# 
+#  <module name>  <version number>
+# The version number needs to have one decimal place, such as 1.0 or 1.2
+# Module versioning is supported but awkward to use. Recommend specifying version 1.0 for all modules.
+#
 # To auto-generate C++ style header files, use prepare_cseis_build.sh
 #
 # In order to use a new module in Seaseis it is not required to list it in this text file.
@@ -14,91 +15,95 @@
 # It also makes it easier to access the online help from the command line:
 #       seaseis <module_name>
 # If not listed here, the module's online help can still be accessed but the module version has to be specified:
-#       seaseis <module_name> <version>   (Example: "seaseis new_module 1.0")
+#       seaseis -m <module_name> <version>   (Example: "seaseis -m new_module 1.0")
 #
 # While the above is true for Linux, for Windows it IS currently required to list all modules to make them available in Seaseis.
 #
 
-  ATTRIBUTE        SINGLE   1.0
-  BEAM_FORMING     MULTI    1.0
-  BIN              SINGLE   1.0
-  CCP              MULTI    1.0
-  CMP              SINGLE   1.0
-  CONCATENATE      MULTI    1.0
-  CONVOLUTION      SINGLE   1.0
-  CORRELATION      MULTI    1.0
-  DEBIAS           MULTI    1.0
-  DESIGNATURE      SINGLE   1.0
-  DESPIKE          SINGLE   1.0
-  ELSEIF           SINGLE   1.0
-  ELSE             SINGLE   1.0
-  ENDIF            SINGLE   1.0
-  ENDSPLIT         SINGLE   1.0
-  ENS_DEFINE       SINGLE   1.0
-  FFT              SINGLE   1.0
-  FFT_2D           MULTI    1.0
-  FILTER           MULTI    1.0
-  FXDECON          MULTI    1.0
-  GAIN             SINGLE   1.0
-  GEOTOOLS         SINGLE   1.0
-  HDR_DEL          SINGLE   1.0
-  HDR_MATH         SINGLE   1.0
-  HDR_MATH_ENS     MULTI    1.0
-  HDR_PRINT        SINGLE   1.0
-  HDR_SET          SINGLE   1.0
-  HISTOGRAM        MULTI    1.0
-  HODOGRAM         MULTI    1.0
-  IF               SINGLE   1.0
-  IMAGE            SINGLE   1.0
-  INPUT            INPUT    1.0
-  INPUT_ASCII      INPUT    1.0
-  INPUT_CREATE     INPUT    1.0
-  INPUT_RSF        INPUT    1.0
-  INPUT_SEGY       INPUT    1.0
-  INPUT_SEGD       INPUT    1.0
-  INPUT_SINEWAVE   INPUT    1.0
-  KILL             SINGLE   1.0
-  KILL_ENS         MULTI    1.0
-  LMO              SINGLE   1.0
-  MUTE             SINGLE   1.0
-  MIRROR           SINGLE   1.0
-  NMO              SINGLE   1.0
-  OFF2ANGLE        MULTI    1.0
-  ORIENT_CONVERT   MULTI    1.0
-  ORIENT           MULTI    1.0
-  OVERLAP          MULTI    1.0
-  OUTPUT           SINGLE   1.0
-  OUTPUT_RSF       SINGLE   1.0
-  OUTPUT_SEGY      SINGLE   1.0
-  P190             SINGLE   1.0
-  PICKING          MULTI    1.0
-  POSCALC          MULTI    1.0
-  PZ_SUM           MULTI    1.0
-  RAY2D            MULTI    1.0
-  READ_ASCII       SINGLE   1.0
-  REPEAT           MULTI    1.0
-  RESAMPLE         SINGLE   1.0
-  RESEQUENCE       MULTI    1.0
-  RMS              SINGLE   1.0
-  ROTATE           MULTI    1.0
-  SCALING          SINGLE   1.0
-  SELECT           SINGLE   1.0
-  SELECT_TIME      SINGLE   1.0
-  SEMBLANCE        MULTI    1.0
-  SORT             MULTI    1.0
-  SPLIT            MULTI    1.0
-  SPLITTING        MULTI    1.0
-  STACK            MULTI    1.0
-  STATICS          SINGLE   1.0
-  SUMODULE         MULTI    1.0
-  TEST             SINGLE   1.0
-  TEST_MULTI_ENSEMBLE MULTI   1.0
-  TEST_MULTI_FIXED    MULTI   1.0
-  TIME_SLICE       MULTI    1.0
-  TIME_STRETCH     SINGLE   1.0
-  TRC_ADD_ENS      MULTI    1.0
-  TRC_INTERPOL     MULTI    1.0
-  TRC_MATH         SINGLE   1.0
-  TRC_MATH_ENS     MULTI    1.0
-  TRC_PRINT        SINGLE   1.0
-  TRC_SPLIT        MULTI    1.0
+  ATTRIBUTE           1.0
+  BEAM_FORMING        1.0
+  BIN                 1.0
+  CCP                 1.0
+  CMP                 1.0
+  CONCATENATE         1.0
+  CONVOLUTION         1.0
+  CORRELATION         1.0
+  DEBIAS              1.0
+  DESIGNATURE         1.0
+  DESPIKE             1.0
+  ELSEIF              1.0
+  ELSE                1.0
+  ENDIF               1.0
+  ENDSPLIT            1.0
+  ENS_DEFINE          1.0
+  FFT                 1.0
+  FFT_2D              1.0
+  FILTER              1.0
+  FXDECON             1.0
+  GAIN                1.0
+  GEOTOOLS            1.0
+  HDR_DEL             1.0
+  HDR_MATH            1.0
+  HDR_MATH_ENS        1.0
+  HDR_PRINT           1.0
+  HDR_SET             1.0
+  HISTOGRAM           1.0
+  HODOGRAM            1.0
+  IF                  1.0
+  IMAGE               1.0
+  INPUT               1.0
+  INPUT_ASCII         1.0
+  INPUT_CREATE        1.0
+  INPUT_INTERPOLATE   1.0
+  INPUT_RSF           1.0
+  INPUT_SEGY          1.0
+  INPUT_SEGD          1.0
+  INPUT_SINEWAVE      1.0
+  KILL                1.0
+  KILL_ENS            1.0
+  LMO                 1.0
+  MUTE                1.0
+  MIRROR              1.0
+  NMO                 1.0
+  OFF2ANGLE           1.0
+  ORIENT_CONVERT      1.0
+  ORIENT              1.0
+  OVERLAP             1.0
+  OUTPUT              1.0
+  OUTPUT_ASCII        1.0
+  OUTPUT_RSF          1.0
+  OUTPUT_SEGY         1.0
+  P190                1.0
+  PICKING             1.0
+  POSCALC             1.0
+  PZ_SUM              1.0
+  RAY2D               1.0
+  READ_ASCII          1.0
+  REFLPATH_3D         1.0
+  REPEAT              1.0
+  RESAMPLE            1.0
+  RESEQUENCE          1.0
+  RMS                 1.0
+  ROTATE              1.0
+  SCALING             1.0
+  SELECT              1.0
+  SELECT_TIME         1.0
+  SEMBLANCE           1.0
+  SORT                1.0
+  SPECTRUM            1.0
+  SPLIT               1.0
+  SPLITTING           1.0
+  STACK               1.0
+  STATICS             1.0
+  SUMODULE            1.0
+  TEST                1.0
+  TEST_MULTI_ENSEMBLE   1.0
+  TEST_MULTI_FIXED      1.0
+  TIME_SLICE          1.0
+  TIME_STRETCH        1.0
+  TRC_ADD_ENS         1.0
+  TRC_INTERPOL        1.0
+  TRC_MATH            1.0
+  TRC_MATH_ENS        1.0
+  TRC_PRINT           1.0
+  TRC_SPLIT           1.0

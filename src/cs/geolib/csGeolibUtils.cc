@@ -5,8 +5,42 @@
 #include "geolib_defines.h"
 #include <cmath>
 #include <ctime>
+#include <string>
 
 using namespace cseis_geolib;
+
+cseis_geolib::type_t csGeolibUtils::text2Type( std::string text ) {
+  if( !text.compare("int") ) {
+    return cseis_geolib::TYPE_INT;
+  }
+  else if( !text.compare("float") ) {
+    return cseis_geolib::TYPE_FLOAT;
+  }
+  else if( !text.compare("float_ibm") ) {
+    return cseis_geolib::TYPE_FLOAT_IBM;
+  }
+  else if( !text.compare("double") ) {
+    return cseis_geolib::TYPE_DOUBLE;
+  }
+  else if( !text.compare("int64") ) {
+    return cseis_geolib::TYPE_INT64;
+  }
+  else if( !text.compare("short") ) {
+    return cseis_geolib::TYPE_SHORT;
+  }
+  else if( !text.compare("ushort") ) {
+    return cseis_geolib::TYPE_USHORT;
+  }
+  else if( !text.compare("char") ) {
+    return cseis_geolib::TYPE_CHAR;
+  }
+  else if( !text.compare("string") ) {
+    return cseis_geolib::TYPE_STRING;
+  }
+  else {
+    return cseis_geolib::TYPE_UNKNOWN;
+  }
+}
 
 csInt64_t csGeolibUtils::date2UNIXmsec( int year, int month, int day_of_month, int hour, int min, int sec, int msec ) {
   int julianDay = csGeolibUtils::date2JulianDay( year, month, day_of_month );

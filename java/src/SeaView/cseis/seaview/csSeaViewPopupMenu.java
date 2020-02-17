@@ -8,6 +8,8 @@ import cseis.processing.csProcessingAGC;
 import cseis.processing.csProcessingFilter;
 import cseis.processing.csProcessingDCRemoval;
 import cseis.processing.csProcessingInterpolation;
+import cseis.seisdisp.csBackgroundSeisView;
+import cseis.seisdisp.csMouseModes;
 import cseis.seisdisp.csSeisPane;
 import java.awt.event.ActionEvent;
 
@@ -22,7 +24,7 @@ import java.awt.event.ActionListener;
  * @author 2007 Bjorn Olofsson
  */
 @SuppressWarnings("serial")
-public class csSeaViewPopupMenu extends csSeisViewPopupMenu {
+public class csSeaViewPopupMenu extends csSeisViewPopupMenu implements csISeisPaneBundleMouseModeListener {
   private csSeisPaneBundle myBundle;
   private final JCheckBoxMenuItem myItemPaintMode;
   private final JCheckBoxMenuItem myItemPickMode;
@@ -54,7 +56,7 @@ public class csSeaViewPopupMenu extends csSeisViewPopupMenu {
 
     myItemPaintMode = new JCheckBoxMenuItem( csSeaViewActions.ACTION_TITLE[csSeaViewActions.PaintModeAction], csSeaViewActions.getIcon(csSeaViewActions.PaintModeAction) );
     myItemPickMode  = new JCheckBoxMenuItem( csSeaViewActions.ACTION_TITLE[csSeaViewActions.PickModeAction], csSeaViewActions.getIcon(csSeaViewActions.PickModeAction) );
-
+    
     itemAnnotation.setToolTipText( csSeaViewActions.ACTION_DESC[csSeaViewActions.SetAnnotationAction] );
     itemOverlay.setToolTipText( csSeaViewActions.ACTION_DESC[csSeaViewActions.ShowOverlayAction] );
     itemGraph.setToolTipText( csSeaViewActions.ACTION_DESC[csSeaViewActions.ShowGraphAction] );
@@ -64,6 +66,8 @@ public class csSeaViewPopupMenu extends csSeisViewPopupMenu {
     itemZoomOut.setToolTipText( csSeaViewActions.ACTION_DESC[csSeaViewActions.ZoomOutAction] );
     itemZoomOutHorz.setToolTipText( csSeaViewActions.ACTION_DESC[csSeaViewActions.ZoomOutHorzAction] );
     itemZoomOutVert.setToolTipText( csSeaViewActions.ACTION_DESC[csSeaViewActions.ZoomOutVertAction] );
+    myItemPaintMode.setToolTipText( csSeaViewActions.ACTION_DESC[csSeaViewActions.PaintModeAction] );
+    myItemPickMode.setToolTipText( csSeaViewActions.ACTION_DESC[csSeaViewActions.PickModeAction] );
 
     itemProcessingClear.setToolTipText( "Clear applied processing steps" );
     itemProcessingDCRemoval.setToolTipText( "Remove DC bias" );
@@ -97,7 +101,20 @@ public class csSeaViewPopupMenu extends csSeisViewPopupMenu {
     addSeparator();
     add( myItemPaintMode );
     add( myItemPickMode );
-    
+
+    if( bundle.seisView instanceof csBackgroundSeisView ) {
+      JMenuItem itemAddBackgroundImage = new JMenuItem( "Load background image..." );
+      itemAddBackgroundImage.setToolTipText( "Load data set (e.g. velocity model) and display as background image" ); 
+      addSeparator();
+      add( itemAddBackgroundImage );
+      itemAddBackgroundImage.addActionListener( new ActionListener() {
+        @Override
+        public void actionPerformed( ActionEvent e ) {
+          myBundle.addBackgroundImage();
+        }
+      });
+    }
+
     itemAnnotation.addActionListener( new ActionListener() {
       @Override
       public void actionPerformed( ActionEvent e ) {
@@ -185,28 +202,29 @@ public class csSeaViewPopupMenu extends csSeisViewPopupMenu {
     myItemPaintMode.addActionListener( new ActionListener() {
       @Override
       public void actionPerformed( ActionEvent e ) {
-        if( myItemPickMode.isSelected() ) {
-          myItemPickMode.setSelected(false);
-          myBundle.setPickMode( false );
-        }
-        myBundle.setPaintMode( ((JCheckBoxMenuItem)e.getSource()).isSelected() );
+        myBundle.setLocalMouseMode( ((JCheckBoxMenuItem)e.getSource()).isSelected() ? csMouseModes.PAINT_MODE : csMouseModes.NO_MODE );
       }
     });
     myItemPickMode.addActionListener( new ActionListener() {
       @Override
       public void actionPerformed( ActionEvent e ) {
-        if( myItemPaintMode.isSelected() ) {
-          myItemPaintMode.setSelected(false);
-          myBundle.setPaintMode( false );
-        }
-        myBundle.setPickMode( ((JCheckBoxMenuItem)e.getSource()).isSelected() );
+        myBundle.setLocalMouseMode( ((JCheckBoxMenuItem)e.getSource()).isSelected() ? csMouseModes.PICK_MODE : csMouseModes.NO_MODE );
       }
     });
   }
-  void setPaintMode( boolean doSet ) {
-    myItemPaintMode.setSelected( doSet );
-  }
-  void setPickMode( boolean doSet ) {
-    myItemPickMode.setSelected( doSet );
+  @Override
+  public void updateBundleMouseMode( int mouseMode ) {
+    if( (mouseMode == csMouseModes.PAINT_MODE) ) {
+      if( !myItemPaintMode.isSelected() ) myItemPaintMode.setSelected( true );
+    }
+    else {
+      if( myItemPaintMode.isSelected() ) myItemPaintMode.setSelected( false );
+    }
+    if( (mouseMode == csMouseModes.PICK_MODE) ) {
+      if( !myItemPickMode.isSelected() ) myItemPickMode.setSelected( true );
+    }
+    else {
+      if( myItemPickMode.isSelected() ) myItemPickMode.setSelected( false );
+    }
   }
 }
