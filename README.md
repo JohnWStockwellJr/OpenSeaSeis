@@ -6,7 +6,7 @@ of the Colorado School of Mines.
 
 See subdirectory 'doc' for more information
 
-README_OPENSEASEIS_V2.03 - General information about this release, and short ins
+README_OPENSEASEIS_V3.00 - General information about this release, and short ins
 tall notes
 README_SEISMIC_UNIX  - Seaseis and Seismic Unix
 
